@@ -1,0 +1,17 @@
+{
+  "name": "ftc-neural-sim",
+  "private": true,
+  "version": "0.1.0",
+  "description": "FTC Neural Path Planning Simulator Framework",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @ftc-sim/web dev",
+    "cli": "pnpm --filter @ftc-sim/cli start",
+    "test": "pnpm -r run test",
+    "test:e2e": "pnpm --filter @ftc-sim/web test:e2e",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

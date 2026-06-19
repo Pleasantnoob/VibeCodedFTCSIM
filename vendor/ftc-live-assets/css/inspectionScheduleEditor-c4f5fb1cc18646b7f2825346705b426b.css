@@ -1,0 +1,27 @@
+#inspection-schedule tbody tr {
+    width: auto;
+}
+.activity-status{
+	min-width:130px;
+}
+.statusDiv{
+	width:35px;
+	float:left;	
+}
+.statusX{
+	position:relative;
+	top:-7px;
+	left:1px;
+	width:10px;
+	height:10px;
+	font-size:11px	
+}
+.statusX:hover{
+	color:red;
+}
+.statusText{
+	float:left;
+}
+.temp{
+	display:none;
+}

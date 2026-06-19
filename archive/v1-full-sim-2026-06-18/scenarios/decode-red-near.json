@@ -1,0 +1,15 @@
+{
+  "field": "decode",
+  "robots": [
+    {
+      "id": "robot1",
+      "pose": { "x": 9, "y": 117, "heading": 0 },
+      "alliance": "red"
+    }
+  ],
+  "gamePieces": [
+    { "pieceId": "artifact", "pose": { "x": 10, "y": 80, "heading": 0 }, "count": 3 }
+  ],
+  "duration": 30,
+  "seed": 42
+}

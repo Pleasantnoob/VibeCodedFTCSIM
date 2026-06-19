@@ -1,0 +1,251 @@
+{
+  "season": "decode",
+  "version": "2025-26.4",
+  "fieldSizeInches": 144,
+  "visualFieldSizeInches": 141.5,
+  "coordinateSystem": "pedro",
+  "visualAssets": {
+    "fieldImage": "/assets/decode.webp",
+    "robotImage": "/assets/robot.png",
+    "artifactSprites": {
+      "purple": "/assets/purple-artifact.webp",
+      "green": "/assets/green-artifact.webp"
+    }
+  },
+  "bodies": [
+    {
+      "id": "wall_south",
+      "type": "static",
+      "shape": "rectangle",
+      "center": { "x": 72, "y": -2 },
+      "width": 144,
+      "height": 4,
+      "material": { "friction": 1.0, "restitution": 0.05 },
+      "label": "South Wall"
+    },
+    {
+      "id": "wall_north",
+      "type": "static",
+      "shape": "rectangle",
+      "center": { "x": 72, "y": 146 },
+      "width": 144,
+      "height": 4,
+      "material": { "friction": 1.0, "restitution": 0.05 },
+      "label": "North Wall"
+    },
+    {
+      "id": "wall_west",
+      "type": "static",
+      "shape": "rectangle",
+      "center": { "x": -2, "y": 72 },
+      "width": 4,
+      "height": 144,
+      "material": { "friction": 1.0, "restitution": 0.05 },
+      "label": "West Wall"
+    },
+    {
+      "id": "wall_east",
+      "type": "static",
+      "shape": "rectangle",
+      "center": { "x": 146, "y": 72 },
+      "width": 4,
+      "height": 144,
+      "material": { "friction": 1.0, "restitution": 0.05 },
+      "label": "East Wall"
+    },
+    {
+      "id": "red_goal",
+      "type": "static",
+      "shape": "polygon",
+      "vertices": [
+        { "x": 144, "y": 70 },
+        { "x": 144, "y": 144 },
+        { "x": 120, "y": 144 },
+        { "x": 138, "y": 119 },
+        { "x": 138, "y": 70 }
+      ],
+      "material": { "friction": 0.6, "restitution": 0.05 },
+      "label": "Red Goal"
+    },
+    {
+      "id": "blue_goal",
+      "type": "static",
+      "shape": "polygon",
+      "vertices": [
+        { "x": 6, "y": 119 },
+        { "x": 25, "y": 144 },
+        { "x": 0, "y": 144 },
+        { "x": 0, "y": 70 },
+        { "x": 6, "y": 70 }
+      ],
+      "material": { "friction": 0.6, "restitution": 0.05 },
+      "label": "Blue Goal"
+    }
+  ],
+  "zones": [
+    {
+      "id": "near_launch",
+      "type": "launch_zone",
+      "alliance": "neutral",
+      "label": "Near launch",
+      "points": 3,
+      "polygon": [
+        { "x": 0, "y": 144 },
+        { "x": 72, "y": 72 },
+        { "x": 144, "y": 144 }
+      ]
+    },
+    {
+      "id": "far_launch",
+      "type": "launch_zone",
+      "alliance": "neutral",
+      "label": "Far launch",
+      "points": 3,
+      "polygon": [
+        { "x": 48, "y": 0 },
+        { "x": 72, "y": 24 },
+        { "x": 96, "y": 0 }
+      ]
+    },
+    {
+      "id": "red_goal_basin",
+      "type": "goal_basin",
+      "alliance": "red",
+      "label": "Red goal basin",
+      "polygon": [
+        { "x": 144, "y": 144 },
+        { "x": 120, "y": 144 },
+        { "x": 138, "y": 119 },
+        { "x": 144, "y": 119 }
+      ]
+    },
+    {
+      "id": "blue_goal_basin",
+      "type": "goal_basin",
+      "alliance": "blue",
+      "label": "Blue goal basin",
+      "polygon": [
+        { "x": 0, "y": 144 },
+        { "x": 24, "y": 144 },
+        { "x": 6, "y": 119 },
+        { "x": 0, "y": 119 }
+      ]
+    },
+    {
+      "id": "red_ramp",
+      "type": "ramp",
+      "alliance": "red",
+      "label": "Red ramp",
+      "capacity": 9,
+      "polygon": [
+        { "x": 138, "y": 119 },
+        { "x": 138, "y": 70 },
+        { "x": 144, "y": 70 },
+        { "x": 144, "y": 119 }
+      ]
+    },
+    {
+      "id": "blue_ramp",
+      "type": "ramp",
+      "alliance": "blue",
+      "label": "Blue ramp",
+      "capacity": 9,
+      "polygon": [
+        { "x": 6, "y": 119 },
+        { "x": 6, "y": 70 },
+        { "x": 0, "y": 70 },
+        { "x": 0, "y": 119 }
+      ]
+    },
+    {
+      "id": "red_base",
+      "type": "base_zone",
+      "alliance": "red",
+      "label": "Red base",
+      "polygon": [
+        { "x": 24, "y": 24 },
+        { "x": 42, "y": 24 },
+        { "x": 42, "y": 42 },
+        { "x": 24, "y": 42 }
+      ]
+    },
+    {
+      "id": "blue_base",
+      "type": "base_zone",
+      "alliance": "blue",
+      "label": "Blue base",
+      "polygon": [
+        { "x": 96, "y": 24 },
+        { "x": 114, "y": 24 },
+        { "x": 114, "y": 42 },
+        { "x": 96, "y": 42 }
+      ]
+    },
+    {
+      "id": "red_gate",
+      "type": "gate_zone",
+      "alliance": "red",
+      "label": "Red gate",
+      "polygon": [
+        { "x": 133.5, "y": 66.5 },
+        { "x": 136.5, "y": 66.5 },
+        { "x": 136.5, "y": 71.5 },
+        { "x": 133.5, "y": 71.5 }
+      ]
+    },
+    {
+      "id": "blue_gate",
+      "type": "gate_zone",
+      "alliance": "blue",
+      "label": "Blue gate",
+      "polygon": [
+        { "x": 7.5, "y": 66.5 },
+        { "x": 10.5, "y": 66.5 },
+        { "x": 10.5, "y": 71.5 },
+        { "x": 7.5, "y": 71.5 }
+      ]
+    },
+    {
+      "id": "blue_secret_tunnel",
+      "type": "secret_tunnel",
+      "alliance": "blue",
+      "label": "Blue secret tunnel",
+      "polygon": [
+        { "x": 137, "y": 69 },
+        { "x": 137, "y": 24 },
+        { "x": 144, "y": 24 },
+        { "x": 144, "y": 69 }
+      ]
+    },
+    {
+      "id": "red_secret_tunnel",
+      "type": "secret_tunnel",
+      "alliance": "red",
+      "label": "Red secret tunnel",
+      "polygon": [
+        { "x": 7, "y": 69 },
+        { "x": 7, "y": 24 },
+        { "x": 0, "y": 24 },
+        { "x": 0, "y": 69 }
+      ]
+    }
+  ],
+  "startPoses": {
+    "red_near": { "x": 132, "y": 10, "heading": 2.35619 },
+    "red_far": { "x": 126, "y": 18, "heading": 3.14159 },
+    "blue_near": { "x": 12, "y": 10, "heading": 0.785398 },
+    "blue_far": { "x": 18, "y": 18, "heading": 0 },
+    "neutral_center": { "x": 72, "y": 72, "heading": 0 }
+  },
+  "gamePieces": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "shape": "circle",
+      "radius": 2.5,
+      "mass": 0.0748,
+      "material": { "friction": 0.65, "restitution": 0.02, "density": 180 },
+      "spawnZones": ["blue_human_player", "red_human_player"]
+    }
+  ]
+}

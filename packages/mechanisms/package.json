@@ -1,0 +1,28 @@
+{
+  "name": "@ftc-sim/mechanisms",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ftc-sim/field": "workspace:*",
+    "@ftc-sim/game-decode": "workspace:*",
+    "@ftc-sim/robot": "workspace:*",
+    "@ftc-sim/season-decode": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

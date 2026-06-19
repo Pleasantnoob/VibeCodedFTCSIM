@@ -1,0 +1,52 @@
+.chip {
+    background-color: var(--program-color);
+    color:white;
+    border-radius: 15px;
+    padding:3px;
+    margin-left:1em;
+}
+
+.chip.noMargin {
+    margin: 0px;
+}
+
+.chip.PUBLISHED, .chip.COMPLETED, .chip.PASS {
+    background-color: green;
+    color:white
+}
+.chip.UNPAIRED, .chip.FUTURE, .chip.INCOMPLETE {
+    background-color: lightgrey;
+    color:black;
+}
+.chip.NO.CONFIG, .chip.CHANGE {
+    background-color: yellow;
+    color:black;
+}
+.chip.OPEN, chip.ACTIVE, .chip.APPROVED, .chip.IN_PROGRESS {
+    background-color: deepskyblue;
+    color:white
+}
+.chip.CLOSED, .chip.READY {
+    background-color: var(--program-color);
+    color:white
+}
+.chip.ERROR, .chip.WITHDRAWN, .chip.REJECTED, .chip.UNSCHEDULED {
+    background-color: darkred;
+    color:white
+}
+.chip.FAIL {
+    background-color: red;
+    color: white;
+}
+.chip.hybrid {
+    background-color: lightgreen;
+    color:black;
+}
+.chip.LATE {
+    background-color: #FF00FF;
+    color: white;
+}
+.chip.VERY_LATE {
+    background-color: black;
+    color: white;
+}

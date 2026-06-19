@@ -1,0 +1,107 @@
+:root{
+    --FIRST-red: #ED1C24;
+    --FIRST-blue: #0066B3;
+    --program-color: #F57E25;
+}
+
+.text-red {
+    color: var(--FIRST-red);
+}
+
+.text-blue {
+    color: var(--FIRST-blue);
+}
+
+.scoresheet table {
+    table-layout: fixed
+}
+
+.scoresheet tr {
+    width: 100%;
+}
+
+.scoresheet td, .scoresheet th {
+    padding: 2px;
+    border: 2px solid transparent;
+}
+
+.scoresheet img {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    max-height: 95px;
+    object-fit: scale-down;
+}
+
+.bottomBorder {
+    border-bottom: 3px solid black !important;
+}
+
+.blueAlliance {
+    background: var(--FIRST-blue) !important;
+}
+
+.redAlliance {
+    background: var(--FIRST-red) !important;
+}
+
+.orangeAlliance {
+    background: var(--program-color) !important;
+}
+
+.gray {
+    background: #BFBFBF !important;
+}
+
+.notice {
+    font-size: 0.8em;
+    border: 2px solid #ffa834;
+    padding: 3px;
+    margin-bottom: 3px;
+}
+
+@media print {
+    @page {
+        size: auto;   /* auto is the initial value */
+        /* this affects the margin in the printer settings */
+        margin: 0.25in;
+    }
+
+    .scoresheet {
+        font-size: 20px;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+
+    .scoresheet .score-box {
+        height: 3em;
+        vertical-align: top;
+    }
+
+    .gray {
+        padding: 0.25em;
+        font-size: 1.5em;
+    }
+
+    body {
+        background: white !important;
+    }
+    .both-scoresheet .print-col {
+        flex: 1 1 0 !important;
+        max-width: inherit !important;
+        padding-left: 5px !important;
+        padding-right: 5px !important;
+    }
+
+    .both-scoresheet .scoresheet {
+        font-size: 10.5px;
+    }
+
+    .both-scoresheet .match-labels {
+        font-size: 1.25em;
+    }
+
+    .container {
+        padding-bottom: 0;
+    }
+}

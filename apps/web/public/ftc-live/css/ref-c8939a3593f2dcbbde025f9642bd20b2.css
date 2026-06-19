@@ -1,0 +1,95 @@
+.ch_image {
+    height: 2em;
+    width: 2em;
+}
+.badinput {
+    box-shadow: 0 0 10px #f00;
+}
+div.form-group {
+    margin-bottom:0px !important;
+}
+img.centerImg {
+      display: block;
+}
+img.img-responsive {
+    max-height: 150px;
+}
+#reviewSubmitWarn {
+    padding-top: 5px;
+}
+.counter {
+    background:white !important;
+    font-size:125%;
+}
+border-left {
+    border-left: 1px dashed #333;
+}
+border-right {
+    border-right: 1px dashed #333;
+}
+.vertical-center { /* This isn't quite right, but it is better I think */
+    padding: 0.375rem 0.75rem;
+}
+.btn.disabled,
+.btn:disabled,
+.btn[disabled] {
+    color:#333;
+    border-color:#333;
+    background:#aaaaaa80;
+}
+.btn:focus:disabled,
+.btn:hover:disabled {
+  outline: none;
+  box-shadow: none !important;
+}
+div.form-group > label,
+div.form-group > button,
+div.form-group > input,
+div.form-group > div {
+    margin-top:10px;
+}
+button {
+    touch-action: manipulation;
+}
+img {
+    max-width:100%;
+    margin:0px;
+}
+.button-group-toggle > label {
+    display: inline-block;
+}
+.ch_image {
+    height: 2em;
+}
+.header {
+    background-color: var(--program-color);
+}
+#randomization {
+    height:200px;
+    line-height:200px;
+    font-size: 150px;
+    text-align:center;
+}
+#startMatchBtn {
+    background-color:green;
+}
+#startMatchBtn {
+    background-color:green;
+}
+#abortStartBtn {
+    background-color:red;
+}
+div[hidden] { 
+    display:none;
+}
+
+#getoutofauto {
+    position: fixed;
+    width: 100%;
+    top: 0px;
+    left: 0px;
+    z-index: 100;
+    background-color: red;
+    padding-top:0.5em;
+    padding-bottom: 0.5em;
+}

@@ -1,0 +1,77 @@
+.ch_image {
+	height: 2em;
+	width: 2em;
+}
+.badinput {
+	box-shadow: 0 0 10px #f00;
+}
+div.form-group {
+	margin-bottom:0px !important;
+}
+img.centerImg {
+	  display: block;
+}
+.counter {
+	background:white !important;
+	font-size:125%;
+}
+.no-padding {
+	padding-left:0px;
+	padding-right:0px;
+}
+border-left {
+	border-left: 1px dashed #333;
+}
+border-right {
+	border-right: 1px dashed #333;
+}
+.vertical-center { /* This isn't quite right, but it is better I think */
+	padding: 0.375rem 0.75rem;
+}
+.btn.disabled,
+.btn:disabled,
+.btn[disabled] {
+	color:#333;
+	border-color:#333;
+	background:#aaaaaa80;
+}
+.btn:focus:disabled,
+.btn:hover:disabled {
+  outline: none;
+  box-shadow: none !important;
+}
+div.form-group > label,
+div.form-group > button,
+div.form-group > input,
+div.form-group > div {
+	margin-top:10px;
+}
+button {
+	touch-action: manipulation;
+}
+img {
+	max-width:100%;
+	margin:0px;
+}
+.red.alliance {
+	background: #ED1C24 !important;
+}
+.blue.alliance {
+	background: #0066B3 !important;
+}
+.red.border {
+	border-color: #ED1C24 !important;
+}
+.blue.border {
+	border-color: #0066B3 !important;
+}
+.border {
+	border-width: 3px !important;
+	border-radius: 0px !important;
+}
+.alliance {
+	color:white;
+}
+.button-group-toggle > label {
+	display: inline-block;
+}

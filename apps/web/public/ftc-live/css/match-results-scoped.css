@@ -1,0 +1,210 @@
+.match-results-ceremony__viewport{--event-logo-color: black}
+.match-results-ceremony__viewport{--FIRST-red: #ED1C24;--FIRST-blue: #0066B3;--darkened-red: #830E12;--darkened-blue: #004172;--FIRST-orange: #F57E25;--program-color: #F57E25;--darkened-orange: #bc5508;--season-accent-color: #e5ae32;--season-secondary-accent-color: #92dbac;--season-dark-accent-color: #598290;--season-background: url(/ftc-live/bundle/ftc-local/season-bg-C4ll4v-o.svg)}
+.match-results-ceremony__viewport .blankPage{background:var(--season-background)}
+.match-results-ceremony__viewport .blankPage .eventName{width:1340px;text-align:center;color:#fff;font-size:160px;position:absolute;top:300px;right:0;display:flex;flex-direction:column;height:420px;justify-content:space-around;--event-logo-color: white}
+.match-results-ceremony__viewport .blankPage .eventName p{margin-bottom:0}
+.match-results-ceremony__viewport .blankPage .eventName .sponsorIntro{text-transform:uppercase;font-size:40px;font-weight:400}
+.match-results-ceremony__viewport .blankPage .eventName .sponsorLogo{height:90px;align-self:center}
+.match-results-ceremony__viewport .cmpBar .blankPage .eventName{top:16px;height:95px;font-size:72px;flex-direction:row;justify-content:center;align-items:center;width:896px}
+.match-results-ceremony__viewport .cmpBar .blankPage .eventName .sponsorIntro{font-size:20px;margin-left:40px;margin-right:40px}
+.match-results-ceremony__viewport .cmpBar .blankPage .eventName .sponsorLogo{height:50px}
+.match-results-ceremony__viewport .cmpBar .blankPage .eventName .eventLogo span{width:50px;height:60px}
+.match-results-ceremony__viewport{--FIRST-red: #ED1C24;--FIRST-blue: #0066B3;--darkened-red: #830E12;--darkened-blue: #004172;--FIRST-orange: #F57E25;--program-color: #F57E25;--darkened-orange: #bc5508;--season-accent-color: #e5ae32;--season-secondary-accent-color: #92dbac;--season-dark-accent-color: #598290;--season-background: url(/ftc-live/bundle/ftc-local/season-bg-C4ll4v-o.svg)}
+.match-results-ceremony__viewport .previewBar_red .previewTeamNumber{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .previewBar_blue .previewTeamNumber{background:var(--FIRST-blue)}
+.match-results-ceremony__viewport .previewTeamLeagueRank{width:130px;font-size:36px;max-height:75px;height:100%;min-width:130px;background:var(--season-secondary-accent-color);color:#000;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport #previewSet_red{background:var(--darkened-red)}
+.match-results-ceremony__viewport #previewSet_blue{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .with-bracket .previewSet .allianceNameWrapper{font-size:50px}
+.match-results-ceremony__viewport .previewSet .allianceNameWrapper{font-size:60px;text-align:left;width:785px;margin-left:30px;margin-right:30px;--event-logo-color: white}
+.match-results-ceremony__viewport .previewSet .allianceNameWrapper .allianceRank{float:right;background:var(--season-dark-accent-color);font-size:45px;padding:10px;filter:drop-shadow(6px 6px 6px rgba(0,0,0,.25))}
+.match-results-ceremony__viewport .overlayContent .allianceNameWrapper{position:absolute;font-size:32px;text-align:center;width:205px;color:#fff;top:5px;display:flex;flex-direction:column;justify-content:center;align-items:center;height:50px;margin-left:10px;margin-right:10px}
+.match-results-ceremony__viewport .overlayContent .allianceNameWrapper.withRank{height:150px}
+.match-results-ceremony__viewport .overlayContent .allianceNameWrapper .allianceRank{margin-top:10px;width:fit-content;font-size:35px}
+.match-results-ceremony__viewport .overlayContent .previewSet:first-child .allianceNameWrapper{right:0}
+.match-results-ceremony__viewport .overlayContent .previewSet:nth-child(2) .allianceNameWrapper{left:0}
+.match-results-ceremony__viewport .overlayContent .deTarget .redLabel{background:var(--FIRST-red);color:#fff;padding:0 10px}
+.match-results-ceremony__viewport .overlayContent .deTarget .blueLabel{background:var(--FIRST-blue);color:#fff;padding:0 10px}
+.match-results-ceremony__viewport .elimsSeriesResults .wing.red{background-color:var(--FIRST-red)}
+.match-results-ceremony__viewport .elimsSeriesResults .wing.blue{background-color:var(--FIRST-blue)}
+.match-results-ceremony__viewport .cmpBar .allianceNameWrapper{font-size:32px;margin:0;color:#fff;width:auto}
+.match-results-ceremony__viewport .cmpBar .page-enter-active.previewPage .fullPreview .previewBar,.match-results-ceremony__viewport .cmpBar .page-enter-active.previewPage .fullPreview .allianceNameWrapper{animation:none}
+.match-results-ceremony__viewport .page-enter-active .previewVs,.match-results-ceremony__viewport .page-enter-active .elimsSeriesResults,.match-results-ceremony__viewport .page-enter-active .deTarget,.match-results-ceremony__viewport .page-enter-active .allianceNameWrapper,.match-results-ceremony__viewport .page-enter-active .mini-bracket-parent{animation-name:fade-in;animation-delay:1s;animation-duration:1s;animation-fill-mode:both}
+.match-results-ceremony__viewport .oneThirdContainer{position:absolute;width:100%;height:255px;top:825px;background:var(--season-background)}
+.match-results-ceremony__viewport .oneThirdContainer .titleBar{--theme-logo-width: 254px;--season-logo-width: 254px;--bar-width: 4px;--title-ratio: .55;display:grid;grid-template-columns:var(--theme-logo-width) calc((1920px - var(--theme-logo-width) - var(--season-logo-width) + var(--bar-width)) * var(--title-ratio)) var(--bar-width) calc((1920px - var(--theme-logo-width) - var(--season-logo-width) + var(--bar-width)) * (1 - var(--title-ratio))) var(--season-logo-width);grid-template-rows:1fr;justify-content:center;align-content:center}
+.match-results-ceremony__viewport .oneThirdContainer .gameLogoWrapper{background:#fff;height:100%;display:flex;align-items:center;justify-content:center}
+.match-results-ceremony__viewport .oneThirdContainer .gameLogo{height:45px}
+.match-results-ceremony__viewport .titleBar .eventName .scrollingWrapperDiv{overflow:hidden}
+.match-results-ceremony__viewport .titleBar .eventName .sponsorIntro{text-transform:uppercase;font-size:24px;margin-left:10px}
+.match-results-ceremony__viewport .titleBar .eventName .sponsorLogo{height:40px;margin-left:20px}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName{font-size:22px;color:#000;width:100%;position:absolute;top:6px;left:0;display:flex;flex-direction:column;height:60px;justify-content:center;--event-logo-color: black;padding-left:5px;padding-right:5px}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName.shortEventName{height:40px}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName p{margin:0}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName .eventNameInner{display:flex;flex-direction:row;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName .eventNameInner .eventLogo{margin-right:5px}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName .sponsorIntro{font-size:11px;text-transform:uppercase;white-space:pre-line;margin-left:5px}
+.match-results-ceremony__viewport .barContainer .centerBar .eventName .sponsorLogo{margin-top:8px;height:22px;align-self:center}
+.match-results-ceremony__viewport .barContainer .centerBar.withTimer .eventName{top:44px;left:0;flex-direction:column;width:235px;justify-content:center;align-items:center;height:auto}
+.match-results-ceremony__viewport .barContainer .centerBar.withTimer .eventName .sponsorLogo{margin-top:4px;height:20px}
+.match-results-ceremony__viewport .mini-bracket-sidebar .redLabel{background:var(--FIRST-red);color:#fff;padding:0 10px}
+.match-results-ceremony__viewport .mini-bracket-sidebar .blueLabel{background:var(--FIRST-blue);color:#fff;padding:0 10px}
+.match-results-ceremony__viewport .primaryMatchContainer{position:absolute;top:0;left:0;width:1920px;height:1080px;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;background:var(--season-background)}
+.match-results-ceremony__viewport .matchTopBar{position:absolute;height:114px;width:100%;top:0;z-index:10;background:#000;color:#fff;filter:drop-shadow(6px 6px 6px rgba(0,0,0,.25));font-weight:700}
+.match-results-ceremony__viewport .matchTopBar .pageTitle{position:absolute;top:30px;left:460px;font-size:45px;text-align:center;width:1000px}
+.match-results-ceremony__viewport .matchTopBar .pageName{position:absolute;top:30px;left:30px;font-size:45px}
+.match-results-ceremony__viewport .matchTopBar .gameLogoContainer{position:absolute;top:0;right:0;height:100%;width:260px;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .matchTopBar .gameLogoContainer img{height:90%}
+.match-results-ceremony__viewport .matchTopBar.small{height:75px;filter:none}
+.match-results-ceremony__viewport .matchTopBar.small .pageTitle,.match-results-ceremony__viewport .matchTopBar.small .pageName{top:10px}
+.match-results-ceremony__viewport .matchTopBar.small .gameLogoContainer{width:180px}
+.match-results-ceremony__viewport .topBar .gameLogo{position:absolute;top:20px;right:48px;height:110px}
+.match-results-ceremony__viewport .matchBottomBar{position:absolute;height:114px;width:100%;bottom:0;z-index:10;background:#fff;color:#000;display:flex;align-items:center;filter:drop-shadow(6px -6px 6px rgba(0,0,0,.25))}
+.match-results-ceremony__viewport .matchBottomBar .programLogoContainer{top:0;left:0;height:100%;width:338px;min-width:338px;background:#000;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .matchBottomBar .programLogoContainer img{width:90%}
+.match-results-ceremony__viewport .matchBottomBar .eventName{height:100%;position:relative;font-size:45px;margin-left:22px;overflow:visible;display:flex;align-items:center;flex-wrap:wrap;justify-content:center;text-align:left}
+.match-results-ceremony__viewport .primaryMatchContainer .eventName{--event-logo-color: black}
+.match-results-ceremony__viewport .primaryMatchContainer .eventName .sponsorIntro{text-transform:uppercase;font-size:28px;margin-left:10px}
+.match-results-ceremony__viewport .primaryMatchContainer .eventName .sponsorLogo{height:50px;margin-left:20px}
+.match-results-ceremony__viewport .primaryMatchContainer .pageTitle{--event-logo-color: white}
+.match-results-ceremony__viewport .primaryContainer{position:absolute;top:0;left:0;width:1920px;height:1080px;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;padding-bottom:220px;background:var(--season-background)}
+.match-results-ceremony__viewport .pageTitle{position:absolute;top:9px;left:460px;font-size:45px;text-align:center;width:1000px}
+.match-results-ceremony__viewport .pageName{position:absolute;top:14px;left:30px;font-size:38px}
+.match-results-ceremony__viewport .bottomBar.compact .gameLogo{max-height:65px}
+.match-results-ceremony__viewport .bottomBar.alternateCompact .gameLogo{max-height:65px}
+.match-results-ceremony__viewport .bottomBar .gameLogo{max-height:115px;margin-left:20px;margin-right:20px;max-width:250px}
+.match-results-ceremony__viewport .bottomBar .qrLabel{background:var(--season-accent-color);font-size:24px;position:absolute;left:0;height:45px;padding-left:15px;padding-right:15px;top:-45px;line-height:45px}
+.match-results-ceremony__viewport .bottomBar .eventLocation{background:var(--season-accent-color);height:55px;text-align:left;line-height:55px;padding-left:10px;font-size:30px}
+.match-results-ceremony__viewport .primaryContainer .eventName{flex:1;font-size:45px;text-align:left;overflow:visible;display:flex;align-items:center;flex-wrap:wrap;justify-content:center;padding-left:10px}
+.match-results-ceremony__viewport .primaryContainer .eventName .sponsorIntro{text-transform:uppercase;font-size:28px;margin-left:10px}
+.match-results-ceremony__viewport .primaryContainer .eventName{--event-logo-color: black}
+.match-results-ceremony__viewport .primaryContainer .eventName .sponsorLogo{height:50px;margin-left:20px}
+.match-results-ceremony__viewport .primaryContainer .eventName .primaryContainer .eventName .programLogo{height:70px;margin-right:20px}
+.match-results-ceremony__viewport .rankingsTableWrapper.rankingsList td:first-child{background:var(--season-accent-color)}
+.match-results-ceremony__viewport .rankingsTableWrapper.rankingsList.withLeague td:nth-child(2){background:var(--season-accent-color);height:auto;width:auto}
+.match-results-ceremony__viewport .rankingsTableWrapper.rankingsList.withLeague td:nth-child(3){background:var(--season-secondary-accent-color);height:1.4em;width:2em}
+.match-results-ceremony__viewport .rankingsTableWrapper.rankingsList td:nth-child(2){background:var(--season-secondary-accent-color);height:1.4em;width:2em}
+.match-results-ceremony__viewport .rankingsTableWrapper.resultsList .red-wins td:nth-child(2){background:var(--FIRST-red);font-weight:700;color:#fff}
+.match-results-ceremony__viewport .rankingsTableWrapper.resultsList .blue-wins td:last-child{background:var(--FIRST-blue);font-weight:700;color:#fff}
+.match-results-ceremony__viewport .wideRankings .rankingsTableWrapper.resultsList.quals td:nth-child(3){background:var(--darkened-red)}
+.match-results-ceremony__viewport .wideRankings .rankingsTableWrapper.resultsList.quals td:nth-child(4){background:var(--darkened-blue)}
+.match-results-ceremony__viewport .twoThirdsContainer{position:absolute;font-size:60px;top:0;left:0;width:1920px;height:825px;color:#fff;background:var(--season-background)}
+.match-results-ceremony__viewport .blueNumber{border-color:var(--FIRST-blue)}
+.match-results-ceremony__viewport .compact .blueNumber,.match-results-ceremony__viewport .jumbo .blueNumber{background-color:var(--FIRST-blue)}
+.match-results-ceremony__viewport .redNumber{border-color:var(--FIRST-red)}
+.match-results-ceremony__viewport .compact .redNumber,.match-results-ceremony__viewport .jumbo .redNumber{background-color:var(--FIRST-red)}
+.match-results-ceremony__viewport .compact .teamNumber.redNumber.carriesCard,.match-results-ceremony__viewport .jumbo .teamNumber.blueNumber.carriesCard{color:var(--FIRST-blue);background-color:#ff0}
+.match-results-ceremony__viewport .compact .teamNumber.redNumber.carriesCard,.match-results-ceremony__viewport .jumbo .teamNumber.redNumber.carriesCard{color:var(--FIRST-red);background-color:#ff0}
+.match-results-ceremony__viewport .scoreBackground{position:absolute;left:0;top:0;height:100%;width:50%}
+.match-results-ceremony__viewport .scoreBackground svg{filter:drop-shadow(0px 6px 6px rgba(0,0,0,.25));position:absolute;left:0}
+.match-results-ceremony__viewport .scoreBackground.right svg{clip-path:inset(-10px -10px -10px 0px)}
+.match-results-ceremony__viewport .scoreBackground.right,.match-results-ceremony__viewport .scoreBackground.right svg{left:auto;right:0}
+.match-results-ceremony__viewport .scoreBackground.red{fill:var(--FIRST-red);background:var(--darkened-red)}
+.match-results-ceremony__viewport .scoreBackground.blue{fill:var(--FIRST-blue);background:var(--darkened-blue)}
+.match-results-ceremony__viewport .scoreBackground.orange{fill:var(--FIRST-orange);background:var(--darkened-orange)}
+.match-results-ceremony__viewport .matchFull .matchInfo.red{background:var(--darkened-red)}
+.match-results-ceremony__viewport .matchFull .matchInfo.red .scoreTotal,.match-results-ceremony__viewport .matchFull .matchInfo.red .teamNumber{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .matchFull .matchInfo.blue{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .matchFull .matchInfo.blue .scoreTotal,.match-results-ceremony__viewport .matchFull .matchInfo.blue .teamNumber{background:var(--FIRST-blue)}
+.match-results-ceremony__viewport .fullScore.red{background:var(--darkened-red)}
+.match-results-ceremony__viewport .fullScore.blue{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .fullScore.blue .sectionHeading{color:var(--FIRST-blue);background-color:#fff}
+.match-results-ceremony__viewport .fullScore.red .sectionHeading{color:var(--FIRST-red);background-color:#fff}
+.match-results-ceremony__viewport .blue .scorePill .label,.match-results-ceremony__viewport .blue .scorePill .goal{background-color:var(--FIRST-blue)}
+.match-results-ceremony__viewport .blue .scorePill svg .allianceStroke{stroke:var(--FIRST-blue)!important}
+.match-results-ceremony__viewport .red .scorePill .label,.match-results-ceremony__viewport .red .scorePill .goal{background-color:var(--FIRST-red)}
+.match-results-ceremony__viewport .red .scorePill svg .allianceStroke{stroke:var(--FIRST-red)!important}
+.match-results-ceremony__viewport .orange .scorePill,.match-results-ceremony__viewport .orange .scorePill .goal{background-color:var(--FIRST-orange)}
+.match-results-ceremony__viewport .orange .scorePill svg .allianceStroke{color:var(--FIRST-orange)!important}
+.match-results-ceremony__viewport .teamListContainer td:first-child{background:var(--season-secondary-accent-color);color:#000;height:1.4em;width:2em}
+.match-results-ceremony__viewport .allianceBar.red{background:var(--FIRST-red);color:#fff}
+.match-results-ceremony__viewport .allianceBar.blue{background:var(--FIRST-blue);color:#fff}
+.match-results-ceremony__viewport .allianceBar .seed{background:var(--season-secondary-accent-color);color:#000;min-width:48px;padding-left:8px;padding-right:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-grow:0;font-family:Roboto Mono,Roboto,Tahoma,Arial,sans-serif;box-sizing:border-box}
+.match-results-ceremony__viewport .allianceBar .winCount{background:var(--season-accent-color);color:#000;width:30px;padding-left:5px;padding-right:5px;display:inline-flex;align-items:center;justify-content:center;font-size:36px}
+.match-results-ceremony__viewport .bracket .current .allianceBar .seed{background:var(--season-secondary-accent-color)}
+.match-results-ceremony__viewport .roundRobinRankingsTable td{padding:0;background:var(--season-secondary-accent-color);background-clip:content-box}
+.match-results-ceremony__viewport .roundRobinRankingsTable tbody tr.played:nth-child(2){border-bottom:5px dotted var(--season-accent-color)}
+.match-results-ceremony__viewport .traditionalAwardContainer .teamName,.match-results-ceremony__viewport .traditionalAwardContainer .teamLocation{width:1804px;display:block;height:1em;font-size:.9em;margin-top:3px;color:var(--season-dark-accent-color)}
+.match-results-ceremony__viewport .awardIntro .programLogoWrapper{width:325px;background:#000;height:100%;display:flex;align-items:center;justify-content:center;margin-right:20px}
+.match-results-ceremony__viewport .awardIntro .programLogoWrapper img{height:64px}
+.match-results-ceremony__viewport .awardSeries{font-size:54px;color:#000;text-align:left;background:var(--season-accent-color);height:150px;width:1550px;padding:10px 20px;margin-top:10px;display:flex;align-items:center}
+.match-results-ceremony__viewport .awardSeries .awardTeamAvatar{--avatar-size: 90;background:var(--season-dark-accent-color);height:150px;width:185px;margin-left:-20px;display:flex;justify-content:center;align-items:center;margin-right:20px}
+.match-results-ceremony__viewport .miniOverlayHeader .eventNameContainer{flex:1;margin-bottom:-20px}
+.match-results-ceremony__viewport .miniOverlayHeader .gameLogoWrapper{height:100%;width:320px;background:#fff;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .miniOverlayHeader .gameLogoWrapper img{height:80%}
+.match-results-ceremony__viewport .miniOverlay .topBar .gameLogo{position:absolute;right:25px;top:15px;height:75px}
+.match-results-ceremony__viewport .miniOverlay .programLogoWrapper{background:#000;width:325px;height:100%;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .miniOverlay .programLogoWrapper img{height:70%}
+.match-results-ceremony__viewport .miniOverlay .eventNameContainer{position:absolute;right:10px;top:2px;text-align:right;overflow:hidden;width:1000px;font-size:.8em}
+.match-results-ceremony__viewport .miniOverlay.advancement .eventName{font-size:1em}
+.match-results-ceremony__viewport .resultsWrapper{display:flex;flex-direction:row;justify-content:space-evenly;position:absolute;width:100%;height:100%}
+.match-results-ceremony__viewport .resultsSet{height:100%;width:50%;padding-top:150px}
+.match-results-ceremony__viewport .resultsSet.red{background-color:var(--darkened-red)}
+.match-results-ceremony__viewport .resultsSet.blue{background-color:var(--darkened-blue)}
+.match-results-ceremony__viewport .resultsSet.orange{background-color:var(--darkened-orange);width:100%}
+.match-results-ceremony__viewport .resultsSet .scoreBackground{position:absolute;top:75px;left:0;z-index:1}
+.match-results-ceremony__viewport .resultsSet.noWinner .scoreBackground{filter:drop-shadow(0px 6px 6px rgba(0,0,0,.25))}
+.match-results-ceremony__viewport .resultsSet .right.scoreBackground{left:auto;right:0;clip-path:inset(-10px -10px -10px 0px)}
+.match-results-ceremony__viewport .resultsSet.red .scoreBackground{fill:var(--FIRST-red)}
+.match-results-ceremony__viewport .resultsSet.blue .scoreBackground{fill:var(--FIRST-blue)}
+.match-results-ceremony__viewport .resultsSet.orange .scoreBackground{fill:var(--FIRST-orange)}
+.match-results-ceremony__viewport .resultsTeam,.match-results-ceremony__viewport .elimsRanking{width:488px;height:75px;font-size:45px;filter:drop-shadow(6px 6px 6px rgba(0,0,0,.25));display:flex;flex-direction:row;align-items:center;padding-left:15px;margin-bottom:15px}
+.match-results-ceremony__viewport .resultsTeam .teamNumberColumn,.match-results-ceremony__viewport .elimsRanking .rankLabelColumn{flex:1;text-align:left;display:flex;flex-direction:row;align-items:center}
+.match-results-ceremony__viewport .resultsTeam .rankColumn,.match-results-ceremony__viewport .elimsRanking .rankColumn{width:75px;background:#000;height:100%;display:flex;justify-content:center;align-items:center}
+.match-results-ceremony__viewport .resultsTeam .dirColumn,.match-results-ceremony__viewport .elimsRanking .dirColumn{width:50px;background:#000;height:100%;display:flex;justify-content:center;align-items:center;padding-right:15px}
+.match-results-ceremony__viewport .resultsTeam .leagueRankColumn{width:75px;color:#000;background:var(--season-secondary-accent-color);height:100%;display:flex;justify-content:center;align-items:center;width:50px;font-size:.75em}
+.match-results-ceremony__viewport .resultsSet.red .resultsTeam{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .resultsSet.blue .resultsTeam{background:var(--FIRST-blue)}
+.match-results-ceremony__viewport .resultsSet.orange .resultsTeam{background:var(--FIRST-orange)}
+.match-results-ceremony__viewport .elimsRanking{background:var(--season-dark-accent-color)}
+.match-results-ceremony__viewport .resultsUpperWrapper{display:flex;flex-direction:column;justify-content:center;position:absolute;top:450px;left:50px}
+.match-results-ceremony__viewport .right .resultsUpperWrapper{left:auto;right:50px}
+.match-results-ceremony__viewport .resultsTeamTable .allianceSeed{background:#fff;color:#000;min-width:80px;padding-left:10px;padding-right:10px;display:inline-block;border-radius:25px;text-align:center;font-family:Roboto Mono,Roboto,Tahoma,Arial,sans-serif}
+.match-results-ceremony__viewport .scoreRegion .highScoreSpan,.match-results-ceremony__viewport .scoreRegion .scoreSpan{position:absolute;width:360px;right:960px;z-index:1}
+.match-results-ceremony__viewport .right .scoreRegion .scoreSpan{right:auto;left:960px}
+.match-results-ceremony__viewport .scoreRegion .scoreSpan{top:162px;font-size:128px}
+.match-results-ceremony__viewport .scoreRegion .allianceName{position:absolute;top:120px;font-size:42px;width:350px;z-index:1;right:965px;--event-logo-color: white}
+.match-results-ceremony__viewport .right .scoreRegion .allianceName{right:auto;left:965px}
+.match-results-ceremony__viewport .orange .scoreRegion .scoreSpan{right:0;left:0;margin-right:auto;margin-left:auto}
+.match-results-ceremony__viewport .scoreRegion .winSpan{height:200px;font-size:100px;color:#000;background:#d6dadf;position:absolute;top:115px;width:50%;left:0;text-transform:uppercase;text-align:center;padding-left:10px;padding-right:250px;line-height:218px}
+.match-results-ceremony__viewport .scoreRegion .winSpan.champions{line-height:218px;font-size:80px}
+.match-results-ceremony__viewport .right .scoreRegion .winSpan{left:auto;right:0;padding-right:50px;padding-left:250px}
+.match-results-ceremony__viewport .scoreRegion .fa-trophy{position:absolute;left:50px;color:#000;font-size:80px;top:175px}
+.match-results-ceremony__viewport .right .scoreRegion .fa-trophy{left:auto;right:50px}
+.match-results-ceremony__viewport .scoreRegion .winSpan.won{background:#fff500;filter:drop-shadow(0px 6px 6px rgba(0,0,0,.25))}
+.match-results-ceremony__viewport .resultsComponents,.match-results-ceremony__viewport .resultsBreakdownKey{display:flex;flex-direction:column;position:absolute;top:315px;z-index:1}
+.match-results-ceremony__viewport .resultsBreakdownKey{width:420px;left:750px;font-size:45px;color:#000}
+.match-results-ceremony__viewport .resultsBreakdownKey span{background:#fff;height:65px;line-height:65px}
+.match-results-ceremony__viewport .resultsBreakdownKey span:nth-child(2n){background:#d9d9d9}
+.match-results-ceremony__viewport .resultsComponents{font-size:60px;display:flex;position:absolute;flex-direction:column;left:600px}
+.match-results-ceremony__viewport .right .resultsComponents,.match-results-ceremony__viewport .orange .resultsComponents{left:auto;right:600px}
+.match-results-ceremony__viewport .resultsComponents span{width:150px;height:65px;background:#fff;color:#000}
+.match-results-ceremony__viewport .resultsComponents span:nth-child(2n){background:#d9d9d9}
+.match-results-ceremony__viewport .resultsBreakdownKey .win-banner,.match-results-ceremony__viewport .resultsComponents .win-banner{margin-top:60px}
+.match-results-ceremony__viewport .red .resultsComponents .win-banner{background:var(--FIRST-red);color:#fff}
+.match-results-ceremony__viewport .blue .resultsComponents .win-banner{background:var(--FIRST-blue);color:#fff}
+.match-results-ceremony__viewport .resultsBreakdownKey .resultsCards:first-child{float:left;margin-left:20px}
+.match-results-ceremony__viewport .resultsBreakdownKey .resultsCards:last-child{float:right;margin-right:20px}
+.match-results-ceremony__viewport .resultsCards .redCard{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .red .earnedRp .rpBadge.earned{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .blue .earnedRp .rpBadge.earned{background:var(--FIRST-blue)}
+.match-results-ceremony__viewport .scoreRegion .highScoreBanner{background:#fff500;position:absolute;top:75px;font-size:30px;width:360px;z-index:1;right:960px;color:#000;line-height:40px;height:40px}
+.match-results-ceremony__viewport .right .scoreRegion .highScoreBanner{left:960px;right:auto}
+.match-results-ceremony__viewport .cmpBar .winner{height:128px;width:100%;font-size:80px;display:flex;justify-content:center;align-items:center;color:#fff;background:var(--FIRST-orange);animation:slidein-down .8s ease-in;animation-delay:5s;animation-fill-mode:backwards;z-index:20;position:relative}
+.match-results-ceremony__viewport .cmpBar .winner.red{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .cmpBar .winner.blue{background:var(--FIRST-blue)}
+.match-results-ceremony__viewport .page-enter-active.resultsPage{z-index:20;position:relative}
+.match-results-ceremony__viewport .blue .keyPanel{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .red .keyPanel{background:var(--darkened-red)}
+.match-results-ceremony__viewport .audienceKey.blue{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .audienceKey.red{background:var(--darkened-red)}
+.match-results-ceremony__viewport .audienceKeyOverlay>.red{background-color:var(--darkened-red)}
+.match-results-ceremony__viewport .audienceKeyOverlay>.blue{background-color:var(--darkened-blue)}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet .winnerBanner .winSpan{margin-right:15px}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet .allianceName{grid-column:1;grid-row:1;font-size:40px;--event-logo-color: white;display:flex}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.right .allianceName,.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.right .allianceTeams{grid-column:3}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet .allianceScore .scoreSpan{font-size:65px}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet .roundRankings table th,.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet .roundRankings table td{background:var(--season-dark-accent-color);padding:10px;width:fit-content;margin-top:8px;margin-bottom:8px}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.red{background:var(--darkened-red)}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.red .allianceScore,.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.red .roundResultsTeam{background:var(--FIRST-red)}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.blue{background:var(--darkened-blue)}
+.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.blue .allianceScore,.match-results-ceremony__viewport .roundResultsWrapper .roundResultsSet.blue .roundResultsTeam{background:var(--FIRST-blue)}

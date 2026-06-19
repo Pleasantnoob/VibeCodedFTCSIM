@@ -1,0 +1,141 @@
+/* Ceremony chrome + FTC Live displayContainer rules (scoped). Regenerate: node scripts/scope-match-results-css.mjs */
+
+@import url('/ftc-live/css/match-results-scoped.css');
+
+/* Font Awesome trophy glyph — same as FTC Live Results.tsx (<i class="fa fa-trophy" />) */
+@font-face {
+  font-family: 'Font Awesome 6 Free';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src:
+    url(/ftc-live/bundle/ftc-local/fa-solid-900-xqXx_f3A.woff2) format('woff2'),
+    url(/ftc-live/bundle/ftc-local/fa-solid-900-CuzZYTB2.ttf) format('truetype');
+}
+
+.match-results-ceremony__viewport .fa {
+  font-family: 'Font Awesome 6 Free';
+  font-weight: 900;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  display: inline-block;
+  font-style: normal;
+  font-variant: normal;
+  line-height: 1;
+  text-rendering: auto;
+}
+
+.match-results-ceremony__viewport .fa-trophy::before {
+  content: '\f091';
+}
+
+.match-results-ceremony {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: auto;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.match-results-ceremony__frame {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.match-results-ceremony__viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  transform-origin: top left;
+  overflow: hidden;
+  font-family: Roboto, Tahoma, Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.match-results-ceremony__viewport .h-100 {
+  height: 100%;
+}
+
+.match-results-ceremony__viewport .w-100 {
+  width: 100%;
+}
+
+.match-results-ceremony video.matchResultVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 31;
+  background: #000;
+}
+
+.match-results-ceremony__viewport .resultsComponents span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.match-results-ceremony__viewport .resultsBreakdownKey span {
+  text-align: center;
+}
+
+.match-results-ceremony__viewport .matchTopBar .gameLogoContainer img,
+.match-results-ceremony__viewport .matchBottomBar .programLogoContainer img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Score pill — center alliance label and score number */
+.match-results-ceremony__viewport .scoreRegion .allianceName {
+  text-align: center;
+}
+
+.match-results-ceremony__viewport .resultsSet.red .scoreRegion .scoreSpan,
+.match-results-ceremony__viewport .resultsSet.right .scoreRegion .scoreSpan,
+.match-results-ceremony__viewport .right .scoreRegion .scoreSpan {
+  text-align: center;
+}
+
+.match-results-ceremony--dismiss-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  z-index: 33;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.match-results-ceremony__controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 34;
+  display: flex;
+  gap: 8px;
+}
+
+.match-results-ceremony__btn {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.match-results-ceremony__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}

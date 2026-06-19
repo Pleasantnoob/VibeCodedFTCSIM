@@ -1,0 +1,64 @@
+{
+  "season": "decode",
+  "version": "2025-26-manual-10",
+  "matchTiming": {
+    "autoSec": 30,
+    "transitionSec": 8,
+    "teleopSec": 120,
+    "championshipTransitionSec": 15
+  },
+  "scoring": {
+    "leave": 3,
+    "classified": 3,
+    "overflow": 1,
+    "depot": 1,
+    "patternPerArtifact": 2,
+    "basePartial": 5,
+    "baseFull": 10,
+    "allianceBothFullBase": 10
+  },
+  "fouls": {
+    "minor": 5,
+    "major": 15,
+    "foulCooldownSec": 2
+  },
+  "endgameSec": 20,
+  "rankingPointThresholds": {
+    "movement": { "championship": 21, "regionalChampionship": 21, "other": 16 },
+    "goal": { "championship": 67, "regionalChampionship": 42, "other": 36 },
+    "pattern": { "championship": 22, "regionalChampionship": 22, "other": 18 }
+  },
+  "motifs": {
+    "21": ["green", "purple", "purple"],
+    "22": ["purple", "green", "purple"],
+    "23": ["purple", "purple", "green"]
+  },
+  "rampSlots": 9,
+  "maxPreloadPerRobot": 3,
+  "maxRobotStorage": 3,
+  "artifactDiameterInches": 5,
+  "artifactMassKg": 0.0748,
+  "staging": {
+    "totalPurple": 24,
+    "totalGreen": 12,
+    "spikeMarks": [
+      { "id": "near", "pattern": ["green", "purple", "purple"] },
+      { "id": "middle", "pattern": ["purple", "green", "purple"] },
+      { "id": "far", "pattern": ["purple", "purple", "green"] }
+    ],
+    "loadingZonePerAlliance": { "purple": 2, "green": 1, "pattern": ["purple", "green", "purple"] },
+    "allianceAreaPerAlliance": { "purple": 4, "green": 2 }
+  },
+  "zoneRefs": {
+    "launchLineRed": "red_launch_line",
+    "launchLineBlue": "blue_launch_line",
+    "redDepot": "red_depot",
+    "blueDepot": "blue_depot",
+    "redClassifier": "red_classifier_sensor",
+    "blueClassifier": "blue_classifier_sensor",
+    "redRamp": "red_ramp_slots",
+    "blueRamp": "blue_ramp_slots",
+    "redGate": "red_gate",
+    "blueGate": "blue_gate"
+  }
+}

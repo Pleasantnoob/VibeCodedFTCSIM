@@ -1,0 +1,15 @@
+{
+  "name": "ftc-neural-sim",
+  "private": true,
+  "version": "0.2.0",
+  "description": "FTC DECODE simulator — ground-up rebuild",
+  "scripts": {
+    "dev": "pnpm --filter @ftc-sim/web dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

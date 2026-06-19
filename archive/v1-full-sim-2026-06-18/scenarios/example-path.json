@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "coordinateSystem": "pedro",
+  "paths": [
+    {
+      "type": "BezierLine",
+      "startPoint": { "x": 9, "y": 117 },
+      "endPoint": { "x": 60, "y": 117 },
+      "headingInterpolation": { "mode": "linear", "startHeading": 0, "endHeading": 0, "endTime": 0.8 }
+    },
+    {
+      "type": "BezierCurve",
+      "startPoint": { "x": 60, "y": 117 },
+      "controlPoint1": { "x": 80, "y": 117 },
+      "controlPoint2": { "x": 80, "y": 90 },
+      "endPoint": { "x": 72, "y": 72 },
+      "headingInterpolation": { "mode": "tangent" }
+    }
+  ]
+}

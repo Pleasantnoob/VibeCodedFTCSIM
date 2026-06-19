@@ -1,0 +1,43 @@
+# Dependencies & build output
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Environment & OS
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+npm-debug.log*
+pnpm-debug.log*
+output/
+datasets/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+
+# Local reference clones (Pedro, Road Runner, Virtual FTC, etc.)
+reference/
+
+# Large FTC Live installer / offline bundles (keep vendor/README.md)
+vendor/installers/*
+!vendor/installers/README.md
+vendor/ftc-live-7.5.0/
+vendor/ftc-live-full/
+vendor/ftc-live-offline/
+vendor/ftc-live-data-offline/
+
+# Archived sim trees — ignore nested deps/build only
+archive/**/node_modules/
+archive/**/dist/
+
+# Playwright / test artifacts
+test-results/
+playwright-report/
+blob-report/

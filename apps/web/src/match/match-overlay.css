@@ -1,0 +1,175 @@
+/* Official FTC Live v7.5.0 display styles (asset paths rewritten for /ftc-live). */
+@import url('/ftc-live/css/sim-overlay.css');
+
+.ftc-broadcast-overlay {
+  --display-scale: 1;
+  --hud-design-height: 255px;
+  pointer-events: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  height: calc(var(--hud-design-height) * var(--display-scale));
+  overflow: visible;
+  z-index: 1;
+}
+
+.ftc-broadcast-overlay--hidden {
+  visibility: hidden;
+  pointer-events: none;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Bottom HUD only — matches FTC oneThirdContainer scaled to field column width. */
+.ftc-broadcast-overlay .displayContainer.matchPage.ftc-hud-only {
+  width: 1920px;
+  height: var(--hud-design-height);
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  top: auto;
+  transform: translateX(-50%) scale(var(--display-scale));
+  transform-origin: bottom center;
+  overflow: visible;
+}
+
+.ftc-broadcast-overlay .displayContainer.ftc-hud-only .oneThirdContainer {
+  top: 0;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .titleBar {
+  --title-ratio: 0.5;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent {
+  overflow: visible;
+  isolation: isolate;
+}
+
+/* Score panels sit below the timer; keep their wide pills from painting over center. */
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .scoreBackground {
+  z-index: 0;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .overlayScoreWrapper {
+  z-index: 1;
+  overflow: hidden;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .overlayScoreWrapper .scoreSection {
+  width: 100%;
+  max-width: 475px;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .totalScoreWrapper {
+  z-index: 2;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .timer {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 205px;
+  height: 180px;
+  min-height: 180px;
+  padding-top: 50px;
+  margin: 0;
+  box-sizing: border-box;
+  overflow: visible;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  font-size: 90px;
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .timer .timerDisplay {
+  display: block;
+  font-size: 90px;
+  line-height: 1;
+  flex-shrink: 0;
+  min-height: 90px;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .timer .artifacts {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  line-height: 0;
+  flex-shrink: 0;
+  visibility: visible;
+  opacity: 1;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .timer .artifacts .artifact {
+  display: block;
+  line-height: 0;
+}
+
+.ftc-broadcast-overlay .oneThirdContainer .overlayContent .timer .artifacts .artifact img {
+  display: block;
+  height: 35px;
+  width: auto;
+  margin: 0 5px;
+}
+
+.ftc-broadcast-overlay .match-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.ftc-broadcast-overlay .scorePill .valueWrapper span.leave-marks {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.ftc-broadcast-overlay .scorePill .valueWrapper .leave-marks svg {
+  width: 36px;
+  height: 36px;
+  fill: #000;
+}
+
+.ftc-broadcast-overlay .scorePill.mt-3:has(.single-artifact-icon) .valueWrapper {
+  width: 80px;
+}
+
+.ftc-broadcast-overlay .scorePill:has(.goal) {
+  overflow: visible;
+}
+
+.ftc-broadcast-overlay .scorePill .goal {
+  height: 100px;
+  align-self: flex-start;
+  justify-content: center;
+}
+
+.ftc-broadcast-overlay .scorePill .label .single-artifact-icon {
+  height: 30px;
+  width: 30px;
+}
+
+.ftc-broadcast-overlay .scorePill .label .motif img {
+  height: 14px;
+  width: 14px;
+}
