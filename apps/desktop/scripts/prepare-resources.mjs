@@ -23,6 +23,21 @@ function run(cmd) {
   });
 }
 
+function ensureFtcLiveAssets() {
+  const audioDir = path.join(repoRoot, 'apps/web/public/ftc-live/audio');
+  const required = path.join(audioDir, '3-2-1.wav');
+  if (fs.existsSync(required)) {
+    console.log('[prepare] FTC Live audio already present.');
+    return;
+  }
+  console.log('[prepare] Syncing FTC Live audio/fonts (one-time copy from FTC Live install)…');
+  run('powershell -NoProfile -ExecutionPolicy Bypass -File scripts/copy-ftc-assets.ps1');
+  if (!fs.existsSync(required)) {
+    console.warn('[prepare] Warning: match audio still missing — run FTC Live 2026 once, then copy-ftc-assets.ps1');
+  }
+}
+
+ensureFtcLiveAssets();
 console.log('[prepare] Building web UI…');
 run('pnpm --filter @ftc-sim/web build');
 

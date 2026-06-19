@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
     return () => ipcRenderer.removeListener('launcher:state', listener);
   },
   openSolo: (): Promise<void> => ipcRenderer.invoke('launcher:open-solo'),
-  openHost: (): Promise<string> => ipcRenderer.invoke('launcher:open-host'),
+  openHost: (): Promise<PrepareInternetHostResult> => ipcRenderer.invoke('launcher:open-host'),
   hostOnline: (): Promise<PrepareInternetHostResult> => ipcRenderer.invoke('launcher:host-online'),
   openJoin: (address: string): Promise<void> => ipcRenderer.invoke('launcher:open-join', address),
   openJoinLocal: (): Promise<void> => ipcRenderer.invoke('launcher:open-join-local'),
@@ -42,4 +42,13 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
   copyPlayit: (): Promise<string> => ipcRenderer.invoke('launcher:copy-playit'),
   savePlayit: (address: string): Promise<string> => ipcRenderer.invoke('launcher:save-playit', address),
   openPlayitSetup: (): Promise<void> => ipcRenderer.invoke('launcher:open-playit-setup'),
+  onUpdateAvailable: (
+    handler: (info: { version: string; current: string } | null) => void,
+  ): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, info: { version: string; current: string } | null) =>
+      handler(info);
+    ipcRenderer.on('launcher:update-available', listener);
+    return () => ipcRenderer.removeListener('launcher:update-available', listener);
+  },
+  openReleasePage: (): Promise<void> => ipcRenderer.invoke('launcher:open-release-page'),
 });

@@ -192,19 +192,22 @@ export function App() {
   robotConfigRef.current = robotConfig;
   const practiceRobots = useMemo(
     () =>
-      practiceFieldRobots(
-        {
-          width: robotConfig.footprintWidth,
-          length: robotConfig.footprintLength,
-        },
-        {
-          blueNear: overlayBlueTeams[0],
-          blueFar: overlayBlueTeams[1],
-          redNear: overlayRedTeams[0],
-          redFar: overlayRedTeams[1],
-        },
-      ),
+      sessionMode === 'solo'
+        ? []
+        : practiceFieldRobots(
+            {
+              width: robotConfig.footprintWidth,
+              length: robotConfig.footprintLength,
+            },
+            {
+              blueNear: overlayBlueTeams[0],
+              blueFar: overlayBlueTeams[1],
+              redNear: overlayRedTeams[0],
+              redFar: overlayRedTeams[1],
+            },
+          ),
     [
+      sessionMode,
       robotConfig.footprintWidth,
       robotConfig.footprintLength,
       overlayBlueTeams,

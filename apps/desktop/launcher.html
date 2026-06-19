@@ -134,12 +134,34 @@
         color: #9fb0c3;
         font-size: 0.82rem;
       }
+      .update-banner {
+        display: none;
+        background: #1e3a5f;
+        border: 1px solid #3b82f6;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+      }
+      .update-banner.visible {
+        display: block;
+      }
+      .update-banner button {
+        margin-top: 8px;
+        width: 100%;
+        padding: 8px;
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
     <div>
       <h1>FTC Sim</h1>
       <p>Host a match, join a friend, pick your robot, and drive.</p>
+    </div>
+
+    <div class="update-banner" id="update-banner">
+      <span id="update-text"></span>
+      <button class="secondary" id="btn-update" type="button">Download update</button>
     </div>
 
     <div class="actions">
@@ -234,8 +256,11 @@
       document.getElementById('btn-solo').onclick = () => run(() => api.openSolo());
       document.getElementById('btn-host').onclick = () =>
         run(async () => {
-          const addr = await api.openHost();
-          statusEl.textContent = 'Hosting — LAN address copied: ' + addr;
+          const prep = await api.openHost();
+          statusEl.textContent =
+            'Hosting — LAN copied: ' +
+            prep.lanAddress +
+            (prep.notes?.length ? ' · ' + prep.notes.join(' · ') : '');
         });
       document.getElementById('btn-join-local').onclick = () =>
         run(async () => {
@@ -253,7 +278,8 @@
       document.getElementById('btn-host-online').onclick = () =>
         run(async () => {
           const prep = await api.hostOnline();
-          statusEl.textContent = 'Invite copied: ' + prep.inviteAddress;
+          statusEl.textContent =
+            'Invite copied: ' + prep.inviteAddress + (prep.notes?.length ? ' · ' + prep.notes.join(' · ') : '');
         });
       document.getElementById('btn-copy-lan').onclick = async () => {
         const addr = await api.copyLan();
@@ -286,6 +312,19 @@
         statusEl.textContent = 'Copied ' + addr;
       };
       document.getElementById('btn-internet-guide').onclick = () => run(() => api.openInternetGuide());
+
+      const updateBanner = document.getElementById('update-banner');
+      const updateText = document.getElementById('update-text');
+      document.getElementById('btn-update').onclick = () => run(() => api.openReleasePage());
+      api.onUpdateAvailable((info) => {
+        if (!info) {
+          updateBanner.classList.remove('visible');
+          return;
+        }
+        updateText.textContent =
+          'Update v' + info.version + ' available (you have v' + info.current + '). Use WinRAR or 7-Zip to extract.';
+        updateBanner.classList.add('visible');
+      });
     </script>
   </body>
 </html>

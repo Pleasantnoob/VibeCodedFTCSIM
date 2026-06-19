@@ -9,6 +9,7 @@ import { prepareInternetHost, unmapUpnpPort } from './internet-host';
 import { fetchPublicIp, suggestedInternetAddress } from './public-ip';
 import { startStaticServer } from './static-server';
 import { resolveJoinAddress } from './join-address';
+import { setupAutoUpdater } from './auto-updater';
 
 const INTERNET_PLAY_DOC =
   'https://github.com/Pleasantnoob/VibeCodedFTCSIM/blob/main/docs/INTERNET_PLAY.md';
@@ -37,7 +38,7 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '0.2.2',
+    v: '0.2.3',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }
@@ -167,11 +168,11 @@ function registerLauncherIpc(): void {
 
   ipcMain.handle('launcher:open-host', async () => {
     try {
+      const prep = await prepareInternetHost(MATCH_PORT);
       await openGameWindow('host');
-      const addr = lanAddress(MATCH_PORT);
-      clipboard.writeText(addr);
+      clipboard.writeText(prep.lanAddress);
       await sendLauncherState();
-      return addr;
+      return prep;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(message);
@@ -240,6 +241,10 @@ function registerLauncherIpc(): void {
     shell.openExternal(INTERNET_PLAY_DOC);
   });
 
+  ipcMain.handle('launcher:open-release-page', () => {
+    shell.openExternal('https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest');
+  });
+
   // Legacy IPC names
   ipcMain.handle('launcher:save-playit', (_event, address: string) => {
     const saved = writeHostSettings({ internetAddress: String(address ?? '') });
@@ -275,6 +280,7 @@ if (!gotSingleInstanceLock) {
     registerLauncherIpc();
     uiServer = await startStaticServer(webRoot(), UI_PORT);
     await createLauncherWindow();
+    setupAutoUpdater(() => launcherWindow);
   });
 }
 

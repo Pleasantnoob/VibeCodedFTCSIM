@@ -1,6 +1,6 @@
 {
   "name": "@ftc-sim/desktop",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "private": true,
   "description": "FTC Sim desktop launcher — serve UI, spawn match server, open browser",
   "main": "dist/main.js",
@@ -26,6 +26,11 @@
   "build": {
     "appId": "com.vibecodedftcsim.app",
     "productName": "FTC Sim",
+    "publish": {
+      "provider": "github",
+      "owner": "Pleasantnoob",
+      "repo": "VibeCodedFTCSIM"
+    },
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -68,6 +73,7 @@
     "asar": true
   },
   "dependencies": {
+    "electron-updater": "^6.6.2",
     "nat-upnp": "^1.1.1"
   }
 }
