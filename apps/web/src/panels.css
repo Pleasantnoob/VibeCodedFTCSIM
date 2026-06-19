@@ -139,6 +139,12 @@ code {
   border: 1px solid #4a5060;
 }
 
+.panels-nav__net-badge--driver {
+  background: #1c2d4d;
+  color: #9fc4ff;
+  border: 1px solid #4d8cff;
+}
+
 .panels-nav__status {
   display: flex;
   align-items: center;
@@ -597,6 +603,16 @@ code {
   justify-content: center;
   position: relative;
   overflow: hidden;
+}
+
+.panels-body--multiplayer,
+.panels-body--join {
+  grid-template-columns: 1fr;
+}
+
+.panels-body--multiplayer .panel-center,
+.panels-body--join .panel-center {
+  min-height: 0;
 }
 
 .panel-center:focus-visible {

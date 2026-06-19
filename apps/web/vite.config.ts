@@ -22,7 +22,7 @@ export default defineConfig({
   ],
   server: {
     port: 5190,
-    strictPort: false,
+    strictPort: true,
     watch: {
       // Only ignore the large field background so edits do not full-reload the app.
       ignored: ['**/public/assets/decode.webp'],

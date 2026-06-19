@@ -38,14 +38,14 @@ describe('robot-artifact collision bypass', () => {
 
   it('bypasses all artifact collisions during auto', () => {
     const sim = new ArtifactSimulation(field, new DecodeRulesEngine({ field, alliance: 'blue' }), 'blue');
-    expect(sim.shouldBypassRobotArtifactCollision(pose, footprint, 'auto')).toBe(true);
+    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'auto')).toBe(true);
   });
 
   it('requires intake on during teleop to bypass collisions', () => {
     const sim = new ArtifactSimulation(field, new DecodeRulesEngine({ field, alliance: 'blue' }), 'blue');
-    expect(sim.shouldBypassRobotArtifactCollision(pose, footprint, 'teleop')).toBe(false);
-    sim.applyCommand({ intake: 1 }, false, false);
-    expect(sim.shouldBypassRobotArtifactCollision(pose, footprint, 'teleop')).toBe(true);
+    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'teleop')).toBe(false);
+    sim.applyCommand('player', { intake: 1 }, false, false);
+    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'teleop')).toBe(true);
   });
 });
 

@@ -1,7 +1,7 @@
 # FTC Sim Multiplayer Manifest
 
 **Version:** 0.2  
-**Status:** Solo sim feature-complete · Practice 2v2 prep **done** · LAN multiplayer **Phase 0–3 in progress** (match-server + lobby UI)  
+**Status:** Solo sim feature-complete · Practice 2v2 prep **done** · LAN multiplayer **Phase 0–4 done** · Internet port-forward **Phase 5 in progress** · Multi-robot drivers **Phase 7 in progress**  
 **Last updated:** 2026-06-19  
 
 This document is the authoritative plan for adding **Minecraft-style multiplayer** to the FTC DECODE simulator: downloadable client, connect by IP, free self-host, internet play without hosting a public website, controller support, and good latency — **without modifying core simulation logic** (collisions, Rapier artifacts, SAT barriers, scoring).
@@ -773,7 +773,7 @@ Solo implements `RenderState` from local hook; join from `SessionClient`.
 **Responsibilities:**
 
 - Serve `resources/web/` at `http://127.0.0.1:5190` (never LAN IP — gamepad secure context)
-- Open browser to localhost
+- Open sim in an **Electron game window** (localhost secure context; gamepad works)
 - **Host:** spawn match-server child process; optionally spawn playit agent if configured
 - **Join:** spawn UI only
 - Copy address to clipboard
@@ -976,17 +976,20 @@ README section for manual router TCP 5191 → host PC. Same Join UI.
 
 ### Phase 4 — Desktop launcher
 
-- [ ] Electron bundle, GitHub Release script
-- [ ] README for friends
+- [x] Electron app (`apps/desktop`) — launcher UI, static UI server, match-server spawn
+- [x] `prepare:resources` + `release` scripts (GitHub Release zip)
+- [x] README for friends (`apps/desktop/README.txt`)
 
-**Exit:** Non-dev friend joins via zip.
+**Exit:** Non-dev friend joins via zip. *(Built: `apps/desktop/release/FTC-Sim-win-x64.zip` — run `pnpm build:desktop` to rebuild.)*
 
 ---
 
 ### Phase 5 — Internet (playit)
 
-- [ ] Tunnel docs + launcher address display
-- [ ] Test cross-network join
+- [x] Tunnel docs ([`docs/INTERNET_PLAY.md`](./INTERNET_PLAY.md))
+- [x] Launcher + in-game lobby show LAN + playit address (save/copy)
+- [x] playit install detection (Windows)
+- [ ] Test cross-network join (human: cellular friend)
 
 **Exit:** Cellular friend joins home host.
 
@@ -1004,9 +1007,11 @@ README section for manual router TCP 5191 → host PC. Same Join UI.
 
 ### Phase 7 — Multi-robot (2v2)
 
-- [ ] 4 robot slots in `SimSession` with per-slot input
-- [ ] Per-robot input routing (builds on Phase 0.5 bodies)
-- [ ] Slot claim in lobby
+- [x] 4 robot slots in `SimSession` with per-slot input (drive)
+- [x] Per-robot input routing on match-server (all claimed slots)
+- [x] Slot claim in lobby (`claim_slot` + 4-slot picker UI)
+- [ ] Per-robot intake/shoot (mechanisms still on `player` body only)
+- [ ] 4 human drivers verified over LAN/internet
 
 **Exit:** 4 human drivers over network.
 

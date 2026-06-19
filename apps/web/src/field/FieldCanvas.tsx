@@ -18,7 +18,7 @@ import type { MapVertexSelection } from './map-selection';
 import { barrierSelection, zoneSelection } from './map-selection';
 import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 import { PLAYER_ROBOT_ID } from '../robot/match-robots';
-import { smoothAlpha, smoothPose, smoothScalar, shouldSnapPoint, shouldSnapPose } from '../net/smooth-motion';
+import { smoothAlpha, smoothPose, shouldSnapPose } from '../net/smooth-motion';
 
 export type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 export { PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -95,7 +95,7 @@ export interface FieldCanvasProps {
   liveArtifactsRef?: RefObject<SimArtifactState[] | null>;
   showArtifacts?: boolean;
   showCenterLine?: boolean;
-  /** Interpolate robot/artifact motion between net snapshots (25–40 Hz). */
+  /** Interpolate robot motion between net snapshots (40 Hz). Artifacts stay snap-synced. */
   smoothNetMotion?: boolean;
   /** Server snapshot tick — when it drops, interpolation caches are cleared (RESET). */
   netSnapshotTick?: number;
@@ -184,14 +184,12 @@ export function FieldCanvas({
   const dragRef = useRef<MapVertexSelection | null>(null);
   const robotElsRef = useRef<Map<string, SVGGElement>>(new Map());
   const smoothedRobotPosesRef = useRef<Map<string, Pose>>(new Map());
-  const smoothedArtifactPosesRef = useRef<Map<string, { x: number; y: number; opacity: number }>>(new Map());
-  const motionLastTimeRef = useRef(performance.now());
+  const robotMotionLastRef = useRef(performance.now());
   const lastNetSnapshotTickRef = useRef(netSnapshotTick);
 
   useEffect(() => {
     if (netSnapshotTick < lastNetSnapshotTickRef.current) {
       smoothedRobotPosesRef.current.clear();
-      smoothedArtifactPosesRef.current.clear();
     }
     lastNetSnapshotTickRef.current = netSnapshotTick;
   }, [netSnapshotTick]);
@@ -240,9 +238,9 @@ export function FieldCanvas({
     const tick = () => {
       const now = performance.now();
       const alpha = smoothNetMotion
-        ? smoothAlpha(Math.min(0.05, (now - motionLastTimeRef.current) / 1000))
+        ? smoothAlpha(Math.min(0.05, (now - robotMotionLastRef.current) / 1000), 22)
         : 1;
-      motionLastTimeRef.current = now;
+      robotMotionLastRef.current = now;
 
       const robots = fieldRobotsRef.current ?? [];
       for (const robot of robots) {
@@ -298,11 +296,6 @@ export function FieldCanvas({
 
     let frame = 0;
     const tick = () => {
-      const now = performance.now();
-      const alpha = smoothNetMotion
-        ? smoothAlpha(Math.min(0.05, (now - motionLastTimeRef.current) / 1000))
-        : 1;
-
       const artifacts = liveArtifactsRef.current ?? [];
       const seen = new Set<string>();
 
@@ -323,41 +316,16 @@ export function FieldCanvas({
           artifactElsRef.current.set(artifact.id, img);
         }
 
-        let renderPose = artifact.pose;
-        let renderOpacity = artifact.opacity;
-        if (smoothNetMotion) {
-          const prev = smoothedArtifactPosesRef.current.get(artifact.id) ?? {
-            x: artifact.pose.x,
-            y: artifact.pose.y,
-            opacity: artifact.opacity,
-          };
-          const snap = shouldSnapPoint(prev, artifact.pose);
-          renderPose = snap
-            ? artifact.pose
-            : {
-                x: smoothScalar(prev.x, artifact.pose.x, alpha),
-                y: smoothScalar(prev.y, artifact.pose.y, alpha),
-                heading: artifact.pose.heading,
-              };
-          renderOpacity = snap ? artifact.opacity : smoothScalar(prev.opacity, artifact.opacity, alpha);
-          smoothedArtifactPosesRef.current.set(artifact.id, {
-            x: renderPose.x,
-            y: renderPose.y,
-            opacity: renderOpacity,
-          });
-        }
-
-        const px = pedroToFieldPx(renderPose, viewport);
+        const px = pedroToFieldPx(artifact.pose, viewport);
         img.style.left = `${px.x - radiusPx}px`;
         img.style.top = `${px.y - radiusPx}px`;
-        img.style.opacity = String(renderOpacity);
+        img.style.opacity = String(artifact.opacity);
       }
 
       for (const [id, img] of artifactElsRef.current) {
         if (!seen.has(id)) {
           img.remove();
           artifactElsRef.current.delete(id);
-          smoothedArtifactPosesRef.current.delete(id);
         }
       }
 
@@ -371,9 +339,8 @@ export function FieldCanvas({
         img.remove();
       }
       artifactElsRef.current.clear();
-      smoothedArtifactPosesRef.current.clear();
     };
-  }, [liveArtifactsRef, showArtifacts, viewport, smoothNetMotion]);
+  }, [liveArtifactsRef, showArtifacts, viewport]);
 
   const onSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (dragRef.current) {

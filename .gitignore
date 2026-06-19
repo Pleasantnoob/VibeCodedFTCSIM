@@ -41,3 +41,7 @@ archive/**/dist/
 test-results/
 playwright-report/
 blob-report/
+
+# Electron desktop bundle output
+apps/desktop/resources/
+apps/desktop/release/

@@ -53,9 +53,29 @@ pnpm dev:server    # WebSocket on 0.0.0.0:5191
 pnpm dev           # http://localhost:5190
 ```
 
-In the sim, open **Multiplayer** → **Host** (first player) or **Join** (friends). Default address: `127.0.0.1:5191`. On LAN, share `YOUR_LAN_IP:5191`. For internet friends behind CGNAT, use a free [playit.gg](https://playit.gg) **TCP** tunnel to `127.0.0.1:5191`.
+In the sim, open **Multiplayer** → **Host** (first player) or **Join** (friends). Default address: `127.0.0.1:5191`. On LAN, share `YOUR_LAN_IP:5191`. For internet friends, forward **TCP 5191** on your router and share `PUBLIC_IP:5191` — see [`docs/INTERNET_PLAY.md`](docs/INTERNET_PLAY.md).
 
 Or run both at once: `pnpm dev:all`
+
+### Desktop launcher (Phase 4)
+
+For a friend-friendly zip (no Node required):
+
+```bash
+pnpm build:desktop    # → apps/desktop/release/FTC-Sim-win-x64.zip (~325 MB)
+```
+
+Or run the unpacked build directly: `apps/desktop/release/win-unpacked/FTC Sim.exe`
+
+Windows may show SmartScreen — click **More info** → **Run anyway** (unsigned build).
+
+Dev launcher (uses built `apps/web/dist` + `apps/match-server/dist`):
+
+```bash
+pnpm --filter @ftc-sim/web build
+pnpm --filter @ftc-sim/match-server build
+pnpm dev:desktop
+```
 
 See [`docs/MULTIPLAYER_MANIFEST.md`](docs/MULTIPLAYER_MANIFEST.md) for the full plan.
 

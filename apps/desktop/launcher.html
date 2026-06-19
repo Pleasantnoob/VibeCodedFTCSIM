@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FTC Sim</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: #0f1419;
+        color: #e8eef5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: #9fb0c3;
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: left;
+      }
+      button.primary {
+        background: #2d6cdf;
+        color: white;
+      }
+      button.secondary {
+        background: #1c2430;
+        color: #e8eef5;
+        border: 1px solid #334155;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      button small {
+        display: block;
+        font-weight: 400;
+        opacity: 0.85;
+        margin-top: 4px;
+        font-size: 0.82rem;
+      }
+      .join-panel {
+        background: #151c24;
+        border: 1px solid #243041;
+        border-radius: 12px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .addr-input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        background: #0f1419;
+        color: #7dd3fc;
+        font-family: Consolas, 'Courier New', monospace;
+        font-size: 0.9rem;
+      }
+      .status {
+        font-size: 0.85rem;
+        color: #86efac;
+        min-height: 1.2em;
+      }
+      .error {
+        color: #fca5a5;
+        font-size: 0.85rem;
+        min-height: 1.2em;
+      }
+      details {
+        background: #151c24;
+        border: 1px solid #243041;
+        border-radius: 12px;
+        padding: 12px 14px;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #c5d4ef;
+      }
+      .advanced {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .addr {
+        font-family: Consolas, 'Courier New', monospace;
+        font-size: 0.9rem;
+        color: #7dd3fc;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .row button {
+        flex: 1;
+        min-width: 90px;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.85rem;
+      }
+      .hint {
+        color: #9fb0c3;
+        font-size: 0.82rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>FTC Sim</h1>
+      <p>Host a match, join a friend, pick your robot, and drive.</p>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="btn-host">
+        Host Match
+        <small>Starts server · copies LAN address · pick robot · Start driving</small>
+      </button>
+
+      <div class="join-panel">
+        <p><strong>Join Match</strong></p>
+        <input
+          class="addr-input"
+          id="join-addr"
+          placeholder="Host address e.g. 192.168.1.5:5191"
+          autocomplete="off"
+        />
+        <button class="primary" id="btn-join">
+          Join Match
+          <small>Enter host address above, then pick your robot</small>
+        </button>
+      </div>
+
+      <button class="secondary" id="btn-solo">
+        Play Solo
+        <small>Practice alone on this PC</small>
+      </button>
+    </div>
+
+    <p class="error" id="error"></p>
+    <p class="status" id="status"></p>
+
+    <details>
+      <summary>Advanced — internet &amp; LAN tools</summary>
+      <div class="advanced">
+        <p class="hint">LAN address (same: <span class="addr" id="lan-addr">…</span>)</p>
+        <div class="row">
+          <button class="secondary" id="btn-copy-lan">Copy LAN</button>
+          <button class="secondary" id="btn-stop">Stop server</button>
+        </div>
+        <button class="secondary" id="btn-host-online">
+          Host Online
+          <small style="display: inline; margin: 0">Firewall + router · copies public invite</small>
+        </button>
+        <input class="addr-input" id="internet-addr" placeholder="Public IP:5191 for friends" />
+        <div class="row">
+          <button class="secondary" id="btn-detect-ip">Detect IP</button>
+          <button class="secondary" id="btn-save-internet">Save</button>
+          <button class="secondary" id="btn-copy-internet">Copy</button>
+          <button class="secondary" id="btn-internet-guide">Guide</button>
+        </div>
+      </div>
+    </details>
+
+    <script>
+      const lanEl = document.getElementById('lan-addr');
+      const joinInput = document.getElementById('join-addr');
+      const internetInput = document.getElementById('internet-addr');
+      const statusEl = document.getElementById('status');
+      const errorEl = document.getElementById('error');
+      const api = window.ftcLauncher;
+
+      function applyState(state) {
+        lanEl.textContent = state.lanAddress;
+        if (internetInput && document.activeElement !== internetInput) {
+          if (state.internetAddress) {
+            internetInput.value = state.internetAddress;
+          } else if (state.suggestedInternetAddress && !internetInput.value) {
+            internetInput.value = state.suggestedInternetAddress;
+          }
+        }
+        statusEl.textContent = state.matchServerRunning
+          ? 'Match server running on port ' + state.matchPort
+          : '';
+      }
+
+      api.getState().then(applyState);
+      api.onState(applyState);
+
+      async function run(fn) {
+        errorEl.textContent = '';
+        try {
+          await fn();
+        } catch (err) {
+          errorEl.textContent = err?.message ?? String(err);
+        }
+      }
+
+      document.getElementById('btn-solo').onclick = () => run(() => api.openSolo());
+      document.getElementById('btn-host').onclick = () =>
+        run(async () => {
+          const addr = await api.openHost();
+          statusEl.textContent = 'Hosting — LAN address copied: ' + addr;
+        });
+      document.getElementById('btn-join').onclick = () =>
+        run(async () => {
+          const addr = joinInput.value.trim();
+          if (!addr) {
+            throw new Error('Enter the host address first');
+          }
+          await api.openJoin(addr);
+        });
+      document.getElementById('btn-host-online').onclick = () =>
+        run(async () => {
+          const prep = await api.hostOnline();
+          statusEl.textContent = 'Invite copied: ' + prep.inviteAddress;
+        });
+      document.getElementById('btn-copy-lan').onclick = async () => {
+        const addr = await api.copyLan();
+        statusEl.textContent = 'Copied LAN ' + addr;
+      };
+      document.getElementById('btn-stop').onclick = () => run(() => api.stopServer());
+      document.getElementById('btn-detect-ip').onclick = () =>
+        run(async () => {
+          const result = await api.detectPublicIp();
+          if (result.suggestedInternetAddress) {
+            internetInput.value = result.suggestedInternetAddress;
+            statusEl.textContent = 'Detected ' + result.suggestedInternetAddress;
+          } else {
+            statusEl.textContent = 'Could not detect public IP';
+          }
+        });
+      document.getElementById('btn-save-internet').onclick = () =>
+        run(async () => {
+          const saved = await api.saveInternet(internetInput.value);
+          statusEl.textContent = saved ? 'Saved internet address' : 'Cleared internet address';
+        });
+      document.getElementById('btn-copy-internet').onclick = async () => {
+        const typed = internetInput.value.trim();
+        const addr = typed || (await api.copyInternet());
+        if (!addr) {
+          statusEl.textContent = 'Save or detect an internet address first';
+          return;
+        }
+        await navigator.clipboard.writeText(addr);
+        statusEl.textContent = 'Copied ' + addr;
+      };
+      document.getElementById('btn-internet-guide').onclick = () => run(() => api.openInternetGuide());
+    </script>
+  </body>
+</html>

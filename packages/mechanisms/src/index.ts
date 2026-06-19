@@ -1,4 +1,11 @@
-export type { MechanismCommand, MechanismSnapshot, SimArtifactState, MechanismLogEntry } from './types.js';
+export type {
+  MechanismCommand,
+  MechanismSnapshot,
+  RobotMechanismTick,
+  SimArtifactState,
+  MechanismLogEntry,
+} from './types.js';
+export { DEFAULT_PLAYER_ROBOT_ID } from './types.js';
 export type { MechanismLogCategory } from './mechanism-log.js';
 export { MechanismLogger } from './mechanism-log.js';
 export { MAX_STORAGE, INTAKE_ACTIVE_THRESHOLD, SHOOT_HOLD_INTERVAL_S } from './types.js';

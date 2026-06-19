@@ -77,6 +77,21 @@ export interface FieldRobotRenderState extends FieldRobotCatalogEntry {
 
 export const PLAYER_ROBOT_ID = 'player';
 
+/** Robot slots each player can claim in the lobby (ids match field near/far positions). */
+export const CLAIMABLE_ROBOT_IDS = ['player', 'blue-near', 'red-far', 'red-near'] as const;
+export type ClaimableRobotId = (typeof CLAIMABLE_ROBOT_IDS)[number];
+
+export function isClaimableRobotId(id: string): id is ClaimableRobotId {
+  return (CLAIMABLE_ROBOT_IDS as readonly string[]).includes(id);
+}
+
+export const ROBOT_SLOT_LABELS: Record<ClaimableRobotId, string> = {
+  player: 'Blue far',
+  'blue-near': 'Blue near',
+  'red-far': 'Red far',
+  'red-near': 'Red near',
+};
+
 export function playerSpawnPose(): Pose {
   return BLUE_FAR_SPAWN;
 }
@@ -96,18 +111,18 @@ export function practiceFieldRobots(
       length: footprint.length,
     },
     {
-      id: 'red-near',
-      alliance: 'red',
-      teamNumber: teams.redNear,
-      pose: RED_NEAR_SPAWN,
-      width: footprint.width,
-      length: footprint.length,
-    },
-    {
       id: 'red-far',
       alliance: 'red',
       teamNumber: teams.redFar,
       pose: RED_FAR_SPAWN,
+      width: footprint.width,
+      length: footprint.length,
+    },
+    {
+      id: 'red-near',
+      alliance: 'red',
+      teamNumber: teams.redNear,
+      pose: RED_NEAR_SPAWN,
       width: footprint.width,
       length: footprint.length,
     },

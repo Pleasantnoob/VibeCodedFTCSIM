@@ -28,10 +28,11 @@ import type {
   GateReleaseItem,
   MechanismCommand,
   MechanismSnapshot,
+  RobotMechanismTick,
   SimArtifactState,
   StoredArtifact,
 } from './types.js';
-import { INTAKE_ACTIVE_THRESHOLD, MAX_STORAGE, SHOOT_HOLD_INTERVAL_S } from './types.js';
+import { DEFAULT_PLAYER_ROBOT_ID, INTAKE_ACTIVE_THRESHOLD, MAX_STORAGE, SHOOT_HOLD_INTERVAL_S } from './types.js';
 import { MechanismLogger } from './mechanism-log.js';
 
 export interface PhysicsAdapter {
@@ -54,6 +55,7 @@ interface ActiveFlight {
   scoringEligible: boolean;
   scored: boolean;
   plan: ShotPlan;
+  shooterAlliance: Alliance;
 }
 
 interface PendingBodySpawn {
@@ -63,9 +65,29 @@ interface PendingBodySpawn {
   vy: number;
 }
 
+interface RobotMechanismState {
+  stored: StoredArtifact[];
+  intakeActive: boolean;
+  shootPressed: boolean;
+  shootHoldWanted: boolean;
+  shootHoldNextShotAt: number;
+  pendingShotTimes: number[];
+}
+
+function emptyRobotMechanismState(): RobotMechanismState {
+  return {
+    stored: [],
+    intakeActive: false,
+    shootPressed: false,
+    shootHoldWanted: false,
+    shootHoldNextShotAt: 0,
+    pendingShotTimes: [],
+  };
+}
+
 export class ArtifactSimulation {
   private artifacts = new Map<string, SimArtifactState>();
-  private stored: StoredArtifact[] = [];
+  private robotStates = new Map<string, RobotMechanismState>();
   private rampSlots: { red: (string | null)[]; blue: (string | null)[] } = {
     red: Array(9).fill(null),
     blue: Array(9).fill(null),
@@ -74,13 +96,8 @@ export class ArtifactSimulation {
   private gateQueue: GateReleaseItem[] = [];
   private gateInside: Record<Alliance, boolean> = { blue: false, red: false };
   private pendingSpawns: PendingBodySpawn[] = [];
-  private intakeActive = false;
   private lastShotEligible = true;
   private simTime = 0;
-  private shootPressed = false;
-  private pendingShotTimes: number[] = [];
-  private shootHoldWanted = false;
-  private shootHoldNextShotAt = 0;
   private logger = new MechanismLogger();
 
   constructor(
@@ -91,15 +108,13 @@ export class ArtifactSimulation {
 
   init(staging: StagedArtifactLayout[]): void {
     this.artifacts.clear();
-    this.stored = [];
+    this.robotStates.clear();
+    this.robotStates.set(DEFAULT_PLAYER_ROBOT_ID, emptyRobotMechanismState());
     this.rampSlots = { red: Array(9).fill(null), blue: Array(9).fill(null) };
     this.flights = [];
     this.gateQueue = [];
     this.gateInside = { blue: false, red: false };
     this.pendingSpawns = [];
-    this.pendingShotTimes = [];
-    this.shootHoldWanted = false;
-    this.shootHoldNextShotAt = 0;
     this.simTime = 0;
     this.logger.clear();
     this.rules.reset();
@@ -117,11 +132,20 @@ export class ArtifactSimulation {
   }
 
   getSnapshot(): MechanismSnapshot {
+    const byRobot: Record<string, { stored: StoredArtifact[]; intakeActive: boolean }> = {};
+    for (const [robotId, state] of this.robotStates) {
+      byRobot[robotId] = {
+        stored: [...state.stored],
+        intakeActive: state.intakeActive,
+      };
+    }
+    const playerState = this.getRobotState(DEFAULT_PLAYER_ROBOT_ID);
     return {
-      stored: [...this.stored],
+      stored: [...playerState.stored],
+      byRobot,
       artifacts: [...this.artifacts.values()],
       gateReleaseQueue: [...this.gateQueue],
-      intakeActive: this.intakeActive,
+      intakeActive: playerState.intakeActive,
       lastShotEligible: this.lastShotEligible,
       rampOccupancy: this.rules.getState().rampOccupancy,
       debugLogs: this.logger.getEntries(),
@@ -144,46 +168,87 @@ export class ArtifactSimulation {
     return [...this.artifacts.values()];
   }
 
-  applyCommand(cmd: MechanismCommand | undefined, shootEdge: boolean, _gateEdge: boolean): void {
-    this.intakeActive = (cmd?.intake ?? 0) >= INTAKE_ACTIVE_THRESHOLD;
+  getStoredCount(robotId: string = DEFAULT_PLAYER_ROBOT_ID): number {
+    return this.getRobotState(robotId).stored.length;
+  }
+
+  getTotalStoredCount(): number {
+    let total = 0;
+    for (const state of this.robotStates.values()) {
+      total += state.stored.length;
+    }
+    return total;
+  }
+
+  private getRobotState(robotId: string): RobotMechanismState {
+    let state = this.robotStates.get(robotId);
+    if (!state) {
+      state = emptyRobotMechanismState();
+      this.robotStates.set(robotId, state);
+    }
+    return state;
+  }
+
+  private allHeldArtifactIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const state of this.robotStates.values()) {
+      for (const held of state.stored) {
+        ids.add(held.id);
+      }
+    }
+    return ids;
+  }
+
+  applyCommand(
+    robotId: string,
+    cmd: MechanismCommand | undefined,
+    shootEdge: boolean,
+    _gateEdge: boolean,
+  ): void {
+    const state = this.getRobotState(robotId);
+    state.intakeActive = (cmd?.intake ?? 0) >= INTAKE_ACTIVE_THRESHOLD;
     if (shootEdge) {
-      this.shootPressed = true;
-      this.log('cmd', 'Shoot edge detected');
+      state.shootPressed = true;
+      this.log('cmd', `Shoot edge detected (${robotId})`);
     }
   }
 
   /** True during AUTO, or while intake is on and storage has room (drive through balls to pick up a line). */
   shouldBypassRobotArtifactCollision(
-    robotPose: Pose,
-    footprint: RobotFootprint,
+    robotId: string,
+    _robotPose: Pose,
+    _footprint: RobotFootprint,
     scoringPhase: 'auto' | 'teleop' = 'teleop',
   ): boolean {
     if (scoringPhase === 'auto') return true;
-    return this.intakeActive && this.stored.length < MAX_STORAGE;
+    const state = this.getRobotState(robotId);
+    return state.intakeActive && state.stored.length < MAX_STORAGE;
   }
 
   /** Queue timed shot attempts (e.g. AUTO burst: 3 shots 0.1s apart). */
-  scheduleBurstShots(count: number, intervalSec: number): void {
+  scheduleBurstShots(count: number, intervalSec: number, robotId: string = DEFAULT_PLAYER_ROBOT_ID): void {
     if (count <= 0 || intervalSec <= 0) return;
+    const state = this.getRobotState(robotId);
     let start = this.simTime;
-    if (this.pendingShotTimes.length > 0) {
-      start = this.pendingShotTimes[this.pendingShotTimes.length - 1]! + intervalSec;
+    if (state.pendingShotTimes.length > 0) {
+      start = state.pendingShotTimes[state.pendingShotTimes.length - 1]! + intervalSec;
     }
     for (let i = 0; i < count; i++) {
-      this.pendingShotTimes.push(start + i * intervalSec);
+      state.pendingShotTimes.push(start + i * intervalSec);
     }
-    this.log('cmd', `Burst scheduled: ${count} shots every ${intervalSec}s`, { start });
+    this.log('cmd', `Burst scheduled: ${count} shots every ${intervalSec}s`, { start, robotId });
   }
 
   /** While held, fire one shot every {@link SHOOT_HOLD_INTERVAL_S}. */
-  setShootHold(active: boolean): void {
-    if (active && !this.shootHoldWanted) {
-      this.shootHoldNextShotAt = this.simTime;
+  setShootHold(robotId: string, active: boolean): void {
+    const state = this.getRobotState(robotId);
+    if (active && !state.shootHoldWanted) {
+      state.shootHoldNextShotAt = this.simTime;
     }
     if (!active) {
-      this.shootHoldNextShotAt = 0;
+      state.shootHoldNextShotAt = 0;
     }
-    this.shootHoldWanted = active;
+    state.shootHoldWanted = active;
   }
 
   evaluateEndOfAuto(): number {
@@ -202,6 +267,37 @@ export class ArtifactSimulation {
     robotVelocity: Vector2,
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
+    robotAlliance: Alliance,
+    matchPhase: 'auto' | 'teleop' = 'teleop',
+    matchRobots?: MatchRobotSnapshot[],
+    teleopTimeRemainingSec?: number,
+  ): void {
+    this.tickRobots(
+      dt,
+      [
+        {
+          robotId: DEFAULT_PLAYER_ROBOT_ID,
+          pose: robotPose,
+          linear: robotVelocity,
+          alliance: robotAlliance,
+          shootEdge: false,
+          gateEdge: false,
+          shootHeld: false,
+        },
+      ],
+      footprint,
+      physics,
+      matchPhase,
+      matchRobots,
+      teleopTimeRemainingSec,
+    );
+  }
+
+  tickRobots(
+    dt: number,
+    robots: RobotMechanismTick[],
+    footprint: RobotFootprint,
+    physics: PhysicsAdapter,
     matchPhase: 'auto' | 'teleop' = 'teleop',
     matchRobots?: MatchRobotSnapshot[],
     teleopTimeRemainingSec?: number,
@@ -210,22 +306,28 @@ export class ArtifactSimulation {
     const rulesPhase = matchPhase === 'auto' ? 'auto' : 'teleop';
     this.rules.syncPhase(rulesPhase, this.simTime);
 
-    physics.syncRobotCollider(robotPose, robotVelocity.x, robotVelocity.y);
-
-    if (this.intakeActive) {
-      this.tryIntake(robotPose, footprint, physics);
+    for (const robot of robots) {
+      this.getRobotState(robot.robotId);
+      const state = this.getRobotState(robot.robotId);
+      if (state.intakeActive) {
+        this.tryIntake(robot.robotId, robot.pose, footprint, physics);
+      }
+      if (state.shootPressed) {
+        state.shootPressed = false;
+        this.tryShoot(robot.robotId, robot.pose, robot.linear, footprint, physics, robot.alliance);
+      }
+      this.processScheduledShots(robot.robotId, robot.pose, robot.linear, footprint, physics, robot.alliance);
+      this.maintainShootHold(robot.robotId, robot.pose, robot.linear, footprint, physics, robot.alliance);
     }
 
-    if (this.shootPressed) {
-      this.shootPressed = false;
-      this.tryShoot(robotPose, robotVelocity, footprint, physics);
+    for (const robot of robots) {
+      const state = this.getRobotState(robot.robotId);
+      if (state.stored.length > 0) {
+        this.updateHeld(robot.robotId, robot.pose, footprint, physics);
+      }
     }
 
-    this.processScheduledShots(robotPose, robotVelocity, footprint, physics);
-    this.maintainShootHold(robotPose, robotVelocity, footprint, physics);
-
-    this.checkAutoGates(robotPose, footprint);
-    this.updateHeld(robotPose, footprint, physics);
+    this.checkAutoGates(robots, footprint);
     if (matchRobots && teleopTimeRemainingSec !== undefined) {
       this.rules.tickContactRules(matchRobots, teleopTimeRemainingSec);
     }
@@ -283,10 +385,16 @@ export class ArtifactSimulation {
     this.pendingSpawns = [];
   }
 
-  private tryIntake(robotPose: Pose, footprint: RobotFootprint, physics: PhysicsAdapter): void {
-    if (this.stored.length >= MAX_STORAGE) return;
+  private tryIntake(
+    robotId: string,
+    robotPose: Pose,
+    footprint: RobotFootprint,
+    physics: PhysicsAdapter,
+  ): void {
+    const state = this.getRobotState(robotId);
+    if (state.stored.length >= MAX_STORAGE) return;
 
-    const heldIds = new Set(this.stored.map((entry) => entry.id));
+    const heldIds = this.allHeldArtifactIds();
 
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase !== 'onField' && artifact.phase !== 'overflow') continue;
@@ -295,8 +403,8 @@ export class ArtifactSimulation {
       const center = { x: artifact.pose.x, y: artifact.pose.y };
       if (!artifactTouchesFrontEdge(center, robotPose, footprint)) continue;
 
-      const slot = this.stored.length as 0 | 1 | 2;
-      this.stored.push({ id: artifact.id, color: artifact.color, slot });
+      const slot = state.stored.length as 0 | 1 | 2;
+      state.stored.push({ id: artifact.id, color: artifact.color, slot });
       artifact.phase = 'held';
       artifact.opacity = 1;
       const local = heldArtifactOffset(slot, footprint);
@@ -304,16 +412,23 @@ export class ArtifactSimulation {
       artifact.pose = { x: world.x, y: world.y, heading: 0 };
       physics.parkArtifactBody(artifact.bodyId, artifact.pose);
       this.log('intake', `Intake ${artifact.id} (${artifact.color}) → slot ${slot}`, {
+        robotId,
         robot: { x: robotPose.x, y: robotPose.y },
         artifact: center,
-        stored: this.stored.length,
+        stored: state.stored.length,
       });
       return;
     }
   }
 
-  private updateHeld(robotPose: Pose, footprint: RobotFootprint, physics: PhysicsAdapter): void {
-    for (const held of this.stored) {
+  private updateHeld(
+    robotId: string,
+    robotPose: Pose,
+    footprint: RobotFootprint,
+    physics: PhysicsAdapter,
+  ): void {
+    const state = this.getRobotState(robotId);
+    for (const held of state.stored) {
       const artifact = this.artifacts.get(held.id);
       if (!artifact) continue;
       const local = heldArtifactOffset(held.slot, footprint);
@@ -324,38 +439,47 @@ export class ArtifactSimulation {
   }
 
   private processScheduledShots(
+    robotId: string,
     robotPose: Pose,
     robotVelocity: Vector2,
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
+    robotAlliance: Alliance,
   ): void {
-    if (this.pendingShotTimes.length === 0) return;
-    if (this.pendingShotTimes[0]! > this.simTime) return;
-    this.pendingShotTimes.shift();
-    this.tryShoot(robotPose, robotVelocity, footprint, physics);
+    const state = this.getRobotState(robotId);
+    if (state.pendingShotTimes.length === 0) return;
+    if (state.pendingShotTimes[0]! > this.simTime) return;
+    state.pendingShotTimes.shift();
+    this.tryShoot(robotId, robotPose, robotVelocity, footprint, physics, robotAlliance);
   }
 
   private maintainShootHold(
+    robotId: string,
     robotPose: Pose,
     robotVelocity: Vector2,
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
+    robotAlliance: Alliance,
   ): void {
-    if (!this.shootHoldWanted) return;
-    if (this.simTime < this.shootHoldNextShotAt) return;
-    this.shootHoldNextShotAt = this.simTime + SHOOT_HOLD_INTERVAL_S;
-    this.tryShoot(robotPose, robotVelocity, footprint, physics);
+    const state = this.getRobotState(robotId);
+    if (!state.shootHoldWanted) return;
+    if (this.simTime < state.shootHoldNextShotAt) return;
+    state.shootHoldNextShotAt = this.simTime + SHOOT_HOLD_INTERVAL_S;
+    this.tryShoot(robotId, robotPose, robotVelocity, footprint, physics, robotAlliance);
   }
 
   private tryShoot(
+    robotId: string,
     robotPose: Pose,
     robotVelocity: Vector2,
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
+    robotAlliance: Alliance,
   ): void {
-    if (this.stored.length === 0) return;
+    const state = this.getRobotState(robotId);
+    if (state.stored.length === 0) return;
 
-    const held = this.stored.shift();
+    const held = state.stored.shift();
     if (!held) return;
 
     const artifact = this.artifacts.get(held.id);
@@ -364,7 +488,7 @@ export class ArtifactSimulation {
     const eligible = robotInLaunchZone(robotPose, footprint, this.field);
     this.lastShotEligible = eligible;
 
-    const plan = planShot(robotPose, robotVelocity, footprint, this.field, this.alliance);
+    const plan = planShot(robotPose, robotVelocity, footprint, this.field, robotAlliance);
     physics.parkArtifactBody(artifact.bodyId, { ...plan.launchPoint, heading: 0 });
 
     artifact.phase = 'inFlight';
@@ -382,9 +506,11 @@ export class ArtifactSimulation {
       scoringEligible: eligible,
       scored: false,
       plan,
+      shooterAlliance: robotAlliance,
     });
 
     this.log('shoot', `Shot ${held.id} eligible=${eligible}`, {
+      robotId,
       launch: plan.launchPoint,
       speed: plan.shotSpeed,
       distanceToGoal: plan.distanceToGoal,
@@ -425,7 +551,7 @@ export class ArtifactSimulation {
 
     if (isOutOfFieldBounds(pos, 1)) {
       this.log('flight', `OOB respawn ${flight.artifactId}`, { pos });
-      this.respawnToHumanPlayer(flight.artifactId, this.alliance);
+      this.respawnToHumanPlayer(flight.artifactId, flight.shooterAlliance);
       return false;
     }
 
@@ -438,7 +564,7 @@ export class ArtifactSimulation {
         this.scoreInBasin(flight.artifactId, flight.color, basinHit.alliance, physics);
       } else {
         this.log('flight', 'Ineligible basin hit → human player respawn', { pos });
-        this.respawnToHumanPlayer(flight.artifactId, this.alliance);
+        this.respawnToHumanPlayer(flight.artifactId, flight.shooterAlliance);
       }
       return false;
     }
@@ -446,7 +572,7 @@ export class ArtifactSimulation {
     const last = flight.trajectory[flight.trajectory.length - 1];
     if (last && flight.elapsed >= last.t) {
       if (isOutOfFieldBounds(artifact.pose, 1)) {
-        this.respawnToHumanPlayer(flight.artifactId, this.alliance);
+        this.respawnToHumanPlayer(flight.artifactId, flight.shooterAlliance);
       } else {
         this.landArtifact(flight.artifactId, artifact.pose);
       }
@@ -520,26 +646,33 @@ export class ArtifactSimulation {
     this.queueBodySpawn(artifactId, pose, 0, 0);
   }
 
-  private checkAutoGates(robotPose: Pose, footprint: RobotFootprint): void {
+  private checkAutoGates(robots: RobotMechanismTick[], footprint: RobotFootprint): void {
     for (const targetAlliance of ['blue', 'red'] as const) {
       const gateZone = getZoneByType(this.field, 'gate_zone', targetAlliance);
       if (!gateZone) continue;
 
-      const inside = robotInGateZone(robotPose, footprint, gateZone.polygon);
-      const wasInside = this.gateInside[targetAlliance];
-      this.gateInside[targetAlliance] = inside;
+      let anyInside = false;
+      let openerAlliance: Alliance | null = null;
+      for (const robot of robots) {
+        if (!robotInGateZone(robot.pose, footprint, gateZone.polygon)) continue;
+        anyInside = true;
+        openerAlliance = robot.alliance;
+      }
 
-      if (!inside || wasInside) continue;
+      const wasInside = this.gateInside[targetAlliance];
+      this.gateInside[targetAlliance] = anyInside;
+
+      if (!anyInside || wasInside || !openerAlliance) continue;
 
       this.log('gate', `Gate proximity enter ${targetAlliance}`, {
-        robot: { x: robotPose.x.toFixed(1), y: robotPose.y.toFixed(1) },
         zone: gateZone.id,
+        openedBy: openerAlliance,
       });
-      this.triggerGateRelease(targetAlliance);
+      this.triggerGateRelease(targetAlliance, openerAlliance);
     }
   }
 
-  private triggerGateRelease(targetAlliance: Alliance): void {
+  private triggerGateRelease(targetAlliance: Alliance, openedByAlliance: Alliance): void {
     const slots = this.rampSlots[targetAlliance];
     const occupiedCount = slots.filter((id) => id !== null).length;
     const queueForAlliance = this.gateQueue.filter((q) => q.targetAlliance === targetAlliance).length;
@@ -561,7 +694,6 @@ export class ArtifactSimulation {
     }
 
     this.rules.setGateOpen(targetAlliance, true);
-    const openedByAlliance = this.alliance;
     const isOpponentGate = openedByAlliance !== targetAlliance;
     if (isOpponentGate) {
       this.rules.recordOpponentGateOpened(openedByAlliance, targetAlliance);

@@ -158,7 +158,133 @@
   background: #c44;
 }
 
+.lobby-action--start {
+  margin: 10px 0;
+  background: #2d6cdf;
+  font-size: 14px;
+  padding: 12px;
+}
+
+.lobby-host-share {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #121a28;
+  border: 1px solid #2a3548;
+}
+
+.lobby-host-share__addr {
+  display: block;
+  margin: 6px 0 8px;
+  font-family: Consolas, 'Courier New', monospace;
+  color: #7dd3fc;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.lobby-share__btn--wide {
+  width: 100%;
+  text-align: center;
+  padding: 8px;
+}
+
+.lobby-panel__hint--ok {
+  color: #9fd6a3;
+}
+
 .lobby-action:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.lobby-share {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2a3548;
+}
+
+.lobby-share__label {
+  margin: 0 0 6px;
+  color: #9fb0cc;
+  font-size: 12px;
+}
+
+.lobby-share__row {
+  display: flex;
+  gap: 6px;
+}
+
+.lobby-share__input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #3a4a66;
+  background: #0f1419;
+  color: #e8eef8;
+  font-size: 12px;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.lobby-share__btn {
+  border: 1px solid #3a4a66;
+  border-radius: 6px;
+  background: #121a28;
+  color: #c5d4ef;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.lobby-share__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lobby-panel__hint a {
+  color: #7dd3fc;
+}
+
+.lobby-slots {
+  margin: 10px 0;
+}
+
+.lobby-slots__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.lobby-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #3a4a66;
+  border-radius: 8px;
+  background: #121a28;
+  color: #c5d4ef;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lobby-slot--mine {
+  border-color: #3d8f5a;
+  background: #152318;
+}
+
+.lobby-slot--taken {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lobby-slot__name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lobby-slot__meta {
+  font-size: 11px;
+  color: #9fb0cc;
 }

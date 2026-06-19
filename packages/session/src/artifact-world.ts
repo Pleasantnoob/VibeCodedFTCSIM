@@ -5,17 +5,34 @@ import {
   ArtifactSimulation,
   type MechanismCommand,
   type PhysicsAdapter,
+  type RobotMechanismTick,
   type SimArtifactState,
 } from '@ftc-sim/mechanisms';
 import { PhysicsWorld, physicsLog } from '@ftc-sim/physics';
 import type { RobotFootprint } from '@ftc-sim/robot';
 import type { SessionBarrier } from './barriers.js';
+import { PLAYER_ROBOT_ID } from './match-robots.js';
 import { barrierToBodyDef, ROBOT_BODY_ID } from './physics-scene.js';
+
+function robotPhysicsBodyId(robotId: string): string {
+  return robotId === PLAYER_ROBOT_ID ? ROBOT_BODY_ID : `npc_${robotId}`;
+}
 
 export interface NpcRobotSync {
   id: string;
   pose: Pose;
   linear: Vector2;
+}
+
+export interface RobotMechanismTickInput {
+  robotId: string;
+  pose: Pose;
+  linear: Vector2;
+  alliance: Alliance;
+  command?: MechanismCommand;
+  shootEdge: boolean;
+  gateEdge: boolean;
+  shootHeld: boolean;
 }
 
 export const DEFAULT_ARTIFACT_FRICTION = 0.25;
@@ -188,9 +205,14 @@ export class ArtifactWorld {
     this.sim.scheduleBurstShots(count, intervalSec);
   }
 
-  setShootHold(active: boolean): void {
+  setShootHold(robotId: string, active: boolean): void {
     if (!this.initialized) return;
-    this.sim.setShootHold(active);
+    this.sim.setShootHold(robotId, active);
+  }
+
+  /** Solo convenience — shoot hold on player slot. */
+  setPlayerShootHold(active: boolean): void {
+    this.setShootHold(PLAYER_ROBOT_ID, active);
   }
 
   evaluateEndOfAuto(): void {
@@ -203,37 +225,115 @@ export class ArtifactWorld {
     this.sim.evaluateEndOfMatch(robots);
   }
 
-  tick(
+  tickRobots(
     dt: number,
-    robotPose: Pose,
-    robotVelocity: Vector2,
+    robots: RobotMechanismTickInput[],
     footprint: RobotFootprint,
-    command: MechanismCommand | undefined,
-    shootEdge: boolean,
-    gateEdge: boolean,
     matchPhase: MatchPhase = 'teleop',
     matchRobots?: MatchRobotSnapshot[],
     teleopTimeRemainingSec?: number,
     npcRobots?: NpcRobotSync[],
   ): void {
     if (!this.initialized) return;
-    this.sim.applyCommand(command, shootEdge, gateEdge);
     const scoringPhase = matchPhase === 'auto' ? 'auto' : 'teleop';
-    this.physics.setRobotArtifactCollision(
-      ROBOT_BODY_ID,
-      !this.sim.shouldBypassRobotArtifactCollision(robotPose, footprint, scoringPhase),
-    );
     this.pendingNpcSync = npcRobots ?? [];
-    this.sim.tick(
+
+    for (const robot of robots) {
+      const bodyId = robotPhysicsBodyId(robot.robotId);
+      this.physics.syncKinematicRobot(bodyId, robot.pose, robot.linear.x, robot.linear.y);
+      this.sim.applyCommand(robot.robotId, robot.command, robot.shootEdge, robot.gateEdge);
+      this.sim.setShootHold(robot.robotId, robot.shootHeld);
+      this.physics.setRobotArtifactCollision(
+        bodyId,
+        !this.sim.shouldBypassRobotArtifactCollision(
+          robot.robotId,
+          robot.pose,
+          footprint,
+          scoringPhase,
+        ),
+      );
+    }
+
+    const simRobots: RobotMechanismTick[] = robots.map((robot) => ({
+      robotId: robot.robotId,
+      pose: robot.pose,
+      linear: robot.linear,
+      alliance: robot.alliance,
+      command: robot.command,
+      shootEdge: robot.shootEdge,
+      gateEdge: robot.gateEdge,
+      shootHeld: robot.shootHeld,
+    }));
+
+    this.sim.tickRobots(
       dt,
-      robotPose,
-      robotVelocity,
+      simRobots,
       footprint,
       this.adapter(),
       scoringPhase,
       matchRobots,
       teleopTimeRemainingSec,
     );
+  }
+
+  /** Solo / legacy single-robot tick. */
+  tick(
+    dt: number,
+    mechanismRobotId: string,
+    mechanismPose: Pose,
+    mechanismVelocity: Vector2,
+    playerPose: Pose,
+    playerVelocity: Vector2,
+    footprint: RobotFootprint,
+    command: MechanismCommand | undefined,
+    shootEdge: boolean,
+    gateEdge: boolean,
+    robotAlliance: Alliance,
+    matchPhase: MatchPhase = 'teleop',
+    matchRobots?: MatchRobotSnapshot[],
+    teleopTimeRemainingSec?: number,
+    npcRobots?: NpcRobotSync[],
+  ): void {
+    const robots: RobotMechanismTickInput[] = [
+      {
+        robotId: mechanismRobotId,
+        pose: mechanismPose,
+        linear: mechanismVelocity,
+        alliance: robotAlliance,
+        command,
+        shootEdge,
+        gateEdge,
+        shootHeld: false,
+      },
+    ];
+    if (mechanismRobotId !== PLAYER_ROBOT_ID) {
+      robots.unshift({
+        robotId: PLAYER_ROBOT_ID,
+        pose: playerPose,
+        linear: playerVelocity,
+        alliance: robotAlliance,
+        shootEdge: false,
+        gateEdge: false,
+        shootHeld: false,
+      });
+    }
+    this.tickRobots(
+      dt,
+      robots,
+      footprint,
+      matchPhase,
+      matchRobots,
+      teleopTimeRemainingSec,
+      npcRobots,
+    );
+  }
+
+  getStoredCount(robotId: string = PLAYER_ROBOT_ID): number {
+    return this.sim.getStoredCount(robotId);
+  }
+
+  getTotalStoredCount(): number {
+    return this.sim.getTotalStoredCount();
   }
 
   getRenderArtifacts(): SimArtifactState[] {

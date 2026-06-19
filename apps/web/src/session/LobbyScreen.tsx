@@ -1,5 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SessionMode } from './session-mode';
+import { fetchHostInfo, readInternetAddressLocal } from './internet-address';
+import {
+  CLAIMABLE_ROBOT_IDS,
+  ROBOT_SLOT_LABELS,
+  type ClaimableRobotId,
+} from '../robot/match-robots';
+import type { RoomPlayer } from './useSessionClient';
 import './lobby.css';
 
 export interface LobbyScreenProps {
@@ -10,12 +17,18 @@ export interface LobbyScreenProps {
   connecting: boolean;
   error: string | null;
   role: 'host' | 'player' | 'spectator' | null;
+  robotId: string | null;
+  playerId: string | null;
+  roomPlayers: RoomPlayer[];
+  slotError: string | null;
   lanAddress: string | null;
   rttMs: number | null;
   matchPhase: string | null;
   onChooseSolo: () => void;
   onConnect: (mode: 'host' | 'join', address: string, name: string) => void;
   onDisconnect: () => void;
+  onClaimSlot: (robotId: ClaimableRobotId, teamLabel: string) => void;
+  onHostStartDriving?: () => void;
 }
 
 export function LobbyScreen({
@@ -26,24 +39,69 @@ export function LobbyScreen({
   connecting,
   error,
   role,
+  robotId,
+  playerId,
+  roomPlayers,
+  slotError,
   lanAddress,
   rttMs,
   matchPhase,
   onChooseSolo,
   onConnect,
   onDisconnect,
+  onClaimSlot,
+  onHostStartDriving,
 }: LobbyScreenProps) {
+  const fromLauncher = initialMode === 'host' || initialMode === 'join';
   const [mode, setMode] = useState<'solo' | 'host' | 'join'>(initialMode === 'solo' ? 'solo' : initialMode);
   const [address, setAddress] = useState(initialAddress);
   const [name, setName] = useState(initialName);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [internetCopied, setInternetCopied] = useState(false);
+  const [internetInvite, setInternetInvite] = useState('');
   const [collapsed, setCollapsed] = useState(initialMode === 'solo' && !connected);
+  const [teamLabel, setTeamLabel] = useState('');
+
+  useEffect(() => {
+    if (fromLauncher && !robotId && connected) {
+      setCollapsed(false);
+    }
+  }, [fromLauncher, robotId, connected]);
+
+  useEffect(() => {
+    if (!connected || role !== 'host') {
+      setInternetInvite('');
+      return;
+    }
+    void fetchHostInfo().then((info) => {
+      const remote =
+        info?.internetAddress?.trim() ||
+        readInternetAddressLocal() ||
+        info?.suggestedInternetAddress?.trim() ||
+        '';
+      setInternetInvite(remote);
+    });
+  }, [connected, role]);
+
+  const slotOwner = (slotId: ClaimableRobotId): RoomPlayer | undefined =>
+    roomPlayers.find((player) => player.robotId === slotId);
+
+  const drivingLabel = robotId
+    ? ROBOT_SLOT_LABELS[robotId as ClaimableRobotId] ?? robotId
+    : null;
 
   if (collapsed) {
     const label = connected
-      ? role === 'host'
-        ? 'Host connected'
-        : 'Joined'
-      : 'Multiplayer';
+      ? drivingLabel
+        ? `Driving ${drivingLabel}`
+        : role === 'host'
+          ? 'Host — pick robot'
+          : 'Pick your robot'
+      : fromLauncher
+        ? initialMode === 'host'
+          ? 'Host'
+          : 'Join'
+        : 'Multiplayer';
     return (
       <button type="button" className={`lobby-fab${connected ? ' lobby-fab--live' : ''}`} onClick={() => setCollapsed(false)}>
         <span className="lobby-fab__dot" aria-hidden />
@@ -55,99 +113,184 @@ export function LobbyScreen({
   const statusLine = connecting
     ? 'Connecting…'
     : connected
-      ? role === 'host'
-        ? `Connected as host · match: ${matchPhase ?? 'setup'}`
-        : `Connected as ${role ?? 'player'} · spectating`
-      : 'Not connected';
+      ? drivingLabel
+        ? `Driving ${drivingLabel}`
+        : 'Pick your robot below'
+      : fromLauncher
+        ? initialMode === 'join'
+          ? 'Enter host address'
+          : 'Connecting…'
+        : 'Not connected';
+
+  const showFullLobby = !fromLauncher;
+  const showJoinForm = !connected && (fromLauncher ? initialMode === 'join' : mode === 'join' || mode === 'host');
+  const canStartDriving =
+    connected && role === 'host' && robotId && matchPhase === 'setup' && onHostStartDriving;
 
   return (
     <div className="lobby-panel">
       <div className="lobby-panel__header">
-        <strong>Multiplayer</strong>
+        <strong>{fromLauncher ? (initialMode === 'host' ? 'Host match' : 'Join match') : 'Multiplayer'}</strong>
         <button type="button" className="lobby-panel__close" onClick={() => setCollapsed(true)} aria-label="Close">
           Close
         </button>
       </div>
 
       <p className={`lobby-panel__status${connected ? ' lobby-panel__status--live' : ''}`}>{statusLine}</p>
+      {connecting && error && <p className="lobby-error">{error}</p>}
 
-      {connected && role === 'host' && matchPhase === 'setup' && (
-        <p className="lobby-panel__hint lobby-panel__hint--warn">
-          Press <strong>INF</strong> in the toolbar to start driving (infinite teleop).
-        </p>
+      {connected && (
+        <div className="lobby-slots">
+          <p className="lobby-share__label">Pick your robot</p>
+          <label className="lobby-field">
+            Team # or name (shown on field)
+            <input
+              value={teamLabel}
+              onChange={(e) => setTeamLabel(e.target.value)}
+              placeholder="e.g. 12345 or Driver"
+              maxLength={12}
+            />
+          </label>
+          <div className="lobby-slots__grid">
+            {CLAIMABLE_ROBOT_IDS.map((slotId) => {
+              const owner = slotOwner(slotId);
+              const isMine = robotId === slotId;
+              const taken = Boolean(owner && owner.id !== playerId);
+              return (
+                <button
+                  key={slotId}
+                  type="button"
+                  className={`lobby-slot${isMine ? ' lobby-slot--mine' : ''}${taken ? ' lobby-slot--taken' : ''}`}
+                  disabled={taken}
+                  onClick={() => onClaimSlot(slotId, teamLabel)}
+                >
+                  <span className="lobby-slot__name">{ROBOT_SLOT_LABELS[slotId]}</span>
+                  <span className="lobby-slot__meta">
+                    {isMine ? 'You' : owner ? owner.name : taken ? 'Taken' : 'Open'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {slotError && <p className="lobby-error">{slotError}</p>}
+        </div>
       )}
 
-      {connected && role === 'host' && matchPhase === 'teleop' && (
-        <p className="lobby-panel__hint">Drive with WASD / gamepad. Click the field first if keys do nothing.</p>
+      {connected && drivingLabel && (
+        <p className="lobby-panel__hint">WASD / gamepad to drive. Click the field first if keys do nothing.</p>
       )}
 
-      {connected && role !== 'host' && (
-        <p className="lobby-panel__hint">
-          You are spectating. Match controls (INIT, AUTO, etc.) are on the <strong>host</strong> tab only.
-          Look for the green <strong>HOST</strong> badge in the toolbar.
-        </p>
+      {connected && !drivingLabel && role !== 'host' && (
+        <p className="lobby-panel__hint">Choose an open slot, then wait for the host to press Start driving.</p>
       )}
 
-      {!connected && (
-        <p className="lobby-panel__hint">
-          Run <code>pnpm dev:server</code> first, then Host or Join. LAN: share your IP:5191.
-        </p>
+      {connected && !drivingLabel && role === 'host' && (
+        <p className="lobby-panel__hint">Pick your robot, then press Start driving below.</p>
       )}
 
-      <div className="lobby-panel__modes">
-        {(['solo', 'host', 'join'] as const).map((entry) => (
+      {canStartDriving && (
+        <button type="button" className="lobby-action lobby-action--start" onClick={onHostStartDriving}>
+          Start driving
+        </button>
+      )}
+
+      {connected && role === 'host' && lanAddress && (
+        <div className="lobby-host-share">
+          <p className="lobby-share__label">Same Wi‑Fi / LAN</p>
+          <code className="lobby-host-share__addr">{lanAddress}</code>
           <button
-            key={entry}
             type="button"
-            className={mode === entry ? 'lobby-mode lobby-mode--active' : 'lobby-mode'}
-            onClick={() => setMode(entry)}
-            disabled={connected}
+            className="lobby-share__btn lobby-share__btn--wide"
+            onClick={async () => {
+              await navigator.clipboard.writeText(lanAddress);
+              setInviteCopied(true);
+              setInternetCopied(false);
+            }}
           >
-            {entry === 'solo' ? 'Solo' : entry === 'host' ? 'Host' : 'Join'}
+            {inviteCopied ? 'LAN copied!' : 'Copy LAN address'}
           </button>
-        ))}
-      </div>
+          {internetInvite && internetInvite !== lanAddress && (
+            <>
+              <p className="lobby-share__label">Internet friends (port forwarded)</p>
+              <code className="lobby-host-share__addr">{internetInvite}</code>
+              <button
+                type="button"
+                className="lobby-share__btn lobby-share__btn--wide"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(internetInvite);
+                  setInternetCopied(true);
+                  setInviteCopied(false);
+                }}
+              >
+                {internetCopied ? 'Internet copied!' : 'Copy internet address'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
-      {mode !== 'solo' && !connected && (
+      {showFullLobby && (
+        <div className="lobby-panel__modes">
+          {(['solo', 'host', 'join'] as const).map((entry) => (
+            <button
+              key={entry}
+              type="button"
+              className={mode === entry ? 'lobby-mode lobby-mode--active' : 'lobby-mode'}
+              onClick={() => setMode(entry)}
+              disabled={connected}
+            >
+              {entry === 'solo' ? 'Solo' : entry === 'host' ? 'Host' : 'Join'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showJoinForm && !connected && (
         <>
           <label className="lobby-field">
-            Server address
+            Host address
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="127.0.0.1:5191"
+              placeholder="192.168.x.x:5191"
               disabled={connecting}
             />
           </label>
-          <label className="lobby-field">
-            Display name
-            <input value={name} onChange={(e) => setName(e.target.value)} disabled={connecting} />
-          </label>
+          {!fromLauncher && (
+            <label className="lobby-field">
+              Your name
+              <input value={name} onChange={(e) => setName(e.target.value)} disabled={connecting} />
+            </label>
+          )}
         </>
       )}
 
-      {error && <p className="lobby-error">{error}</p>}
-      {connected && lanAddress && <p className="lobby-status">Share with friends: {lanAddress}</p>}
+      {error && !error.includes('host is already') && <p className="lobby-error">{error}</p>}
+      {connected && lanAddress && !fromLauncher && (
+        <p className="lobby-status">LAN: {lanAddress}</p>
+      )}
       {connected && rttMs !== null && <p className="lobby-status">Ping: {rttMs} ms</p>}
 
       <div className="lobby-panel__actions">
-        {mode === 'solo' && !connected ? (
+        {showFullLobby && mode === 'solo' && !connected ? (
           <button type="button" className="lobby-action" onClick={onChooseSolo}>
             Play Solo
           </button>
         ) : connected ? (
           <button type="button" className="lobby-action lobby-action--danger" onClick={onDisconnect}>
-            Disconnect
+            Leave match
           </button>
         ) : (
-          <button
-            type="button"
-            className="lobby-action"
-            disabled={connecting}
-            onClick={() => onConnect(mode, address, name)}
-          >
-            {connecting ? 'Connecting…' : mode === 'host' ? 'Connect as Host' : 'Join Match'}
-          </button>
+          !fromLauncher || initialMode === 'join' ? (
+            <button
+              type="button"
+              className="lobby-action"
+              disabled={connecting}
+              onClick={() => onConnect(fromLauncher ? initialMode : mode, address, name)}
+            >
+              {connecting ? 'Connecting…' : fromLauncher || mode === 'host' ? 'Connect' : 'Join'}
+            </button>
+          ) : null
         )}
       </div>
     </div>

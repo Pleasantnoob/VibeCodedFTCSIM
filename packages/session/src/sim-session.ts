@@ -4,7 +4,7 @@ import type { HostCommand, InputFrame, StateSnapshot } from '@ftc-sim/net';
 import { MatchClock } from '@ftc-sim/match';
 import type { MechanismLogEntry, SimArtifactState } from '@ftc-sim/mechanisms';
 import { stepMultiRobotDrive } from '@ftc-sim/robot';
-import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION } from './artifact-world.js';
+import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION, type RobotMechanismTickInput } from './artifact-world.js';
 import { barrierPolygons, type SessionBarrier } from './barriers.js';
 import { type AutoFollowerLike, type DriveSample, resolveDriveInput } from './drive-resolver.js';
 import {
@@ -76,7 +76,8 @@ export class SimSession {
   private practiceLayouts: MatchRobotLayout[];
   private follower: AutoFollowerLike | null = null;
   private injectedInput: import('@ftc-sim/robot').HolonomicInput | null = null;
-  private pendingInput: DriveSample | null = null;
+  private robotInputs = new Map<string, DriveSample>();
+  private robotTeamLabels = new Map<string, string>();
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -84,7 +85,7 @@ export class SimSession {
     this.barriers = config.barriers;
     this.barrierPolys = barrierPolygons(config.barriers);
     this.pose = { ...config.startPose };
-    this.playerTeamNumber = config.playerTeamNumber ?? '-4';
+    this.playerTeamNumber = config.playerTeamNumber ?? '-3';
     this.practiceLayouts = config.practiceRobots ?? [];
     this.artifactFriction = config.artifactFriction ?? DEFAULT_ARTIFACT_FRICTION;
     this.world = new ArtifactWorld(config.field, config.alliance);
@@ -130,11 +131,11 @@ export class SimSession {
   }
 
   setPendingInput(sample: DriveSample): void {
-    this.pendingInput = sample;
+    this.robotInputs.set(PLAYER_ROBOT_ID, sample);
   }
 
   applyInputFrame(frame: InputFrame): void {
-    this.pendingInput = {
+    const sample: DriveSample = {
       input: {
         forward: frame.drive.forward,
         strafe: frame.drive.strafe,
@@ -145,10 +146,16 @@ export class SimSession {
       mechanism: {
         command: frame.mechanism,
         shootEdge: frame.shootEdge,
-        gateEdge: false,
+        gateEdge: frame.gateEdge ?? false,
         shootHeld: frame.mechanism.shoot ?? false,
       },
     };
+    this.robotInputs.set(frame.robotId, sample);
+  }
+
+  /** Clear buffered drive input for every slot (call once per server tick). */
+  clearRobotInputs(): void {
+    this.robotInputs.clear();
   }
 
   syncBarriers(barriers: SessionBarrier[]): void {
@@ -160,6 +167,22 @@ export class SimSession {
   setArtifactFriction(friction: number): void {
     this.artifactFriction = friction;
     this.world.setArtifactFriction(friction);
+  }
+
+  /** Override team label shown on field / overlay for a robot slot. */
+  setRobotTeamLabel(robotId: string, label: string): void {
+    const trimmed = label.trim();
+    if (!trimmed) {
+      this.robotTeamLabels.delete(robotId);
+    } else {
+      this.robotTeamLabels.set(robotId, trimmed);
+    }
+    this.refreshFieldRobots();
+  }
+
+  clearRobotTeamLabel(robotId: string): void {
+    this.robotTeamLabels.delete(robotId);
+    this.refreshFieldRobots();
   }
 
   applyHostCommand(cmd: HostCommand): void {
@@ -200,7 +223,7 @@ export class SimSession {
     this.clock.reset();
     this.prevPhase = 'setup';
     this.tickIndex = 0;
-    this.pendingInput = null;
+    this.robotInputs.clear();
     this.injectedInput = null;
     this.world.reset(
       this.config.artifactStaging,
@@ -215,7 +238,7 @@ export class SimSession {
   step(dt: number = PHYSICS_DT): void {
     if (!this.ready) return;
 
-    const sample = this.pendingInput ?? {
+    const sample = this.robotInputs.get(PLAYER_ROBOT_ID) ?? {
       input: { forward: 0, strafe: 0, turn: 0 },
       mechanism: { command: {}, shootEdge: false, gateEdge: false, shootHeld: false },
     };
@@ -243,6 +266,19 @@ export class SimSession {
       limits,
     );
 
+    const npcInputs: Record<string, import('@ftc-sim/robot').HolonomicInput> = {};
+    for (const npc of this.npcMotion) {
+      const npcSample = this.robotInputs.get(npc.id);
+      if (!npcSample || !matchSnap.allowsDrive) continue;
+      npcInputs[npc.id] = {
+        forward: npcSample.input.forward,
+        strafe: npcSample.input.strafe,
+        turn: npcSample.input.turn,
+        brake: npcSample.input.brake,
+        endpointBrake: npcSample.input.endpointBrake,
+      };
+    }
+
     const multi = stepMultiRobotDrive({
       player: {
         pose: this.pose,
@@ -251,6 +287,7 @@ export class SimSession {
         input: driveInput,
       },
       npcs: this.npcMotion,
+      npcInputs,
       dt,
       limits,
       footprint,
@@ -272,31 +309,37 @@ export class SimSession {
     }));
     this.refreshFieldRobots();
 
+    const emptySample: DriveSample = {
+      input: { forward: 0, strafe: 0, turn: 0 },
+      mechanism: { command: {}, shootEdge: false, gateEdge: false, shootHeld: false },
+    };
     const autoMechanisms = phase === 'auto' || phase === 'transition';
-    let mechanismCommand = sample.mechanism.command;
-    let shootEdge = sample.mechanism.shootEdge;
-    let shootHeld = sample.mechanism.shootHeld;
+    const playerSample = this.robotInputs.get(PLAYER_ROBOT_ID) ?? emptySample;
+    const robotTicks: RobotMechanismTickInput[] = [
+      this.buildRobotMechanismTick(
+        PLAYER_ROBOT_ID,
+        this.pose,
+        this.linear,
+        this.config.alliance,
+        playerSample,
+        autoMechanisms,
+      ),
+      ...this.npcMotion.map((npc) =>
+        this.buildRobotMechanismTick(
+          npc.id,
+          npc.pose,
+          npc.linear,
+          npc.alliance,
+          this.robotInputs.get(npc.id) ?? emptySample,
+          false,
+        ),
+      ),
+    ];
 
-    if (autoMechanisms) {
-      mechanismCommand = { ...mechanismCommand, intake: 1 };
-      if (this.follower?.shouldAutoShoot?.()) {
-        shootHeld = true;
-      }
-    }
-
-    this.world.setShootHold(shootHeld);
-    if (shootHeld) {
-      shootEdge = false;
-    }
-
-    this.world.tick(
+    this.world.tickRobots(
       dt,
-      this.pose,
-      this.linear,
+      robotTicks,
       footprint,
-      mechanismCommand,
-      shootEdge,
-      sample.mechanism.gateEdge,
       phase,
       this.buildMatchRobots(),
       phase === 'teleop' ? matchSnap.timeRemainingInPhase : undefined,
@@ -326,9 +369,13 @@ export class SimSession {
     };
   }
 
-  buildNetSnapshot(): StateSnapshot {
+  buildNetSnapshot(maxEvents = 20): StateSnapshot {
     const state = this.getState();
     const matchState = state.matchGameState!;
+    const events =
+      matchState.events.length > maxEvents
+        ? matchState.events.slice(-maxEvents)
+        : matchState.events;
     return {
       type: 'snapshot',
       tick: state.tickIndex,
@@ -360,7 +407,7 @@ export class SimSession {
         motif: matchState.obeliskMotif,
       },
       motif: matchState.obeliskMotif,
-      gameState: matchState,
+      gameState: { ...matchState, events },
     };
   }
 
@@ -395,13 +442,26 @@ export class SimSession {
   }
 
   private refreshFieldRobots(): void {
-    this.fieldRobots = buildFieldRobotRenderStates(
+    const built = buildFieldRobotRenderStates(
       this.pose,
       this.config.alliance,
       this.playerTeamNumber,
       simRobotFootprint(this.robotConfig),
       this.npcMotion,
     );
+    this.fieldRobots = built.map((robot) => ({
+      ...robot,
+      teamNumber: this.robotTeamLabels.get(robot.id) ?? robot.teamNumber,
+    }));
+    this.fieldRobotCatalog = buildFieldRobotCatalog(this.practiceLayouts, {
+      alliance: this.config.alliance,
+      teamNumber: this.robotTeamLabels.get(PLAYER_ROBOT_ID) ?? this.playerTeamNumber,
+      width: this.robotConfig.footprintWidth,
+      length: this.robotConfig.footprintLength,
+    }).map((entry) => ({
+      ...entry,
+      teamNumber: this.robotTeamLabels.get(entry.id) ?? entry.teamNumber,
+    }));
   }
 
   private buildMatchRobots() {
@@ -414,6 +474,41 @@ export class SimSession {
       pose: npc.pose,
       linear: npc.linear,
     }));
+  }
+
+  private buildRobotMechanismTick(
+    robotId: string,
+    pose: Pose,
+    linear: { x: number; y: number },
+    alliance: Alliance,
+    sample: DriveSample,
+    autoMechanisms: boolean,
+  ): RobotMechanismTickInput {
+    let mechanismCommand = sample.mechanism.command;
+    let shootEdge = sample.mechanism.shootEdge;
+    let shootHeld = sample.mechanism.shootHeld;
+    const gateEdge = sample.mechanism.gateEdge;
+
+    if (autoMechanisms && robotId === PLAYER_ROBOT_ID) {
+      mechanismCommand = { ...mechanismCommand, intake: 1 };
+      if (this.follower?.shouldAutoShoot?.()) {
+        shootHeld = true;
+      }
+    }
+    if (shootHeld) {
+      shootEdge = false;
+    }
+
+    return {
+      robotId,
+      pose,
+      linear,
+      alliance,
+      command: mechanismCommand,
+      shootEdge,
+      gateEdge,
+      shootHeld,
+    };
   }
 }
 

@@ -22,6 +22,8 @@ export interface MultiRobotDriveParams {
     input: HolonomicInput;
   };
   npcs: NpcDriveState[];
+  /** Per-NPC holonomic input keyed by robot id; omitted slots stay idle. */
+  npcInputs?: Record<string, HolonomicInput>;
   dt: number;
   limits: KinematicLimits;
   footprint: RobotFootprint;
@@ -66,11 +68,12 @@ export function stepMultiRobotDrive(params: MultiRobotDriveParams): MultiRobotDr
 
   const npcResults = params.npcs.map((npc) => {
     const npcFootprint = { width: npc.width, length: npc.length };
+    const npcInput = params.npcInputs?.[npc.id] ?? NPC_IDLE_INPUT;
     const next = stepVelocityDrive({
       pose: npc.pose,
       linear: npc.linear,
       angular: npc.angular,
-      input: NPC_IDLE_INPUT,
+      input: npcInput,
       dt,
       limits,
       footprint: npcFootprint,

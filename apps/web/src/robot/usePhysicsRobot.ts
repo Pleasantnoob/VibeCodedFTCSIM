@@ -22,6 +22,7 @@ import {
   buildFieldRobotRenderStates,
   createNpcMotionStates,
   matchRobotSnapshots,
+  PLAYER_ROBOT_ID,
   type FieldRobotCatalogEntry,
   type FieldRobotRenderState,
   type MatchRobotLayout,
@@ -119,6 +120,7 @@ export function usePhysicsRobot(
   samplerRef: RefObject<DriveInputSamplerState>,
   sampleInputRef: RefObject<() => ReturnType<typeof sampleDriveInput>>,
   enabled: boolean,
+  initWorld = true,
   onHudTick?: (
     debug: ReturnType<typeof sampleDriveInput>['debug'],
     source: string,
@@ -265,6 +267,11 @@ export function usePhysicsRobot(
   );
 
   useEffect(() => {
+    if (!initWorld) {
+      setReady(false);
+      return;
+    }
+
     let cancelled = false;
     const world = new ArtifactWorld(field, alliance);
     artifactWorldRef.current = world;
@@ -306,7 +313,7 @@ export function usePhysicsRobot(
       artifactWorldRef.current = null;
       setReady(false);
     };
-  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef]);
+  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld]);
 
   useEffect(() => {
     if (!ready) {
@@ -449,19 +456,35 @@ export function usePhysicsRobot(
             }
           }
 
-          artifactWorldRef.current?.setShootHold(shootHeld);
           if (shootHeld) {
             shootEdge = false;
           }
 
-          artifactWorldRef.current?.tick(
+          const alliance = simOptions?.alliance ?? 'blue';
+          artifactWorldRef.current?.tickRobots(
             dt,
-            poseRef.current,
-            linearRef.current,
+            [
+              {
+                robotId: PLAYER_ROBOT_ID,
+                pose: poseRef.current,
+                linear: linearRef.current,
+                alliance,
+                command: mechanismCommand,
+                shootEdge,
+                gateEdge: sample.mechanism.gateEdge,
+                shootHeld,
+              },
+              ...npcMotionRef.current.map((npc) => ({
+                robotId: npc.id,
+                pose: npc.pose,
+                linear: npc.linear,
+                alliance: npc.alliance,
+                shootEdge: false,
+                gateEdge: false,
+                shootHeld: false,
+              })),
+            ],
             footprint,
-            mechanismCommand,
-            shootEdge,
-            sample.mechanism.gateEdge,
             phase,
             buildMatchRobots(),
             matchSnapNow?.phase === 'teleop' ? matchSnapNow.timeRemainingInPhase : undefined,

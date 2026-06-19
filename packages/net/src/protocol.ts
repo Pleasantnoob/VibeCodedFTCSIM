@@ -5,7 +5,7 @@ export const SIM_NET_PROTOCOL_VERSION = 1;
 export const DEFAULT_MATCH_PORT = 5191;
 export const DEFAULT_UI_PORT = 5190;
 export const SERVER_TICK_HZ = 120;
-export const SNAPSHOT_HZ = 40;
+export const SNAPSHOT_HZ = 25;
 
 export type SessionRole = 'host' | 'player' | 'spectator';
 
@@ -39,6 +39,7 @@ export interface InputFrame {
   drive: HolonomicDriveInput;
   mechanism: MechanismInput;
   shootEdge: boolean;
+  gateEdge?: boolean;
 }
 
 export interface RobotSnapshotEntry {
@@ -82,7 +83,7 @@ export type ClientMessage =
   | { type: 'hello'; protocol: number; appVersion: string; displayName: string; intent: 'host' | 'join' }
   | { type: 'input'; frame: InputFrame }
   | { type: 'host_cmd'; cmd: HostCommand }
-  | { type: 'claim_slot'; robotId: string }
+  | { type: 'claim_slot'; robotId: string; teamLabel?: string }
   | { type: 'ping'; t: number };
 
 export type ServerMessage =
@@ -102,4 +103,13 @@ export type ServerMessage =
   | { type: 'server_ready'; motif: '21' | '22' | '23' }
   | { type: 'match_ended'; reason: string }
   | { type: 'error'; code: string; message: string }
-  | { type: 'pong'; t: number };
+  | { type: 'pong'; t: number }
+  | {
+      type: 'slot_claimed';
+      robotId: string;
+      playerId: string;
+      playerName: string;
+      teamLabel?: string;
+    }
+  | { type: 'slot_denied'; robotId: string; reason: string }
+  | { type: 'slot_released'; robotId: string; playerId: string };

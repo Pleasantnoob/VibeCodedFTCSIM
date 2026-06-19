@@ -102,12 +102,41 @@ function clampMapSelection(
   return clamped ? { layer: 'zone', ...clamped } : null;
 }
 
+function overlayTeamsFromCatalog(
+  catalog: Array<{ id: string; teamNumber: string }>,
+  fallback: { red: [string, string]; blue: [string, string] },
+): { red: [string, string]; blue: [string, string] } {
+  const team = (id: string, defaultLabel: string) =>
+    catalog.find((entry) => entry.id === id)?.teamNumber ?? defaultLabel;
+  return {
+    blue: [team('player', fallback.blue[0]), team('blue-near', fallback.blue[1])],
+    red: [team('red-far', fallback.red[0]), team('red-near', fallback.red[1])],
+  };
+}
+
 export function App() {
   const field = useMemo(() => getDecodeField(), []);
+  useEffect(() => {
+    document.getElementById('boot-msg')?.remove();
+  }, []);
+
   const urlSession = useMemo(() => getSessionModeFromUrl(), []);
   const [sessionMode, setSessionMode] = useState<SessionMode>(urlSession.mode);
   const net = useSessionClient();
   const isNetActive = sessionMode !== 'solo' && net.connected;
+  const isNetSession = sessionMode !== 'solo';
+  const autoConnectDone = useRef(false);
+  useEffect(() => {
+    if (autoConnectDone.current) return;
+    if (urlSession.mode !== 'host' && urlSession.mode !== 'join') return;
+    autoConnectDone.current = true;
+    setSessionMode(urlSession.mode);
+    net.connect(
+      urlSession.address ?? '127.0.0.1:5191',
+      urlSession.displayName ?? 'Driver',
+      urlSession.mode === 'join' ? 'join' : 'host',
+    );
+  }, [urlSession, net.connect]);
   const netArtifactsRef = useRef<SimArtifactState[]>([]);
   const fieldCenterRef = useRef<HTMLElement>(null);
   const [barriers, setBarriers] = useState(() => initEditableBarriers(field));
@@ -396,7 +425,8 @@ export function App() {
     startPose,
     samplerRef,
     sampleInput,
-    !editBarriers && !editZones && !isNetActive,
+    !editBarriers && !editZones && !isNetSession,
+    !isNetSession,
     onHudTick,
     {
       allowsDriveRef,
@@ -411,7 +441,7 @@ export function App() {
       artifactFrictionRef,
       getMatchStateRef,
       practiceRobotsRef,
-      playerTeamNumber: overlayBlueTeams[1],
+      playerTeamNumber: overlayBlueTeams[0],
     },
   );
 
@@ -444,6 +474,7 @@ export function App() {
           gate: sample.mechanism.command.gate,
         },
         shootEdge: sample.mechanism.shootEdge,
+        gateEdge: sample.mechanism.gateEdge,
       });
       frame = requestAnimationFrame(sendLoop);
     };
@@ -456,6 +487,17 @@ export function App() {
   const displayFieldRobotCatalog = isNetActive ? net.fieldRobotCatalog : fieldRobotCatalog;
   const displayLiveArtifacts = isNetActive ? net.liveArtifacts : liveArtifacts;
   const displayLiveArtifactsRef = isNetActive ? netArtifactsRef : liveArtifactsRef;
+
+  const displayOverlayTeams = useMemo(
+    () =>
+      isNetActive
+        ? overlayTeamsFromCatalog(displayFieldRobotCatalog, {
+            red: overlayRedTeams,
+            blue: overlayBlueTeams,
+          })
+        : { red: overlayRedTeams, blue: overlayBlueTeams },
+    [isNetActive, displayFieldRobotCatalog, overlayRedTeams, overlayBlueTeams],
+  );
 
   const prevMatchPhaseRef = useRef(displayMatchSnap.phase);
   useEffect(() => {
@@ -711,8 +753,14 @@ export function App() {
         ? `${displayMatchSnap.timeRemainingInPhase.toFixed(1)}s`
         : '—';
 
-  const isNetHost = isNetActive && net.role === 'host';
-  const isNetSpectator = isNetActive && !isNetHost;
+  const isNetHost = isNetActive && sessionMode === 'host';
+  const isNetJoinPlayer = isNetActive && sessionMode === 'join';
+  const isNetDriver = isNetActive && Boolean(net.robotId);
+  const isNetLobby = isNetActive && !net.robotId;
+  const showSidePanels = !isNetJoinPlayer;
+  const showHostNavActions = !isNetActive || isNetHost;
+  const showMatchNav = !isNetJoinPlayer || isNetLobby;
+  const isNetSpectator = isNetActive && !isNetDriver && net.role !== 'host';
   const matchControlsLocked = isNetSpectator;
 
   let canInit = displayMatchSnap.phase === 'setup';
@@ -760,6 +808,10 @@ export function App() {
         connecting={net.connecting}
         error={net.error}
         role={net.role}
+        robotId={net.robotId}
+        playerId={net.playerId}
+        roomPlayers={net.roomPlayers}
+        slotError={net.slotError}
         lanAddress={net.lanAddress}
         rttMs={net.rttMs}
         matchPhase={displayMatchSnap.phase}
@@ -775,12 +827,24 @@ export function App() {
           net.disconnect();
           setSessionMode('solo');
         }}
+        onClaimSlot={(slotId, teamLabel) => net.claimSlot(slotId, teamLabel)}
+        onHostStartDriving={() => net.sendHostCommand('infinite')}
       />
+      {showMatchNav && (
       <nav className="panels-nav" aria-label="Simulator controls">
         <div className="panels-nav__brand">
           <PanelsLogo />
           <span className="panels-nav__title">DECODE Sim</span>
           {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
+          {isNetLobby && net.role === 'host' && (
+            <span className="panels-nav__net-badge panels-nav__net-badge--driver">LOBBY</span>
+          )}
+          {isNetDriver && !isNetHost && (
+            <span className="panels-nav__net-badge panels-nav__net-badge--driver">DRIVER</span>
+          )}
+          {isNetLobby && net.role !== 'host' && (
+            <span className="panels-nav__net-badge panels-nav__net-badge--driver">PICK ROBOT</span>
+          )}
           {isNetSpectator && (
             <span className="panels-nav__net-badge panels-nav__net-badge--spectator">SPECTATING</span>
           )}
@@ -797,6 +861,8 @@ export function App() {
         </div>
 
         <div className="panels-nav__actions">
+          {showHostNavActions && (
+            <>
           <PanelsButton disabled={matchControlsLocked || !canInit} onClick={handleInit}>
             INIT
           </PanelsButton>
@@ -818,10 +884,14 @@ export function App() {
           <PanelsButton disabled={matchControlsLocked} onClick={resetField}>
             RESET
           </PanelsButton>
+            </>
+          )}
         </div>
       </nav>
+      )}
 
-      <div className="panels-body">
+      <div className={`panels-body${isNetJoinPlayer ? ' panels-body--join' : ''}`}>
+        {showSidePanels && (
         <div className="panels-column">
           <PanelSection title="Alliance" badge={alliance === 'blue' ? 'Blue' : 'Red'}>
             <div className="alliance-toggle">
@@ -1394,6 +1464,7 @@ export function App() {
             </ul>
           </PanelSection>
         </div>
+        )}
 
         <main
           ref={fieldCenterRef}
@@ -1402,8 +1473,12 @@ export function App() {
           tabIndex={0}
           onPointerDown={() => fieldCenterRef.current?.focus()}
         >
-          {!displayFieldReady && !isNetActive && <div className="field-loading">Loading drive…</div>}
-          {!displayFieldReady && isNetActive && <div className="field-loading">Connecting…</div>}
+          {!displayFieldReady && isNetSession && !net.connected && (
+            <div className="field-loading">Connecting to match server…</div>
+          )}
+          {!displayFieldReady && !isNetSession && (
+            <div className="field-loading">Loading drive…</div>
+          )}
           <div className="field-stage">
             <FieldCanvas
               field={field}
@@ -1449,22 +1524,26 @@ export function App() {
               onActiveChange={setCeremonyActive}
               eventName={overlayEventName}
               matchName={overlayMatchName}
-              redTeams={overlayRedTeams}
-              blueTeams={overlayBlueTeams}
+              redTeams={displayOverlayTeams.red}
+              blueTeams={displayOverlayTeams.blue}
             />
           </div>
           <MatchFieldOverlay
             snapshot={displayMatchSnap}
-            visible={showMatchOverlay && (displayMatchSnap.phase !== 'post' || !ceremonyActive)}
+            visible={
+              (isNetJoinPlayer || showMatchOverlay) &&
+              (displayMatchSnap.phase !== 'post' || !ceremonyActive)
+            }
             alliance={alliance}
             matchGameState={displayMatchGameState}
             eventName={overlayEventName}
             matchName={overlayMatchName}
-            redTeams={overlayRedTeams}
-            blueTeams={overlayBlueTeams}
+            redTeams={displayOverlayTeams.red}
+            blueTeams={displayOverlayTeams.blue}
           />
         </main>
 
+        {showSidePanels && (
         <div className="panels-column">
           <PanelSection title="Corner check">
             <ul className="metrics">
@@ -1592,8 +1671,10 @@ export function App() {
             </ul>
           </PanelSection>
         </div>
+        )}
       </div>
 
+      {showSidePanels && (
       <footer className="panels-footer">
         <PanelsButton disabled>Export Replay</PanelsButton>
         <div className="event-log" aria-live="polite">
@@ -1609,6 +1690,7 @@ export function App() {
           ))}
         </div>
       </footer>
+      )}
     </div>
   );
 }

@@ -1,5 +1,8 @@
+import type { Pose, Vector2 } from '@ftc-sim/field';
 import type { Alliance, ArtifactColor } from '@ftc-sim/game-decode';
 import type { MechanismLogEntry } from './mechanism-log.js';
+
+export const DEFAULT_PLAYER_ROBOT_ID = 'player';
 
 export type { MechanismLogEntry } from './mechanism-log.js';
 
@@ -45,8 +48,26 @@ export interface GateReleaseItem {
   spawnPose: { x: number; y: number; heading: number };
 }
 
-export interface MechanismSnapshot {
+export interface RobotMechanismStateSnapshot {
   stored: StoredArtifact[];
+  intakeActive: boolean;
+}
+
+export interface RobotMechanismTick {
+  robotId: string;
+  pose: Pose;
+  linear: Vector2;
+  alliance: Alliance;
+  command?: MechanismCommand;
+  shootEdge: boolean;
+  gateEdge: boolean;
+  shootHeld: boolean;
+}
+
+export interface MechanismSnapshot {
+  /** Player-slot storage (solo backward compat). */
+  stored: StoredArtifact[];
+  byRobot: Record<string, RobotMechanismStateSnapshot>;
   artifacts: SimArtifactState[];
   gateReleaseQueue: GateReleaseItem[];
   intakeActive: boolean;
