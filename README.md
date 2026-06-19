@@ -2,7 +2,7 @@
 
 Free FTC DECODE practice simulator for Windows. Drive a holonomic robot, score artifacts, run matches solo or with friends.
 
-**Download:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — extract the `FTC Sim` folder, run `FTC Sim.exe`.
+**Download:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip** (Windows built-in Extract often fails), open the `FTC Sim` folder, run `FTC Sim.exe`.
 
 - **Solo** — Play Solo in the launcher.
 - **LAN** — Host shares `192.168.x.x:5191` on the same Wi‑Fi.
@@ -65,7 +65,7 @@ Or run both at once: `pnpm dev:all`
 
 ### Desktop launcher (Phase 4)
 
-**Download:** [Latest release zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — extract the `FTC Sim` folder, run `FTC Sim.exe`. Solo, LAN, or internet (host port-forwards TCP 5191).
+**Download:** [Latest release zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip**, open the `FTC Sim` folder, run `FTC Sim.exe`. Solo, LAN, or internet (host port-forwards TCP 5191).
 
 Build from source: `pnpm build:desktop`
 
