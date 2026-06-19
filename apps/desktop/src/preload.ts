@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
   openHost: (): Promise<string> => ipcRenderer.invoke('launcher:open-host'),
   hostOnline: (): Promise<PrepareInternetHostResult> => ipcRenderer.invoke('launcher:host-online'),
   openJoin: (address: string): Promise<void> => ipcRenderer.invoke('launcher:open-join', address),
+  openJoinLocal: (): Promise<void> => ipcRenderer.invoke('launcher:open-join-local'),
   copyLan: (): Promise<string> => ipcRenderer.invoke('launcher:copy-lan'),
   copyInternet: (): Promise<string> => ipcRenderer.invoke('launcher:copy-internet'),
   saveInternet: (address: string): Promise<string> => ipcRenderer.invoke('launcher:save-internet', address),

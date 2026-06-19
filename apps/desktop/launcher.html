@@ -153,12 +153,16 @@
         <input
           class="addr-input"
           id="join-addr"
-          placeholder="Host address e.g. 192.168.1.5:5191"
+          placeholder="127.0.0.1:5191 for same-PC tests"
           autocomplete="off"
         />
-        <button class="primary" id="btn-join">
-          Join Match
-          <small>Enter host address above, then pick your robot</small>
+        <button class="primary" id="btn-join-local">
+          Join on this PC
+          <small>Extra window on the same computer — use 127.0.0.1, not LAN IP</small>
+        </button>
+        <button class="secondary" id="btn-join">
+          Join Match (LAN / internet)
+          <small>Friends on another device — paste their host address</small>
         </button>
       </div>
 
@@ -232,6 +236,11 @@
         run(async () => {
           const addr = await api.openHost();
           statusEl.textContent = 'Hosting — LAN address copied: ' + addr;
+        });
+      document.getElementById('btn-join-local').onclick = () =>
+        run(async () => {
+          joinInput.value = '127.0.0.1:5191';
+          await api.openJoinLocal();
         });
       document.getElementById('btn-join').onclick = () =>
         run(async () => {

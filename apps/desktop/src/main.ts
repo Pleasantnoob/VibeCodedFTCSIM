@@ -8,6 +8,7 @@ import { isMatchServerRunning, startMatchServer, stopMatchServer, waitForMatchSe
 import { prepareInternetHost, unmapUpnpPort } from './internet-host';
 import { fetchPublicIp, suggestedInternetAddress } from './public-ip';
 import { startStaticServer } from './static-server';
+import { resolveJoinAddress } from './join-address';
 
 const INTERNET_PLAY_DOC =
   'https://github.com/Pleasantnoob/VibeCodedFTCSIM/blob/main/docs/INTERNET_PLAY.md';
@@ -30,13 +31,13 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
   }
   const addr =
     mode === 'join' && opts?.joinAddress?.trim()
-      ? opts.joinAddress.trim()
+      ? resolveJoinAddress(opts.joinAddress)
       : `127.0.0.1:${MATCH_PORT}`;
   const params = new URLSearchParams({
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '0.2.1',
+    v: '0.2.2',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }
@@ -189,6 +190,10 @@ function registerLauncherIpc(): void {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(message);
     }
+  });
+
+  ipcMain.handle('launcher:open-join-local', async () => {
+    await openGameWindow('join', { joinAddress: `127.0.0.1:${MATCH_PORT}` });
   });
 
   ipcMain.handle('launcher:open-join', async (_event, address?: string) => {
