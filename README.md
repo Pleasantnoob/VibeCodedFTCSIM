@@ -39,6 +39,26 @@ pnpm build       # compile all packages
 pnpm typecheck   # TypeScript check
 ```
 
+## Multiplayer (free LAN self-host)
+
+No subscription or website hosting — run the match server on your PC and share your IP.
+
+**Terminal 1 — match server (authoritative sim):**
+```bash
+pnpm dev:server    # WebSocket on 0.0.0.0:5191
+```
+
+**Terminal 2 — UI:**
+```bash
+pnpm dev           # http://localhost:5190
+```
+
+In the sim, open **Multiplayer** → **Host** (first player) or **Join** (friends). Default address: `127.0.0.1:5191`. On LAN, share `YOUR_LAN_IP:5191`. For internet friends behind CGNAT, use a free [playit.gg](https://playit.gg) **TCP** tunnel to `127.0.0.1:5191`.
+
+Or run both at once: `pnpm dev:all`
+
+See [`docs/MULTIPLAYER_MANIFEST.md`](docs/MULTIPLAYER_MANIFEST.md) for the full plan.
+
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phased build plan.
 
 ## Prior work

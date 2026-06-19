@@ -16,7 +16,7 @@ export function advanceAccumulator(
   acc: GameLoopAccumulator,
   now: number,
   maxSteps = MAX_PHYSICS_STEPS_PER_FRAME,
-): { steps: number; dt: number } {
+): { steps: number; dt: number; frameDt: number } {
   const frameDt = Math.min((now - acc.lastTime) / 1000, 0.1);
   acc.lastTime = now;
   acc.accumulator += frameDt;
@@ -26,7 +26,7 @@ export function advanceAccumulator(
     acc.accumulator -= dt;
     steps++;
   }
-  return { steps, dt };
+  return { steps, dt, frameDt };
 }
 
 export function shouldUpdateHud(acc: GameLoopAccumulator, now: number): boolean {

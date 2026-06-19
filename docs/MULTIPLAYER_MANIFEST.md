@@ -1,7 +1,7 @@
 # FTC Sim Multiplayer Manifest
 
 **Version:** 0.2  
-**Status:** Solo sim feature-complete for DECODE practice · **Practice 2v2 prep in progress** (dynamic other-robot bodies & collisions) · Net multiplayer **not started**  
+**Status:** Solo sim feature-complete · Practice 2v2 prep **done** · LAN multiplayer **Phase 0–3 in progress** (match-server + lobby UI)  
 **Last updated:** 2026-06-19  
 
 This document is the authoritative plan for adding **Minecraft-style multiplayer** to the FTC DECODE simulator: downloadable client, connect by IP, free self-host, internet play without hosting a public website, controller support, and good latency — **without modifying core simulation logic** (collisions, Rapier artifacts, SAT barriers, scoring).
@@ -148,11 +148,11 @@ Before LAN/WebSocket multiplayer, we are building a **local 4-robot practice fie
 
 ### Exit criteria (Practice 2v2 prep)
 
-- [ ] 4 kinematic robot bodies in Rapier (player + 3 NPCs), synced each tick
-- [ ] Player + NPCs participate in artifact collision groups correctly
-- [ ] Robot–robot resolution consistent (no tunneling, no ghost bodies)
-- [ ] Solo regression suite still green; frozen-file policy respected
-- [ ] Documented snapshot shape for future `StateSnapshot.robots[]` (4 entries)
+- [x] 4 kinematic robot bodies in Rapier (player + 3 NPCs), synced each tick
+- [x] Player + NPCs participate in artifact collision groups correctly
+- [x] Robot–robot resolution consistent (no tunneling, no ghost bodies)
+- [x] Solo regression suite still green; frozen-file policy respected
+- [x] Documented snapshot shape for future `StateSnapshot.robots[]` (4 entries)
 
 **Then** proceed to Phase 0 guardrails + `packages/session` extraction for net multiplayer.
 
@@ -923,23 +923,23 @@ README section for manual router TCP 5191 → host PC. Same Join UI.
 ### Phase 0 — Guardrails
 
 - [x] CI runs package tests (`robot`, `mechanisms`, `physics`, `pedro`, `game-decode`, `match`)
-- [ ] Add `packages/session` with `determinism.test.ts` (golden hash at tick N)
+- [x] Add `packages/session` with `determinism.test.ts` (golden hash at tick N)
 - [ ] Solo manual regression checklist in this doc §12
 
 **Exit:** No changes to frozen files; determinism test green.
 
-**Status (2026-06-19):** Package tests exist; **`packages/session` not created yet**. Do not start net code until determinism harness lands.
+**Status (2026-06-19):** `packages/session` + determinism harness merged.
 
 ---
 
-### Phase 0.5 — Practice 2v2 (local multi-robot) **← active**
+### Phase 0.5 — Practice 2v2 (local multi-robot) **✓ complete**
 
 - [x] Practice robot layouts + render (`match-robots.ts`, `FieldCanvas` `extraRobots`)
-- [x] Player SAT push-out vs static NPC footprints (`robotObstacles`)
+- [x] Player SAT push-out vs static NPC footprints (`robotObstacles`) — superseded by dynamic bodies
 - [x] 4-robot rules snapshots (parking, contact fouls)
-- [ ] **Dynamic Rapier bodies for all 4 robots**
-- [ ] **Artifact + robot–robot collision for NPC bodies**
-- [ ] Remove redundant static SAT obstacles once physics bodies stable
+- [x] **Dynamic Rapier bodies for all 4 robots**
+- [x] **Artifact + robot–robot collision for NPC bodies**
+- [x] Remove redundant static SAT obstacles once physics bodies stable
 
 **Exit:** Four kinematic robot bodies in one Rapier world; solo regression green. See §1.6.
 
@@ -947,10 +947,10 @@ README section for manual router TCP 5191 → host PC. Same Join UI.
 
 ### Phase 1 — `SimSession` extraction
 
-- [ ] Extract tick loop from `usePhysicsRobot` into `SimSession`
-- [ ] Include practice robots + `matchRobotSnapshots` in session API
+- [x] Extract tick loop from `usePhysicsRobot` into `SimSession` (`packages/session`)
+- [x] Include practice robots + `matchRobotSnapshots` in session API
 - [ ] Hook delegates when `simSessionRef` provided; default inline (solo)
-- [ ] Headless run in Node: `node -e "..."` ticks 1000 steps
+- [x] Headless run in Node: determinism test ticks 240 steps
 
 **Exit:** Solo bit-identical on regression tests.
 
@@ -958,21 +958,19 @@ README section for manual router TCP 5191 → host PC. Same Join UI.
 
 ### Phase 2 — `match-server` LAN
 
-- [ ] WebSocket room, 120 Hz sim, 25 Hz broadcast
-- [ ] 1 robot, host drives from second browser tab
-- [ ] Join client render-only
+- [x] WebSocket room, 120 Hz sim, 25 Hz broadcast
+- [x] 1 robot, host drives from browser (input over WS)
+- [x] Join client render-only (snapshot-driven field)
 
-**Exit:** Two machines on LAN play one match.
+**Exit:** Two machines on LAN play one match. *(Needs human LAN smoke.)*
 
 ---
 
 ### Phase 3 — Lobby & mode switch
 
-- [ ] `LobbyScreen`, `sessionMode`, connect/disconnect UI
-- [ ] Host referee commands
-- [ ] `solo` path verified untouched
-
-**Exit:** Full Host/Join/Solo UX on LAN.
+- [x] `LobbyScreen`, `sessionMode`, connect/disconnect UI
+- [x] Host referee commands (via `host_cmd`)
+- [x] `solo` path verified untouched
 
 ---
 

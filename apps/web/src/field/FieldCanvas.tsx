@@ -18,6 +18,7 @@ import type { MapVertexSelection } from './map-selection';
 import { barrierSelection, zoneSelection } from './map-selection';
 import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 import { PLAYER_ROBOT_ID } from '../robot/match-robots';
+import { smoothAlpha, smoothPose, smoothScalar, shouldSnapPoint, shouldSnapPose } from '../net/smooth-motion';
 
 export type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 export { PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -59,7 +60,7 @@ function FieldRobotShape({
         className="field-robot__nose"
         points={`${lengthPx / 2},0 ${lengthPx / 2 - 8},-6 ${lengthPx / 2 - 8},6`}
       />
-      <text className="field-robot__team" fontSize={labelSize} x={0} y={0}>
+      <text className="field-robot__team" fontSize={labelSize} x={0} y={0} transform="rotate(90)">
         {formatTeamLabel(entry.teamNumber)}
       </text>
     </>
@@ -94,6 +95,10 @@ export interface FieldCanvasProps {
   liveArtifactsRef?: RefObject<SimArtifactState[] | null>;
   showArtifacts?: boolean;
   showCenterLine?: boolean;
+  /** Interpolate robot/artifact motion between net snapshots (25–40 Hz). */
+  smoothNetMotion?: boolean;
+  /** Server snapshot tick — when it drops, interpolation caches are cleared (RESET). */
+  netSnapshotTick?: number;
 }
 
 const TILE_SIZE = 24;
@@ -172,10 +177,24 @@ export function FieldCanvas({
   liveArtifactsRef,
   showArtifacts = false,
   showCenterLine = false,
+  smoothNetMotion = false,
+  netSnapshotTick = 0,
 }: FieldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MapVertexSelection | null>(null);
   const robotElsRef = useRef<Map<string, SVGGElement>>(new Map());
+  const smoothedRobotPosesRef = useRef<Map<string, Pose>>(new Map());
+  const smoothedArtifactPosesRef = useRef<Map<string, { x: number; y: number; opacity: number }>>(new Map());
+  const motionLastTimeRef = useRef(performance.now());
+  const lastNetSnapshotTickRef = useRef(netSnapshotTick);
+
+  useEffect(() => {
+    if (netSnapshotTick < lastNetSnapshotTickRef.current) {
+      smoothedRobotPosesRef.current.clear();
+      smoothedArtifactPosesRef.current.clear();
+    }
+    lastNetSnapshotTickRef.current = netSnapshotTick;
+  }, [netSnapshotTick]);
   const artifactLayerRef = useRef<HTMLDivElement>(null);
   const artifactElsRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const gateFootprintRef = useRef<SVGPolygonElement>(null);
@@ -219,24 +238,41 @@ export function FieldCanvas({
 
     let frame = 0;
     const tick = () => {
+      const now = performance.now();
+      const alpha = smoothNetMotion
+        ? smoothAlpha(Math.min(0.05, (now - motionLastTimeRef.current) / 1000))
+        : 1;
+      motionLastTimeRef.current = now;
+
       const robots = fieldRobotsRef.current ?? [];
       for (const robot of robots) {
         const g = robotElsRef.current.get(robot.id);
         if (!g) continue;
-        const center = pedroToFieldPx(robot.pose, viewport);
-        const headingDeg = -(robot.pose.heading * 180) / Math.PI;
+
+        let pose = robot.pose;
+        if (smoothNetMotion) {
+          const prev = smoothedRobotPosesRef.current.get(robot.id) ?? robot.pose;
+          pose = shouldSnapPose(prev, robot.pose) ? robot.pose : smoothPose(prev, robot.pose, alpha);
+          smoothedRobotPosesRef.current.set(robot.id, pose);
+        }
+
+        const center = pedroToFieldPx(pose, viewport);
+        const headingDeg = -(pose.heading * 180) / Math.PI;
         g.setAttribute('transform', `translate(${center.x} ${center.y}) rotate(${headingDeg})`);
       }
 
       if (showGateDetector && footprintEl && playerFootprint) {
         const player = robots.find((entry) => entry.id === PLAYER_ROBOT_ID);
         if (player) {
-          const corners = robotFootprintCorners(player.pose, playerFootprint);
+          const playerPose = smoothNetMotion
+            ? (smoothedRobotPosesRef.current.get(player.id) ?? player.pose)
+            : player.pose;
+          const corners = robotFootprintCorners(playerPose, playerFootprint);
           footprintEl.setAttribute('points', pointsAttr(corners, viewport));
 
           let overlapping = false;
           for (const zone of gateZones) {
-            const inside = robotInGateZone(player.pose, playerFootprint, zone.polygon);
+            const inside = robotInGateZone(playerPose, playerFootprint, zone.polygon);
             overlapping ||= inside;
             const zoneEl = gateZoneElsRef.current.get(zone.id);
             zoneEl?.classList.toggle('field-gate-zone--active', inside);
@@ -250,7 +286,7 @@ export function FieldCanvas({
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector]);
+  }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion]);
 
   useEffect(() => {
     if (!showArtifacts || !liveArtifactsRef) return;
@@ -262,6 +298,11 @@ export function FieldCanvas({
 
     let frame = 0;
     const tick = () => {
+      const now = performance.now();
+      const alpha = smoothNetMotion
+        ? smoothAlpha(Math.min(0.05, (now - motionLastTimeRef.current) / 1000))
+        : 1;
+
       const artifacts = liveArtifactsRef.current ?? [];
       const seen = new Set<string>();
 
@@ -281,16 +322,42 @@ export function FieldCanvas({
           layer.appendChild(img);
           artifactElsRef.current.set(artifact.id, img);
         }
-        const px = pedroToFieldPx(artifact.pose, viewport);
+
+        let renderPose = artifact.pose;
+        let renderOpacity = artifact.opacity;
+        if (smoothNetMotion) {
+          const prev = smoothedArtifactPosesRef.current.get(artifact.id) ?? {
+            x: artifact.pose.x,
+            y: artifact.pose.y,
+            opacity: artifact.opacity,
+          };
+          const snap = shouldSnapPoint(prev, artifact.pose);
+          renderPose = snap
+            ? artifact.pose
+            : {
+                x: smoothScalar(prev.x, artifact.pose.x, alpha),
+                y: smoothScalar(prev.y, artifact.pose.y, alpha),
+                heading: artifact.pose.heading,
+              };
+          renderOpacity = snap ? artifact.opacity : smoothScalar(prev.opacity, artifact.opacity, alpha);
+          smoothedArtifactPosesRef.current.set(artifact.id, {
+            x: renderPose.x,
+            y: renderPose.y,
+            opacity: renderOpacity,
+          });
+        }
+
+        const px = pedroToFieldPx(renderPose, viewport);
         img.style.left = `${px.x - radiusPx}px`;
         img.style.top = `${px.y - radiusPx}px`;
-        img.style.opacity = String(artifact.opacity);
+        img.style.opacity = String(renderOpacity);
       }
 
       for (const [id, img] of artifactElsRef.current) {
         if (!seen.has(id)) {
           img.remove();
           artifactElsRef.current.delete(id);
+          smoothedArtifactPosesRef.current.delete(id);
         }
       }
 
@@ -304,8 +371,9 @@ export function FieldCanvas({
         img.remove();
       }
       artifactElsRef.current.clear();
+      smoothedArtifactPosesRef.current.clear();
     };
-  }, [liveArtifactsRef, showArtifacts, viewport]);
+  }, [liveArtifactsRef, showArtifacts, viewport, smoothNetMotion]);
 
   const onSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (dragRef.current) {
@@ -504,7 +572,7 @@ export function FieldCanvas({
               );
             })}
 
-          {showGateDetector && robot && (
+          {showGateDetector && (
             <g className="field-gate-footprint-layer" aria-hidden>
               <polygon ref={gateFootprintRef} className="field-gate-footprint" />
             </g>
@@ -587,7 +655,7 @@ export function FieldCanvas({
 
           {showFollowerOverlay && followerTarget && (() => {
             const player = fieldRobotsRef?.current?.find((entry) => entry.id === PLAYER_ROBOT_ID);
-            const robotPose = player?.pose ?? robot?.pose;
+            const robotPose = player?.pose;
             if (!robotPose) return null;
             const robotPx = pedroToFieldPx(robotPose, viewport);
             const targetPx = pedroToFieldPx(followerTarget, viewport);

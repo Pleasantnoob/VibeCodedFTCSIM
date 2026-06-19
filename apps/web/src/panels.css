@@ -118,6 +118,27 @@ code {
   opacity: 0.9;
 }
 
+.panels-nav__net-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.panels-nav__net-badge--host {
+  background: #1a4d2e;
+  color: #7dffaa;
+  border: 1px solid #3d8f5a;
+}
+
+.panels-nav__net-badge--spectator {
+  background: #2a2a35;
+  color: #b0b8cc;
+  border: 1px solid #4a5060;
+}
+
 .panels-nav__status {
   display: flex;
   align-items: center;

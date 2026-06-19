@@ -5,6 +5,8 @@
   "description": "FTC DECODE simulator — ground-up rebuild",
   "scripts": {
     "dev": "pnpm --filter @ftc-sim/web dev",
+    "dev:server": "pnpm --filter @ftc-sim/match-server dev",
+    "dev:all": "pnpm run --parallel dev dev:server",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck"

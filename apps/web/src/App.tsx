@@ -11,6 +11,7 @@ import {
   parsePathFileText,
 } from '@ftc-sim/pedro';
 import type { Vector2 } from '@ftc-sim/field';
+import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import { usePhysicsRobot } from './robot/usePhysicsRobot';
 import { playerSpawnPose, practiceFieldRobots } from './robot/match-robots';
 import { DEFAULT_ARTIFACT_FRICTION } from './artifacts/artifact-world';
@@ -40,11 +41,15 @@ import {
 } from './field/zone-editor';
 import { useDriveInput } from './input/useDriveInput';
 import { useMatchClock } from './match/useMatchClock';
+import type { MatchSnapshot } from '@ftc-sim/match';
 import { MatchFieldOverlay } from './match/MatchFieldOverlay';
 import { MatchResultsCeremony } from './match/MatchResultsCeremony';
 import { useMatchAudio } from './match/useMatchAudio';
 import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
 import { installFtcSimDevApi } from './dev/inject-drive';
+import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
+import { useSessionClient } from './session/useSessionClient';
+import { LobbyScreen } from './session/LobbyScreen';
 import './panels.css';
 
 const PHASES = [
@@ -62,6 +67,18 @@ const PHASES = [
 ];
 
 type Alliance = 'blue' | 'red';
+
+/** Placeholder until the first server snapshot arrives — never use solo clock in net mode. */
+const NET_SETUP_SNAPSHOT: MatchSnapshot = {
+  phase: 'setup',
+  timeElapsed: 0,
+  timeRemainingInPhase: 0,
+  running: false,
+  paused: false,
+  allowsDrive: false,
+  controlSource: 'none',
+  infiniteMode: false,
+};
 
 const BUILTIN_PATHS = [
   { id: 'decode-pp', label: 'Decode Auto (PP export)', file: '/examples/decode-auto.pp' },
@@ -87,6 +104,11 @@ function clampMapSelection(
 
 export function App() {
   const field = useMemo(() => getDecodeField(), []);
+  const urlSession = useMemo(() => getSessionModeFromUrl(), []);
+  const [sessionMode, setSessionMode] = useState<SessionMode>(urlSession.mode);
+  const net = useSessionClient();
+  const isNetActive = sessionMode !== 'solo' && net.connected;
+  const netArtifactsRef = useRef<SimArtifactState[]>([]);
   const fieldCenterRef = useRef<HTMLElement>(null);
   const [barriers, setBarriers] = useState(() => initEditableBarriers(field));
   const [zones, setZones] = useState(() => initEditableZones(field));
@@ -291,7 +313,8 @@ export function App() {
 
   const match = useMatchClock();
   const { snapshot: matchSnap } = match;
-  useMatchAudio(matchSnap, { enabled: matchSounds, volume: matchSoundVolume });
+  const displayMatchSnap = isNetActive ? (net.matchSnapshot ?? NET_SETUP_SNAPSHOT) : matchSnap;
+  useMatchAudio(displayMatchSnap, { enabled: matchSounds, volume: matchSoundVolume });
 
   const allowsDriveRef = useRef(matchSnap.allowsDrive);
   const matchActiveRef = useRef(matchSnap.running && !matchSnap.paused);
@@ -305,11 +328,17 @@ export function App() {
 
   const getMatchState = useCallback(() => getMatchStateRef.current(), []);
 
-  const driveEnabled = !editBarriers && !editZones && matchSnap.allowsDrive;
+  const driveEnabled =
+    !editBarriers &&
+    !editZones &&
+    (isNetActive
+      ? Boolean(net.robotId) && displayMatchSnap.allowsDrive
+      : displayMatchSnap.allowsDrive);
   const listenForInput =
-    matchSnap.phase === 'auto' ||
-    matchSnap.phase === 'transition' ||
-    matchSnap.phase === 'teleop';
+    isNetActive ||
+    displayMatchSnap.phase === 'auto' ||
+    displayMatchSnap.phase === 'transition' ||
+    displayMatchSnap.phase === 'teleop';
   const { samplerRef, sampleInput, updateHud, controlSource, gamepadConnected, driveDebug, setInjectInput, resetGamepad } =
     useDriveInput(driveEnabled, listenForInput);
 
@@ -367,7 +396,7 @@ export function App() {
     startPose,
     samplerRef,
     sampleInput,
-    !editBarriers && !editZones,
+    !editBarriers && !editZones && !isNetActive,
     onHudTick,
     {
       allowsDriveRef,
@@ -386,16 +415,56 @@ export function App() {
     },
   );
 
+  const displayMatchGameState = isNetActive ? net.gameState : matchGameState;
+  getMatchStateRef.current = () => displayMatchGameState;
+
   resetRobotRef.current = resetRobot;
 
-  const prevMatchPhaseRef = useRef(matchSnap.phase);
+  useEffect(() => {
+    netArtifactsRef.current = net.liveArtifacts;
+  }, [net.liveArtifacts]);
+
+  useEffect(() => {
+    if (!isNetActive || !net.robotId) return;
+    let frame = 0;
+    const sendLoop = () => {
+      const sample = sampleInput.current();
+      net.sendInput({
+        robotId: net.robotId ?? 'player',
+        drive: {
+          forward: sample.input.forward,
+          strafe: sample.input.strafe,
+          turn: sample.input.turn,
+          brake: sample.input.brake,
+          endpointBrake: sample.input.endpointBrake,
+        },
+        mechanism: {
+          intake: sample.mechanism.command.intake,
+          shoot: sample.mechanism.shootHeld,
+          gate: sample.mechanism.command.gate,
+        },
+        shootEdge: sample.mechanism.shootEdge,
+      });
+      frame = requestAnimationFrame(sendLoop);
+    };
+    frame = requestAnimationFrame(sendLoop);
+    return () => cancelAnimationFrame(frame);
+  }, [isNetActive, net.robotId, net.sendInput, sampleInput]);
+
+  const displayFieldReady = isNetActive ? net.connected : physicsReady;
+  const displayFieldRobotsRef = isNetActive ? net.fieldRobotsRef : fieldRobotsRef;
+  const displayFieldRobotCatalog = isNetActive ? net.fieldRobotCatalog : fieldRobotCatalog;
+  const displayLiveArtifacts = isNetActive ? net.liveArtifacts : liveArtifacts;
+  const displayLiveArtifactsRef = isNetActive ? netArtifactsRef : liveArtifactsRef;
+
+  const prevMatchPhaseRef = useRef(displayMatchSnap.phase);
   useEffect(() => {
     const prev = prevMatchPhaseRef.current;
-    prevMatchPhaseRef.current = matchSnap.phase;
-    if (prev === 'teleop' && matchSnap.phase === 'post') {
+    prevMatchPhaseRef.current = displayMatchSnap.phase;
+    if (prev === 'teleop' && displayMatchSnap.phase === 'post') {
       finalizeMatch();
     }
-  }, [matchSnap.phase, finalizeMatch]);
+  }, [displayMatchSnap.phase, finalizeMatch]);
 
   useEffect(() => {
     if (!basePathChain || !physicsReady) return;
@@ -555,8 +624,13 @@ export function App() {
   })();
 
   const resetField = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('reset');
+      return;
+    }
     followerRef.current.cancelPath();
     match.reset();
+    resetRobot(effectiveStartPose);
     setBarriers(initEditableBarriers(field));
     setZones(initEditableZones(field));
     setSelectedVertex(null);
@@ -565,11 +639,19 @@ export function App() {
   };
 
   const handleInit = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('init');
+      return;
+    }
     randomizeMotif();
     match.initMatch();
   };
 
   const handleStartAuto = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('start_auto');
+      return;
+    }
     if (matchSnap.phase === 'setup') {
       randomizeMotif();
     }
@@ -584,61 +666,124 @@ export function App() {
   };
 
   const handleStartTeleop = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('teleop');
+      return;
+    }
     match.startTeleop();
   };
 
   const handleInfinitePractice = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('infinite');
+      return;
+    }
     match.startInfinitePractice();
   };
 
   const handlePause = () => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand(displayMatchSnap.paused ? 'resume' : 'pause');
+      return;
+    }
     if (matchSnap.paused) match.resume();
     else match.pause();
   };
 
   const handleEndMatch = useCallback(() => {
+    if (isNetActive && net.role === 'host') {
+      net.sendHostCommand('end_match');
+      setCeremonyTrigger((n) => n + 1);
+      return;
+    }
     finalizeMatch();
     match.endMatch();
     setCeremonyTrigger((n) => n + 1);
-  }, [finalizeMatch, match]);
+  }, [finalizeMatch, match, isNetActive, net.role, net.sendHostCommand]);
 
-  const phaseLabel = matchSnap.infiniteMode ? 'teleop ∞' : matchSnap.phase;
+  const phaseLabel = displayMatchSnap.infiniteMode ? 'teleop ∞' : displayMatchSnap.phase;
   const clockLabel =
-    matchSnap.infiniteMode && matchSnap.phase === 'teleop'
+    displayMatchSnap.infiniteMode && displayMatchSnap.phase === 'teleop'
       ? '∞'
-      : matchSnap.phase === 'auto' ||
-          matchSnap.phase === 'transition' ||
-          matchSnap.phase === 'teleop'
-        ? `${matchSnap.timeRemainingInPhase.toFixed(1)}s`
+      : displayMatchSnap.phase === 'auto' ||
+          displayMatchSnap.phase === 'transition' ||
+          displayMatchSnap.phase === 'teleop'
+        ? `${displayMatchSnap.timeRemainingInPhase.toFixed(1)}s`
         : '—';
 
-  const canInit = matchSnap.phase === 'setup';
-  const canStartAuto = matchSnap.phase === 'init';
-  const canTeleop = matchSnap.phase !== 'teleop' && matchSnap.phase !== 'post';
-  const canInfinite =
-    matchSnap.phase !== 'post' && !(matchSnap.infiniteMode && matchSnap.phase === 'teleop');
-  const canPause =
-    matchSnap.running &&
-    matchSnap.phase !== 'setup' &&
-    matchSnap.phase !== 'init' &&
-    matchSnap.phase !== 'post';
-  const canEndMatch =
-    !ceremonyActive &&
-    matchSnap.phase !== 'setup' &&
-    matchSnap.phase !== 'init' &&
-    matchSnap.phase !== 'post';
+  const isNetHost = isNetActive && net.role === 'host';
+  const isNetSpectator = isNetActive && !isNetHost;
+  const matchControlsLocked = isNetSpectator;
 
-  const headingDeg = (pose.heading * 180) / Math.PI;
+  let canInit = displayMatchSnap.phase === 'setup';
+  let canStartAuto = displayMatchSnap.phase === 'init';
+  let canTeleop = displayMatchSnap.phase !== 'teleop' && displayMatchSnap.phase !== 'post';
+  let canInfinite =
+    displayMatchSnap.phase !== 'post' &&
+    !(displayMatchSnap.infiniteMode && displayMatchSnap.phase === 'teleop');
+  let canPause =
+    displayMatchSnap.running &&
+    displayMatchSnap.phase !== 'setup' &&
+    displayMatchSnap.phase !== 'init' &&
+    displayMatchSnap.phase !== 'post';
+  let canEndMatch =
+    !ceremonyActive &&
+    displayMatchSnap.phase !== 'setup' &&
+    displayMatchSnap.phase !== 'init' &&
+    displayMatchSnap.phase !== 'post';
+
+  if (isNetHost) {
+    canInit = !ceremonyActive && displayMatchSnap.phase !== 'init';
+    canStartAuto = displayMatchSnap.phase === 'init';
+    canTeleop =
+      displayMatchSnap.phase === 'init' ||
+      displayMatchSnap.phase === 'auto' ||
+      displayMatchSnap.phase === 'transition';
+    canInfinite =
+      displayMatchSnap.phase !== 'post' &&
+      !(displayMatchSnap.infiniteMode && displayMatchSnap.phase === 'teleop');
+  }
+
+  const displayPose = isNetActive && net.pose ? net.pose : pose;
+  const headingDeg = (displayPose.heading * 180) / Math.PI;
   const coordLabel = hover
     ? `(${hover.x.toFixed(1)}, ${hover.y.toFixed(1)}) in`
-    : `Robot (${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`;
+    : `Robot (${displayPose.x.toFixed(1)}, ${displayPose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`;
 
   return (
     <div className={`shell alliance-${alliance}`}>
+      <LobbyScreen
+        initialMode={sessionMode}
+        initialAddress={urlSession.address ?? '127.0.0.1:5191'}
+        initialName={urlSession.displayName ?? 'Driver'}
+        connected={net.connected}
+        connecting={net.connecting}
+        error={net.error}
+        role={net.role}
+        lanAddress={net.lanAddress}
+        rttMs={net.rttMs}
+        matchPhase={displayMatchSnap.phase}
+        onChooseSolo={() => {
+          net.disconnect();
+          setSessionMode('solo');
+        }}
+        onConnect={(mode, address, name) => {
+          setSessionMode(mode);
+          net.connect(address, name, mode === 'host' ? 'host' : 'join');
+        }}
+        onDisconnect={() => {
+          net.disconnect();
+          setSessionMode('solo');
+        }}
+      />
       <nav className="panels-nav" aria-label="Simulator controls">
         <div className="panels-nav__brand">
           <PanelsLogo />
           <span className="panels-nav__title">DECODE Sim</span>
+          {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
+          {isNetSpectator && (
+            <span className="panels-nav__net-badge panels-nav__net-badge--spectator">SPECTATING</span>
+          )}
         </div>
 
         <div className="panels-nav__status">
@@ -647,30 +792,32 @@ export function App() {
           <span className="panels-nav__stats">
             <span className="coord-readout">{coordLabel}</span>
             <span>Clock {clockLabel}</span>
-            <span>Elapsed {matchSnap.timeElapsed.toFixed(1)}s</span>
+            <span>Elapsed {displayMatchSnap.timeElapsed.toFixed(1)}s</span>
           </span>
         </div>
 
         <div className="panels-nav__actions">
-          <PanelsButton disabled={!canInit} onClick={handleInit}>
+          <PanelsButton disabled={matchControlsLocked || !canInit} onClick={handleInit}>
             INIT
           </PanelsButton>
-          <PanelsButton variant="primary" disabled={!canStartAuto} onClick={handleStartAuto}>
+          <PanelsButton variant="primary" disabled={matchControlsLocked || !canStartAuto} onClick={handleStartAuto}>
             START AUTO
           </PanelsButton>
-          <PanelsButton disabled={!canTeleop} onClick={handleStartTeleop}>
+          <PanelsButton disabled={matchControlsLocked || !canTeleop} onClick={handleStartTeleop}>
             TELEOP
           </PanelsButton>
-          <PanelsButton disabled={!canInfinite} onClick={handleInfinitePractice}>
+          <PanelsButton disabled={matchControlsLocked || !canInfinite} onClick={handleInfinitePractice}>
             INF
           </PanelsButton>
-          <PanelsButton disabled={!canPause} onClick={handlePause}>
-            {matchSnap.paused ? 'RESUME' : 'PAUSE'}
+          <PanelsButton disabled={matchControlsLocked || !canPause} onClick={handlePause}>
+            {displayMatchSnap.paused ? 'RESUME' : 'PAUSE'}
           </PanelsButton>
-          <PanelsButton disabled={!canEndMatch} onClick={handleEndMatch}>
+          <PanelsButton disabled={matchControlsLocked || !canEndMatch} onClick={handleEndMatch}>
             END MATCH
           </PanelsButton>
-          <PanelsButton onClick={resetField}>RESET</PanelsButton>
+          <PanelsButton disabled={matchControlsLocked} onClick={resetField}>
+            RESET
+          </PanelsButton>
         </div>
       </nav>
 
@@ -1255,7 +1402,8 @@ export function App() {
           tabIndex={0}
           onPointerDown={() => fieldCenterRef.current?.focus()}
         >
-          {!physicsReady && <div className="field-loading">Loading drive…</div>}
+          {!displayFieldReady && !isNetActive && <div className="field-loading">Loading drive…</div>}
+          {!displayFieldReady && isNetActive && <div className="field-loading">Connecting…</div>}
           <div className="field-stage">
             <FieldCanvas
               field={field}
@@ -1271,8 +1419,8 @@ export function App() {
               onSelectVertex={setSelectedVertex}
               onMoveBarrierVertex={onMoveBarrierVertex}
               onMoveZoneVertex={onMoveZoneVertex}
-              fieldRobotsRef={physicsReady ? fieldRobotsRef : undefined}
-              fieldRobotCatalog={physicsReady ? fieldRobotCatalog : []}
+              fieldRobotsRef={displayFieldReady ? displayFieldRobotsRef : undefined}
+              fieldRobotCatalog={displayFieldReady ? displayFieldRobotCatalog : []}
               plannedPath={plannedPathPoints}
               showPlannedPath={showPlannedPath && plannedPathPoints.length >= 2}
               followerTarget={followerHud?.target ?? null}
@@ -1283,15 +1431,17 @@ export function App() {
               debugZones={debugZones}
               showDebugZones={showDebugZones}
               showGateDetector={showGateDetector}
-              liveArtifactsRef={liveArtifactsRef}
-              liveArtifacts={liveArtifacts}
+              liveArtifactsRef={displayLiveArtifactsRef}
+              liveArtifacts={displayLiveArtifacts}
               artifactSpawns={artifactSpawns}
               showArtifacts={showArtifacts}
               showCenterLine={showCenterLine}
+              smoothNetMotion={isNetActive}
+              netSnapshotTick={net.snapshot?.tick ?? 0}
             />
             <MatchResultsCeremony
-              snapshot={matchSnap}
-              matchGameState={matchGameState}
+              snapshot={displayMatchSnap}
+              matchGameState={displayMatchGameState}
               getMatchState={getMatchState}
               triggerKey={ceremonyTrigger}
               audioEnabled={matchSounds}
@@ -1304,10 +1454,10 @@ export function App() {
             />
           </div>
           <MatchFieldOverlay
-            snapshot={matchSnap}
-            visible={showMatchOverlay && (matchSnap.phase !== 'post' || !ceremonyActive)}
+            snapshot={displayMatchSnap}
+            visible={showMatchOverlay && (displayMatchSnap.phase !== 'post' || !ceremonyActive)}
             alliance={alliance}
-            matchGameState={matchGameState}
+            matchGameState={displayMatchGameState}
             eventName={overlayEventName}
             matchName={overlayMatchName}
             redTeams={overlayRedTeams}
@@ -1338,31 +1488,31 @@ export function App() {
             </ul>
           </PanelSection>
 
-          <PanelSection title="Score" badge={`${matchGameState?.score.total ?? 0} pts`}>
+          <PanelSection title="Score" badge={`${displayMatchGameState?.score.total ?? 0} pts`}>
             <div className="stat-grid">
               <div>
                 Total
-                <strong>{matchGameState?.score.total ?? 0}</strong>
+                <strong>{displayMatchGameState?.score.total ?? 0}</strong>
               </div>
               <div>
                 Classified
-                <strong>{matchGameState?.teleopScore.classified ?? 0}</strong>
+                <strong>{displayMatchGameState?.teleopScore.classified ?? 0}</strong>
               </div>
               <div>
                 Overflow
-                <strong>{matchGameState?.teleopScore.overflow ?? 0}</strong>
+                <strong>{displayMatchGameState?.teleopScore.overflow ?? 0}</strong>
               </div>
               <div>
                 Base
-                <strong>{matchGameState?.teleopScore.base ?? 0}</strong>
+                <strong>{displayMatchGameState?.teleopScore.base ?? 0}</strong>
               </div>
               <div>
                 Held
-                <strong>{liveArtifacts.filter((a) => a.phase === 'held').length}</strong>
+                <strong>{displayLiveArtifacts.filter((a) => a.phase === 'held').length}</strong>
               </div>
             </div>
             <ul className="metrics score-events">
-              {(matchGameState?.events ?? [])
+              {(displayMatchGameState?.events ?? [])
                 .slice(-8)
                 .reverse()
                 .map((event, index) => (
@@ -1370,7 +1520,7 @@ export function App() {
                     {event.message}
                   </li>
                 ))}
-              {(matchGameState?.events.length ?? 0) === 0 && (
+              {(displayMatchGameState?.events.length ?? 0) === 0 && (
                 <li className="hint">Intake → shoot from launch zone → score in basin.</li>
               )}
             </ul>
@@ -1425,7 +1575,7 @@ export function App() {
             <div className="stat-grid">
               <div>
                 Score
-                <strong>{matchGameState?.score.total ?? 0}</strong>
+                <strong>{displayMatchGameState?.score.total ?? 0}</strong>
               </div>
               <div>
                 Speed

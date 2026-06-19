@@ -47,10 +47,12 @@ describe('decode field', () => {
       'blue_gate',
       'blue_goal_basin',
       'blue_ramp',
+      'blue_secret_tunnel',
       'red_base',
       'red_gate',
       'red_goal_basin',
       'red_ramp',
+      'red_secret_tunnel',
     ]);
     const redRamp = getZoneById(field, 'red_ramp');
     expect(redRamp?.capacity).toBe(9);
