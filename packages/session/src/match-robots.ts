@@ -85,12 +85,30 @@ export function isClaimableRobotId(id: string): id is ClaimableRobotId {
   return (CLAIMABLE_ROBOT_IDS as readonly string[]).includes(id);
 }
 
+/** Lobby labels (field top = “near” on screen; bottom = “far”). */
 export const ROBOT_SLOT_LABELS: Record<ClaimableRobotId, string> = {
-  player: 'Blue far',
-  'blue-near': 'Blue near',
-  'red-far': 'Red far',
-  'red-near': 'Red near',
+  player: 'Blue near',
+  'blue-near': 'Blue far',
+  'red-far': 'Red near',
+  'red-near': 'Red far',
 };
+
+/** Spawn pose when a lobby slot is claimed. */
+export function spawnPoseForClaimableSlot(id: ClaimableRobotId): Pose {
+  switch (id) {
+    case 'player':
+      return BLUE_FAR_SPAWN;
+    case 'blue-near':
+      return ALLIANCE_NEAR_SPAWN.blue;
+    case 'red-far':
+      return RED_FAR_SPAWN;
+    case 'red-near':
+      return RED_NEAR_SPAWN;
+  }
+}
+
+/** Display order in lobby grid (blue top row, red bottom row). */
+export const LOBBY_SLOT_ORDER: ClaimableRobotId[] = ['player', 'blue-near', 'red-far', 'red-near'];
 
 export function playerSpawnPose(): Pose {
   return BLUE_FAR_SPAWN;

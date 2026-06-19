@@ -59,7 +59,11 @@ Or run both at once: `pnpm dev:all`
 
 ### Desktop launcher (Phase 4)
 
-For a friend-friendly zip (no Node required):
+**Download (Windows, no Node required):** [Latest release — `FTC-Sim-win-x64.zip`](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) (~327 MB)
+
+Extract the zip and run **`FTC Sim.exe`**. Choose **Host Match** or **Join Match**. See [`docs/INTERNET_PLAY.md`](docs/INTERNET_PLAY.md) for internet play.
+
+Build from source:
 
 ```bash
 pnpm build:desktop    # → apps/desktop/release/FTC-Sim-win-x64.zip (~325 MB)

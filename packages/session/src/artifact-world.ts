@@ -370,6 +370,32 @@ export class ArtifactWorld {
     this.initialized = false;
   }
 
+  /** Hide every robot collider until a lobby slot is claimed (multiplayer). */
+  setAllRobotSlotsInactive(): void {
+    if (!this.initialized) return;
+    const park = { x: -64, y: -64, heading: 0 };
+    this.physics.syncKinematicRobot(ROBOT_BODY_ID, park, 0, 0);
+    this.physics.setColliderEnabled(ROBOT_BODY_ID, false);
+    for (const bodyId of this.npcBodyIds) {
+      this.physics.syncKinematicRobot(bodyId, park, 0, 0);
+      this.physics.setColliderEnabled(bodyId, false);
+    }
+  }
+
+  setRobotSlotActive(robotId: string, active: boolean, pose: Pose, _footprint: RobotFootprint): void {
+    if (!this.initialized) return;
+    const bodyId = robotPhysicsBodyId(robotId);
+    if (active) {
+      this.physics.syncKinematicRobot(bodyId, pose, 0, 0);
+      this.physics.setColliderEnabled(bodyId, true);
+      this.physics.setRobotArtifactCollision(bodyId, true);
+    } else {
+      const park = { x: -64, y: -64, heading: 0 };
+      this.physics.syncKinematicRobot(bodyId, park, 0, 0);
+      this.physics.setColliderEnabled(bodyId, false);
+    }
+  }
+
   private adapter(): PhysicsAdapter {
     const friction = this.artifactFriction;
     return {

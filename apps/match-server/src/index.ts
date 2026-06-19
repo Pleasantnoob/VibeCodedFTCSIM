@@ -72,6 +72,7 @@ function buildSession(): SimSession {
     robotConfig: DEFAULT_SIM_ROBOT_CONFIG,
     practiceRobots: practiceFieldRobots(footprint),
     playerTeamNumber: DEFAULT_PRACTICE_TEAMS.blueFar,
+    onlyClaimedRobots: true,
   });
 }
 
@@ -131,13 +132,11 @@ async function main(): Promise<void> {
     const previous = client.robotId;
     client.robotId = robotId;
     if (previous && previous !== robotId) {
-      session.clearRobotTeamLabel(previous);
+      session.releaseRobotSlot(previous);
       broadcast({ type: 'slot_released', robotId: previous, playerId: client.id });
     }
     const label = teamLabel?.trim();
-    if (label) {
-      session.setRobotTeamLabel(robotId, label);
-    }
+    session.claimRobotSlot(robotId, label);
     broadcast({
       type: 'slot_claimed',
       robotId,
@@ -182,7 +181,7 @@ async function main(): Promise<void> {
       const releasedRobot = client.robotId;
       clients.delete(ws);
       if (releasedRobot) {
-        session.clearRobotTeamLabel(releasedRobot);
+        session.releaseRobotSlot(releasedRobot);
         broadcast({ type: 'slot_released', robotId: releasedRobot, playerId: client.id });
         broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
       }

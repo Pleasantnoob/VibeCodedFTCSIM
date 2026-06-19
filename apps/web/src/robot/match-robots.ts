@@ -14,6 +14,7 @@ export {
   DEFAULT_PRACTICE_TEAMS,
   PLAYER_ROBOT_ID,
   CLAIMABLE_ROBOT_IDS,
+  LOBBY_SLOT_ORDER,
   ROBOT_SLOT_LABELS,
   isClaimableRobotId,
   type ClaimableRobotId,

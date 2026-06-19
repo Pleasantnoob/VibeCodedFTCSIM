@@ -13,6 +13,9 @@ import {
   createNpcMotionStates,
   matchRobotSnapshots,
   PLAYER_ROBOT_ID,
+  spawnPoseForClaimableSlot,
+  isClaimableRobotId,
+  type ClaimableRobotId,
   type FieldRobotCatalogEntry,
   type FieldRobotRenderState,
   type MatchRobotLayout,
@@ -27,6 +30,8 @@ import {
 
 export const PHYSICS_DT = 1 / 120;
 
+const PARKED_ROBOT_POSE: Pose = { x: -64, y: -64, heading: 0 };
+
 export interface SimSessionConfig {
   field: FieldDefinition;
   alliance: Alliance;
@@ -38,6 +43,8 @@ export interface SimSessionConfig {
   playerTeamNumber?: string;
   artifactFriction?: number;
   fixedMotif?: '21' | '22' | '23';
+  /** Net multiplayer: robots appear only after a player claims their slot. */
+  onlyClaimedRobots?: boolean;
 }
 
 export interface SimSessionState {
@@ -78,6 +85,7 @@ export class SimSession {
   private injectedInput: import('@ftc-sim/robot').HolonomicInput | null = null;
   private robotInputs = new Map<string, DriveSample>();
   private robotTeamLabels = new Map<string, string>();
+  private claimedRobotIds = new Set<string>();
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -114,6 +122,15 @@ export class SimSession {
     }
     this.world.setArtifactFriction(this.artifactFriction);
     this.refreshFieldRobots();
+    if (this.config.onlyClaimedRobots) {
+      this.world.setAllRobotSlotsInactive();
+      this.pose = { ...PARKED_ROBOT_POSE };
+      for (const npc of this.npcMotion) {
+        npc.pose = { ...PARKED_ROBOT_POSE };
+        npc.linear = { x: 0, y: 0 };
+        npc.angular = 0;
+      }
+    }
     this.ready = true;
   }
 
@@ -185,6 +202,46 @@ export class SimSession {
     this.refreshFieldRobots();
   }
 
+  claimRobotSlot(robotId: string, teamLabel?: string): void {
+    if (!isClaimableRobotId(robotId)) return;
+    const pose = spawnPoseForClaimableSlot(robotId);
+    const footprint = simRobotFootprint(this.robotConfig);
+    this.claimedRobotIds.add(robotId);
+    if (robotId === PLAYER_ROBOT_ID) {
+      this.pose = { ...pose };
+      this.linear = { x: 0, y: 0 };
+      this.angular = 0;
+    } else {
+      const npc = this.npcMotion.find((entry) => entry.id === robotId);
+      if (npc) {
+        npc.pose = { ...pose };
+        npc.linear = { x: 0, y: 0 };
+        npc.angular = 0;
+      }
+    }
+    if (teamLabel?.trim()) {
+      this.setRobotTeamLabel(robotId, teamLabel);
+    }
+    this.world.setRobotSlotActive(robotId, true, pose, footprint);
+    this.refreshFieldRobots();
+  }
+
+  releaseRobotSlot(robotId: string): void {
+    if (!this.claimedRobotIds.delete(robotId)) return;
+    this.clearRobotTeamLabel(robotId);
+    this.world.setRobotSlotActive(robotId, false, { x: -64, y: -64, heading: 0 }, simRobotFootprint(this.robotConfig));
+    this.refreshFieldRobots();
+  }
+
+  private isRobotClaimed(robotId: string): boolean {
+    if (!this.config.onlyClaimedRobots) return true;
+    return this.claimedRobotIds.has(robotId);
+  }
+
+  private activeNpcMotion(): NpcMotionState[] {
+    return this.npcMotion.filter((npc) => this.isRobotClaimed(npc.id));
+  }
+
   applyHostCommand(cmd: HostCommand): void {
     switch (cmd) {
       case 'init':
@@ -232,12 +289,29 @@ export class SimSession {
       this.config.fixedMotif,
     );
     this.world.setArtifactFriction(this.artifactFriction);
+    if (this.config.onlyClaimedRobots) {
+      const claimed = [...this.claimedRobotIds];
+      const labels = new Map(this.robotTeamLabels);
+      this.claimedRobotIds.clear();
+      this.world.setAllRobotSlotsInactive();
+      this.pose = { ...PARKED_ROBOT_POSE };
+      for (const npc of this.npcMotion) {
+        npc.pose = { ...PARKED_ROBOT_POSE };
+        npc.linear = { x: 0, y: 0 };
+        npc.angular = 0;
+      }
+      for (const robotId of claimed) {
+        this.claimRobotSlot(robotId, labels.get(robotId));
+      }
+    }
     this.refreshFieldRobots();
   }
 
   step(dt: number = PHYSICS_DT): void {
     if (!this.ready) return;
 
+    const playerClaimed = this.isRobotClaimed(PLAYER_ROBOT_ID);
+    const activeNpcs = this.activeNpcMotion();
     const sample = this.robotInputs.get(PLAYER_ROBOT_ID) ?? {
       input: { forward: 0, strafe: 0, turn: 0 },
       mechanism: { command: {}, shootEdge: false, gateEdge: false, shootHeld: false },
@@ -252,22 +326,33 @@ export class SimSession {
     const limits = simRobotLimits(this.robotConfig);
     const footprint = simRobotFootprint(this.robotConfig);
 
-    const { input: driveInput, driveFrame } = resolveDriveInput(
-      sample,
-      this.injectedInput,
-      matchSnap.allowsDrive,
-      matchSnap.controlSource,
-      phase,
-      matchActive,
-      this.follower,
-      this.pose,
-      this.linear,
-      dt,
-      limits,
-    );
+    let driveInput: import('@ftc-sim/robot').HolonomicInput = {
+      forward: 0,
+      strafe: 0,
+      turn: 0,
+    };
+    let driveFrame: import('@ftc-sim/robot').DriveFrame = 'field';
+
+    if (playerClaimed) {
+      const resolved = resolveDriveInput(
+        sample,
+        this.injectedInput,
+        matchSnap.allowsDrive,
+        matchSnap.controlSource,
+        phase,
+        matchActive,
+        this.follower,
+        this.pose,
+        this.linear,
+        dt,
+        limits,
+      );
+      driveInput = resolved.input;
+      driveFrame = resolved.driveFrame;
+    }
 
     const npcInputs: Record<string, import('@ftc-sim/robot').HolonomicInput> = {};
-    for (const npc of this.npcMotion) {
+    for (const npc of activeNpcs) {
       const npcSample = this.robotInputs.get(npc.id);
       if (!npcSample || !matchSnap.allowsDrive) continue;
       npcInputs[npc.id] = {
@@ -281,12 +366,12 @@ export class SimSession {
 
     const multi = stepMultiRobotDrive({
       player: {
-        pose: this.pose,
-        linear: this.linear,
-        angular: this.angular,
+        pose: playerClaimed ? this.pose : PARKED_ROBOT_POSE,
+        linear: playerClaimed ? this.linear : { x: 0, y: 0 },
+        angular: playerClaimed ? this.angular : 0,
         input: driveInput,
       },
-      npcs: this.npcMotion,
+      npcs: activeNpcs,
       npcInputs,
       dt,
       limits,
@@ -298,15 +383,23 @@ export class SimSession {
       maxAngularAcceleration: this.robotConfig.maxAngularAcceleration,
     });
 
-    this.pose = multi.player.pose;
-    this.linear = multi.player.linear;
-    this.angular = multi.player.angular;
-    this.npcMotion = multi.npcs.map((npc, index) => ({
-      ...this.npcMotion[index]!,
-      pose: npc.pose,
-      linear: npc.linear,
-      angular: npc.angular,
-    }));
+    if (playerClaimed) {
+      this.pose = multi.player.pose;
+      this.linear = multi.player.linear;
+      this.angular = multi.player.angular;
+    }
+    for (let i = 0; i < activeNpcs.length; i += 1) {
+      const npcId = activeNpcs[i]!.id;
+      const index = this.npcMotion.findIndex((entry) => entry.id === npcId);
+      if (index < 0) continue;
+      const updated = multi.npcs[i]!;
+      this.npcMotion[index] = {
+        ...this.npcMotion[index]!,
+        pose: updated.pose,
+        linear: updated.linear,
+        angular: updated.angular,
+      };
+    }
     this.refreshFieldRobots();
 
     const emptySample: DriveSample = {
@@ -314,17 +407,22 @@ export class SimSession {
       mechanism: { command: {}, shootEdge: false, gateEdge: false, shootHeld: false },
     };
     const autoMechanisms = phase === 'auto' || phase === 'transition';
-    const playerSample = this.robotInputs.get(PLAYER_ROBOT_ID) ?? emptySample;
-    const robotTicks: RobotMechanismTickInput[] = [
-      this.buildRobotMechanismTick(
-        PLAYER_ROBOT_ID,
-        this.pose,
-        this.linear,
-        this.config.alliance,
-        playerSample,
-        autoMechanisms,
-      ),
-      ...this.npcMotion.map((npc) =>
+    const robotTicks: RobotMechanismTickInput[] = [];
+    if (playerClaimed) {
+      const playerSample = this.robotInputs.get(PLAYER_ROBOT_ID) ?? emptySample;
+      robotTicks.push(
+        this.buildRobotMechanismTick(
+          PLAYER_ROBOT_ID,
+          this.pose,
+          this.linear,
+          this.config.alliance,
+          playerSample,
+          autoMechanisms,
+        ),
+      );
+    }
+    for (const npc of activeNpcs) {
+      robotTicks.push(
         this.buildRobotMechanismTick(
           npc.id,
           npc.pose,
@@ -333,8 +431,8 @@ export class SimSession {
           this.robotInputs.get(npc.id) ?? emptySample,
           false,
         ),
-      ),
-    ];
+      );
+    }
 
     this.world.tickRobots(
       dt,
@@ -449,10 +547,12 @@ export class SimSession {
       simRobotFootprint(this.robotConfig),
       this.npcMotion,
     );
-    this.fieldRobots = built.map((robot) => ({
-      ...robot,
-      teamNumber: this.robotTeamLabels.get(robot.id) ?? robot.teamNumber,
-    }));
+    this.fieldRobots = built
+      .filter((robot) => this.isRobotClaimed(robot.id))
+      .map((robot) => ({
+        ...robot,
+        teamNumber: this.robotTeamLabels.get(robot.id) ?? robot.teamNumber,
+      }));
     this.fieldRobotCatalog = buildFieldRobotCatalog(this.practiceLayouts, {
       alliance: this.config.alliance,
       teamNumber: this.robotTeamLabels.get(PLAYER_ROBOT_ID) ?? this.playerTeamNumber,
@@ -465,11 +565,16 @@ export class SimSession {
   }
 
   private buildMatchRobots() {
-    return matchRobotSnapshots(this.pose, this.config.alliance, this.npcMotion, simRobotFootprint(this.robotConfig));
+    return matchRobotSnapshots(
+      this.pose,
+      this.config.alliance,
+      this.activeNpcMotion(),
+      simRobotFootprint(this.robotConfig),
+    ).filter((robot) => this.isRobotClaimed(robot.id));
   }
 
   private buildNpcSync() {
-    return this.npcMotion.map((npc) => ({
+    return this.activeNpcMotion().map((npc) => ({
       id: npc.id,
       pose: npc.pose,
       linear: npc.linear,

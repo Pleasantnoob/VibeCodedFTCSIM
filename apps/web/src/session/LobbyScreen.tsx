@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionMode } from './session-mode';
 import { fetchHostInfo, readInternetAddressLocal } from './internet-address';
 import {
-  CLAIMABLE_ROBOT_IDS,
+  LOBBY_SLOT_ORDER,
   ROBOT_SLOT_LABELS,
   type ClaimableRobotId,
 } from '../robot/match-robots';
@@ -152,7 +152,7 @@ export function LobbyScreen({
             />
           </label>
           <div className="lobby-slots__grid">
-            {CLAIMABLE_ROBOT_IDS.map((slotId) => {
+            {LOBBY_SLOT_ORDER.map((slotId) => {
               const owner = slotOwner(slotId);
               const isMine = robotId === slotId;
               const taken = Boolean(owner && owner.id !== playerId);
