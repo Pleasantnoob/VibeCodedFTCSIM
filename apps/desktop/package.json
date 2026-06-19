@@ -10,8 +10,8 @@
     "start": "electron .",
     "dev": "tsc && electron .",
     "prepare:resources": "node scripts/prepare-resources.mjs",
-    "pack": "pnpm prepare:resources && pnpm build && electron-builder --dir",
-    "dist": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "pack": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "dist": "pnpm pack && node scripts/make-release-zip.mjs",
     "release": "node scripts/release.mjs",
     "typecheck": "tsc --noEmit"
   },
@@ -57,13 +57,12 @@
     "win": {
       "target": [
         {
-          "target": "zip",
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "FTC-Sim-win-${arch}.${ext}",
       "signAndEditExecutable": false
     },
     "asar": true

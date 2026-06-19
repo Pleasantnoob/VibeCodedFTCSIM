@@ -1,6 +1,12 @@
 # VibeCodedFTCSIM
 
-FTC **DECODE** (2025–26) practice simulator — holonomic drive, Rapier artifact physics, DECODE rules, multi-robot field, and FTC Live–style match overlay.
+Free FTC DECODE practice simulator for Windows. Drive a holonomic robot, score artifacts, run matches solo or with friends.
+
+**Download:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — extract the `FTC Sim` folder, run `FTC Sim.exe`.
+
+- **Solo** — Play Solo in the launcher.
+- **LAN** — Host shares `192.168.x.x:5191` on the same Wi‑Fi.
+- **Internet** — Host forwards **TCP 5191**, shares `public-ip:5191`.
 
 Repository: [github.com/Pleasantnoob/VibeCodedFTCSIM](https://github.com/Pleasantnoob/VibeCodedFTCSIM)
 
@@ -59,19 +65,9 @@ Or run both at once: `pnpm dev:all`
 
 ### Desktop launcher (Phase 4)
 
-**Download (Windows, no Node required):** [Latest release — `FTC-Sim-win-x64.zip`](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) (~327 MB)
+**Download:** [Latest release zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — extract the `FTC Sim` folder, run `FTC Sim.exe`. Solo, LAN, or internet (host port-forwards TCP 5191).
 
-Extract the zip and run **`FTC Sim.exe`**. Choose **Host Match** or **Join Match**. See [`docs/INTERNET_PLAY.md`](docs/INTERNET_PLAY.md) for internet play.
-
-Build from source:
-
-```bash
-pnpm build:desktop    # → apps/desktop/release/FTC-Sim-win-x64.zip (~325 MB)
-```
-
-Or run the unpacked build directly: `apps/desktop/release/win-unpacked/FTC Sim.exe`
-
-Windows may show SmartScreen — click **More info** → **Run anyway** (unsigned build).
+Build from source: `pnpm build:desktop`
 
 Dev launcher (uses built `apps/web/dist` + `apps/match-server/dist`):
 
