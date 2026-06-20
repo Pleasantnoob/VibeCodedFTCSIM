@@ -158,6 +158,17 @@ code {
   border-color: #dc2626;
 }
 
+.panels-nav__version-warn {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fcd34d;
+  background: #422006;
+  border: 1px solid #b45309;
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+  cursor: help;
+}
+
 .panels-nav__status {
   display: flex;
   align-items: center;

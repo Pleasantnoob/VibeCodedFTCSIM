@@ -75,6 +75,19 @@ export function robotAnyPartInZone(footprint: Vector2[], polygon: Vector2[]): bo
   return footprint.some((pt) => pointInPolygon(pt, polygon));
 }
 
+/** True when any footprint corner overlaps a launch_zone polygon (manual LEAVE fail). */
+export function robotInAnyLaunchZone(
+  footprint: Vector2[],
+  launchZones: Array<{ polygon: Vector2[] }>,
+): boolean {
+  for (const zone of launchZones) {
+    if (zone.polygon.length >= 3 && robotAnyPartInZone(footprint, zone.polygon)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function robotFootprintsOverlap(a: Vector2[], b: Vector2[]): boolean {
   for (const pt of a) {
     if (pointInPolygon(pt, b)) return true;

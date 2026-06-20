@@ -28,7 +28,7 @@ import { buildWsUrl } from './session-mode';
 
 declare const __APP_VERSION__: string;
 
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.2.6';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
 const CONNECT_TIMEOUT_MS = 12_000;
 const HUD_UPDATE_MS = 1000 / 12;
 
@@ -80,6 +80,7 @@ export interface SessionClientState {
   roomPlayers: RoomPlayer[];
   slotError: string | null;
   netFollower: StateSnapshot['follower'] | null;
+  versionWarning: string | null;
 }
 
 const EMPTY: SessionClientState = {
@@ -101,6 +102,7 @@ const EMPTY: SessionClientState = {
   roomPlayers: [],
   slotError: null,
   netFollower: null,
+  versionWarning: null,
 };
 
 function snapshotToArtifacts(snapshot: StateSnapshot): SimArtifactState[] {
@@ -291,6 +293,11 @@ export function useSessionClient() {
           window.clearInterval(helloRetry);
           clearConnectTimeout();
           robotIdRef.current = message.robotId ?? null;
+          const serverVersion = message.serverAppVersion?.trim();
+          const versionWarning =
+            serverVersion && serverVersion !== APP_VERSION
+              ? `Client v${APP_VERSION} / Host v${serverVersion} — update recommended`
+              : null;
           setState((prev) => ({
             ...prev,
             connected: true,
@@ -299,6 +306,7 @@ export function useSessionClient() {
             role: message.role,
             robotId: message.robotId ?? null,
             slotError: null,
+            versionWarning,
           }));
           return;
         }

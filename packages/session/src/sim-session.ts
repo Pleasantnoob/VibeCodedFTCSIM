@@ -385,13 +385,18 @@ export class SimSession {
     const footprint = simRobotFootprint(this.robotConfig);
 
     if (
-      playerClaimed &&
       matchActive &&
-      (phase === 'auto' || phase === 'transition') &&
-      this.hasActiveDriveInput(sample)
+      (phase === 'auto' || phase === 'transition')
     ) {
-      this.cancelAutoFollower();
-      this.clock.startTeleop();
+      for (const robotId of this.claimedRobotIds) {
+        const robotSample = this.robotInputs.get(robotId);
+        if (!robotSample || !this.hasActiveDriveInput(robotSample)) continue;
+        if (robotId === PLAYER_ROBOT_ID) {
+          this.cancelAutoFollower();
+        }
+        this.clock.startTeleop();
+        break;
+      }
     }
 
     let driveInput: import('@ftc-sim/robot').HolonomicInput = {
@@ -608,7 +613,7 @@ export class SimSession {
     if (!this.ready) return null;
     const phase = this.clock.snapshot().phase;
     if (phase === 'auto' || phase === 'transition') {
-      this.world.evaluateEndOfAuto();
+      this.world.evaluateEndOfAuto(this.buildMatchRobots());
     }
     if (phase === 'auto' || phase === 'transition' || phase === 'teleop') {
       this.world.evaluateEndOfMatch(this.buildMatchRobots());
@@ -626,7 +631,7 @@ export class SimSession {
     if (prevPhase === phaseNow) return;
 
     if (prevPhase === 'auto' && phaseNow === 'transition') {
-      this.world.evaluateEndOfAuto();
+      this.world.evaluateEndOfAuto(this.buildMatchRobots());
     }
     if (prevPhase === 'teleop' && phaseNow === 'post') {
       this.world.evaluateEndOfMatch(this.buildMatchRobots());

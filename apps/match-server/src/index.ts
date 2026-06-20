@@ -77,9 +77,9 @@ function readAppVersion(): string {
   try {
     const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'desktop', 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-    return pkg.version ?? '0.2.6';
+    return pkg.version ?? '1.0.0';
   } catch {
-    return '0.2.6';
+    return '1.0.0';
   }
 }
 
@@ -309,6 +309,7 @@ async function main(): Promise<void> {
           playerId: record.id,
           role: record.role,
           robotId: record.robotId,
+          serverAppVersion: APP_VERSION,
           roomConfig: {
             alliance: 'blue',
             barrierHash: hashBarriers(barriers),
@@ -414,16 +415,19 @@ async function main(): Promise<void> {
   startFixedTickLoop({
     hz: SERVER_TICK_HZ,
     onTick: () => {
-      session.clearRobotInputs();
       for (const client of clients.values()) {
         if (!client.robotId) continue;
-        const frame = client.input.consume();
+        const frame = client.input.peekLatest();
         if (frame) {
           session.applyInputFrame({ ...frame, robotId: client.robotId });
         }
       }
 
       session.step();
+
+      for (const client of clients.values()) {
+        client.input.clearEdges();
+      }
       const afterSnap = session.clock.snapshot();
       broadcastAudioCues(prevMatchSnapshot, afterSnap);
       prevMatchSnapshot = afterSnap;

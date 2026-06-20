@@ -38,7 +38,7 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '0.2.6',
+    v: '1.0.0',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }

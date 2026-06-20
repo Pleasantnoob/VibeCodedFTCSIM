@@ -288,7 +288,8 @@ export function usePhysicsRobot(
       if (prevPhase === phaseNow) return;
 
       if (prevPhase === 'auto' && phaseNow === 'transition') {
-        artifactWorldRef.current.evaluateEndOfAuto();
+        const robots = buildMatchRobots();
+        artifactWorldRef.current.evaluateEndOfAuto(robots);
       }
       if (prevPhase === 'teleop' && phaseNow === 'post') {
         const robots = buildMatchRobots();
@@ -513,7 +514,7 @@ export function usePhysicsRobot(
     const phase = getMatchSnapshotRef?.current?.().phase ?? 'setup';
 
     if (phase === 'auto' || phase === 'transition') {
-      world.evaluateEndOfAuto();
+      world.evaluateEndOfAuto(buildMatchRobots());
     }
     if (phase === 'auto' || phase === 'transition' || phase === 'teleop') {
       const robots = buildMatchRobots();

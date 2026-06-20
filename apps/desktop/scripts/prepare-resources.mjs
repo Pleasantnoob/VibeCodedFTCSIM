@@ -52,11 +52,35 @@ fs.cpSync(path.join(repoRoot, 'apps/web/dist'), webOut, { recursive: true });
 
 console.log('[prepare] Deploying match-server (production deps)…');
 fs.rmSync(serverOut, { recursive: true, force: true });
-run(`pnpm --config.confirmModulesPurge=false --filter @ftc-sim/match-server --prod deploy --legacy "${serverOut}"`);
+run(`pnpm --config.confirmModulesPurge=false --config.node-linker=hoisted --config.package-import-method=copy --filter @ftc-sim/match-server --prod deploy --legacy "${serverOut}"`);
 
 const rapierPath = path.join(serverOut, 'node_modules', '@dimforge', 'rapier2d-compat');
 if (!fs.existsSync(rapierPath)) {
   console.error('[prepare] Deploy missing @dimforge/rapier2d-compat — Host Match will fail.');
+  process.exit(1);
+}
+
+function dirSizeBytes(root) {
+  let total = 0;
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else total += fs.statSync(full).size;
+    }
+  }
+  return total;
+}
+
+const nodeModulesPath = path.join(serverOut, 'node_modules');
+const deployMb = dirSizeBytes(nodeModulesPath) / (1024 * 1024);
+console.log(`[prepare] match-server node_modules: ${deployMb.toFixed(1)} MB`);
+if (deployMb > 50) {
+  console.error(
+    '[prepare] match-server deploy is too large — expected <50 MB prod deps. Delete apps/desktop/resources/match-server and rebuild.',
+  );
   process.exit(1);
 }
 

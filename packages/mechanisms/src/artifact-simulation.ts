@@ -257,7 +257,8 @@ export class ArtifactSimulation {
     state.shootHoldWanted = active;
   }
 
-  evaluateEndOfAuto(): number {
+  evaluateEndOfAuto(robots: MatchRobotSnapshot[]): number {
+    this.rules.evaluateAutoLeave(robots);
     return this.rules.evaluatePattern('auto');
   }
 

@@ -31,6 +31,7 @@ export {
   robotAnyPartInZone,
   robotFootprintsContact,
   robotFootprintsOverlap,
+  robotInAnyLaunchZone,
   robotOverLaunchLine,
   sumScore,
 } from './geometry.js';

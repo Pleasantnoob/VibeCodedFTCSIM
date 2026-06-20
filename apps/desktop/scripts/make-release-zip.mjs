@@ -55,11 +55,52 @@ function writeLatestYml(filePath, size) {
   console.log('[make-release-zip] Wrote latest.yml for auto-updater');
 }
 
-function removeStale(target, label) {
+function dirSizeMb(root) {
+  if (!fs.existsSync(root)) return 0;
+  let total = 0;
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else total += fs.statSync(full).size;
+    }
+  }
+  return total / (1024 * 1024);
+}
+
+function verifyBundledMatchServer(appRoot, label) {
+  const nm = path.join(appRoot, 'resources', 'match-server', 'node_modules');
+  const mb = dirSizeMb(nm);
+  console.log(`[make-release-zip] ${label} match-server node_modules: ${mb.toFixed(1)} MB`);
+  if (mb > 50) {
+    console.error(
+      `[make-release-zip] ${label} match-server is bloated (${mb.toFixed(1)} MB). Delete ${appRoot} and rebuild.`,
+    );
+    process.exit(1);
+  }
+}
+
+function copyAppBundle(fromDir, toDir) {
+  removeDirAggressive(toDir, toDir);
+  fs.cpSync(fromDir, toDir, { recursive: true, force: true });
+  const bundledServer = path.join(toDir, 'resources', 'match-server');
+  const freshServer = path.join(desktopRoot, 'resources', 'match-server');
+  if (!fs.existsSync(freshServer)) {
+    console.error('[make-release-zip] Missing prepared resources/match-server — run pnpm prepare:resources first.');
+    process.exit(1);
+  }
+  removeDirAggressive(bundledServer, `${path.basename(toDir)} match-server`);
+  fs.cpSync(freshServer, bundledServer, { recursive: true, force: true });
+  verifyBundledMatchServer(toDir, path.basename(toDir));
+}
+
+function removeDirAggressive(target, label) {
   try {
     if (!fs.existsSync(target)) return;
-    fs.rmSync(target, { recursive: true, force: true });
-    console.log('[make-release-zip] Removed stale', label);
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    console.log('[make-release-zip] Removed', label);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn('[make-release-zip] Could not remove', label, '—', message);
@@ -76,14 +117,14 @@ function cleanupReleaseDir() {
     'FTC-Sim-win-x64.building.zip',
   ];
   for (const name of staleNames) {
-    removeStale(path.join(releaseDir, name), name);
+    removeDirAggressive(path.join(releaseDir, name), name);
   }
-  removeStale(path.join(desktopRoot, 'apps'), 'apps/desktop/apps');
+  removeDirAggressive(path.join(desktopRoot, 'apps'), 'apps/desktop/apps');
   try {
     for (const entry of fs.readdirSync(releaseDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       if (/^FTC-Sim-v\d/i.test(entry.name)) {
-        removeStale(path.join(releaseDir, entry.name), entry.name);
+        removeDirAggressive(path.join(releaseDir, entry.name), entry.name);
       }
     }
   } catch (error) {
@@ -98,20 +139,19 @@ if (!fs.existsSync(unpackedDir)) {
 }
 
 console.log('[make-release-zip] Refreshing local copy at release/FTC-Sim/…');
-fs.rmSync(localDir, { recursive: true, force: true });
-fs.cpSync(unpackedDir, localDir, { recursive: true, force: true });
+copyAppBundle(unpackedDir, localDir);
 console.log('[make-release-zip] Local exe:', path.join(localDir, 'FTC Sim.exe'));
 
 console.log('[make-release-zip] Copying app into staging/FTC Sim/…');
-fs.rmSync(stagingDir, { recursive: true, force: true });
+removeDirAggressive(stagingDir, 'release/staging');
 fs.mkdirSync(stagingDir, { recursive: true });
-fs.cpSync(unpackedDir, stagingAppDir, { recursive: true, force: true });
+copyAppBundle(unpackedDir, stagingAppDir);
 
 console.log('[make-release-zip] Creating zip (Windows Compress-Archive, ~5 min, no progress bar)…');
 const zipBuildingPath = path.join(releaseDir, 'FTC-Sim-win-x64.building.zip');
 fs.rmSync(zipBuildingPath, { force: true });
 run(
-  `powershell -NoProfile -Command "Compress-Archive -Path ${psQuote(stagingAppDir)} -DestinationPath ${psQuote(zipBuildingPath)} -CompressionLevel Fastest -Force"`,
+  `powershell -NoProfile -Command "Compress-Archive -Path ${psQuote(stagingAppDir)} -DestinationPath ${psQuote(zipBuildingPath)} -CompressionLevel Optimal -Force"`,
   desktopRoot,
 );
 fs.rmSync(zipPath, { force: true });

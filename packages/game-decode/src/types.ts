@@ -98,6 +98,9 @@ export interface MatchState {
   fouls: Record<Alliance, AllianceFoulLedger>;
   robotParking: Record<string, 'none' | 'partial' | 'full'>;
   parkingScored: boolean;
+  /** Per-robot AUTO LEAVE (3 pts each) at end of AUTO. */
+  robotLeave: Record<string, boolean>;
+  leaveScored: boolean;
   events: GameEvent[];
 }
 

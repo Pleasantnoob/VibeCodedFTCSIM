@@ -220,9 +220,9 @@ export class ArtifactWorld {
     this.setShootHold(PLAYER_ROBOT_ID, active);
   }
 
-  evaluateEndOfAuto(): void {
+  evaluateEndOfAuto(robots: MatchRobotSnapshot[]): void {
     if (!this.initialized) return;
-    this.sim.evaluateEndOfAuto();
+    this.sim.evaluateEndOfAuto(robots);
   }
 
   evaluateEndOfMatch(robots: MatchRobotSnapshot[]): void {

@@ -5,6 +5,7 @@ import {
   evaluateBaseReturn,
   robotAnyPartInZone,
   robotFootprintsContact,
+  robotInAnyLaunchZone,
   sumScore,
 } from './geometry.js';
 import { countPatternMatchesForAlliance } from './pattern.js';
@@ -91,6 +92,8 @@ export class DecodeRulesEngine {
       fouls: { red: emptyFoulLedger(), blue: emptyFoulLedger() },
       robotParking: {},
       parkingScored: false,
+      robotLeave: {},
+      leaveScored: false,
       events: [],
     };
   }
@@ -126,6 +129,35 @@ export class DecodeRulesEngine {
     if (slotIndex >= 0 && slotIndex < this.state.rampOccupancy[alliance].length) {
       this.state.rampOccupancy[alliance][slotIndex] = null;
     }
+  }
+
+  /** Manual §10.5.3 E — LEAVE assessed at end of AUTO (3 pts per robot, once each). */
+  evaluateAutoLeave(robots: MatchRobotSnapshot[]): number {
+    if (this.state.leaveScored) return 0;
+    this.state.leaveScored = true;
+
+    const launchZones = this.ctx.field.zones.filter((z) => z.type === 'launch_zone');
+    let awarded = 0;
+
+    for (const robot of robots) {
+      if (robotInAnyLaunchZone(robot.footprint, launchZones)) continue;
+      const points = this.rules.scoring.leave;
+      const bucket = this.state.byAlliance[robot.alliance].autoScore;
+      bucket.leave += points;
+      this.state.robotLeave[robot.id] = true;
+      awarded += points;
+      this.recomputeAllianceTotal(robot.alliance);
+      this.log(
+        this.state.timeElapsed,
+        'score',
+        `${robot.alliance.toUpperCase()} ${robot.id} LEAVE +${points}`,
+      );
+    }
+
+    if (awarded > 0) {
+      this.syncLegacyScore();
+    }
+    return awarded;
   }
 
   evaluatePattern(period: 'auto' | 'teleop'): number {

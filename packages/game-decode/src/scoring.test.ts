@@ -7,9 +7,80 @@ import { getDecodeField } from '@ftc-sim/season-decode';
 describe('DECODE rules', () => {
   it('validates scoring table against manual Table 10-2', () => {
     expect(() => validateRules()).not.toThrow();
+    expect(DECODE_RULES.scoring.leave).toBe(3);
     expect(DECODE_RULES.scoring.classified).toBe(3);
     expect(DECODE_RULES.scoring.overflow).toBe(1);
     expect(DECODE_RULES.scoring.patternPerArtifact).toBe(2);
+  });
+
+  it('awards AUTO LEAVE when robot footprint clears all launch zones', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
+    engine.syncPhase('auto', 29);
+
+    const outsideLaunch = [
+      { x: 60, y: 60 },
+      { x: 66, y: 60 },
+      { x: 66, y: 66 },
+      { x: 60, y: 66 },
+    ];
+
+    engine.evaluateAutoLeave([{ id: 'player', alliance: 'blue', footprint: outsideLaunch }]);
+    const state = engine.getState();
+    expect(state.byAlliance.blue.autoScore.leave).toBe(3);
+    expect(state.robotLeave.player).toBe(true);
+    expect(state.leaveScored).toBe(true);
+  });
+
+  it('denies AUTO LEAVE when robot still overlaps a launch zone', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
+    engine.syncPhase('auto', 29);
+
+    const inNearLaunch = [
+      { x: 70, y: 140 },
+      { x: 74, y: 140 },
+      { x: 74, y: 136 },
+      { x: 70, y: 136 },
+    ];
+
+    engine.evaluateAutoLeave([{ id: 'player', alliance: 'blue', footprint: inNearLaunch }]);
+    const state = engine.getState();
+    expect(state.byAlliance.blue.autoScore.leave).toBe(0);
+    expect(state.robotLeave.player).toBeUndefined();
+  });
+
+  it('awards LEAVE for both alliance robots once each', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
+    engine.syncPhase('auto', 29);
+
+    const outside = [
+      { x: 60, y: 60 },
+      { x: 66, y: 60 },
+      { x: 66, y: 66 },
+      { x: 60, y: 66 },
+    ];
+
+    engine.evaluateAutoLeave([
+      { id: 'blue-a', alliance: 'blue', footprint: outside },
+      { id: 'blue-b', alliance: 'blue', footprint: outside },
+    ]);
+    expect(engine.getState().byAlliance.blue.autoScore.leave).toBe(6);
+    expect(engine.getState().robotLeave['blue-a']).toBe(true);
+    expect(engine.getState().robotLeave['blue-b']).toBe(true);
+  });
+
+  it('evaluateAutoLeave is idempotent', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'red', motif: '21' });
+    engine.syncPhase('auto', 29);
+    const outside = [
+      { x: 60, y: 60 },
+      { x: 66, y: 60 },
+      { x: 66, y: 66 },
+      { x: 60, y: 66 },
+    ];
+    const robots = [{ id: 'red-1', alliance: 'red' as const, footprint: outside }];
+    expect(engine.evaluateAutoLeave(robots)).toBe(3);
+    expect(engine.evaluateAutoLeave(robots)).toBe(0);
+    expect(engine.getState().byAlliance.red.autoScore.leave).toBe(3);
   });
 
   it('tracks classified scoring in auto', () => {

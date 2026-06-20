@@ -103,6 +103,7 @@ export type ServerMessage =
       role: SessionRole;
       robotId?: string;
       roomConfig: RoomConfig;
+      serverAppVersion?: string;
     }
   | StateSnapshot
   | {

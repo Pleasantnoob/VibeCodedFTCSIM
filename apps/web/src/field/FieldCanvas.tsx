@@ -103,6 +103,9 @@ export interface FieldCanvasProps {
   netSnapshotTick?: number;
   netRobotMotionRef?: RefObject<RobotSnapshotEntry[]>;
   netSnapshotAtRef?: RefObject<number>;
+  /** Client-side prediction pose for the locally driven robot. */
+  ownedRobotId?: string | null;
+  ownedPoseRef?: RefObject<Pose | null>;
 }
 
 const TILE_SIZE = 24;
@@ -185,6 +188,8 @@ export function FieldCanvas({
   netSnapshotTick = 0,
   netRobotMotionRef,
   netSnapshotAtRef,
+  ownedRobotId = null,
+  ownedPoseRef,
 }: FieldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MapVertexSelection | null>(null);
@@ -254,7 +259,9 @@ export function FieldCanvas({
         const g = robotElsRef.current.get(robot.id);
         if (!g) continue;
 
-        if (smoothNetMotion && netRobotMotionRef?.current) {
+        if (ownedRobotId && robot.id === ownedRobotId && ownedPoseRef?.current) {
+          robot = { ...robot, pose: ownedPoseRef.current };
+        } else if (smoothNetMotion && netRobotMotionRef?.current) {
           const motion = netRobotMotionRef.current.find((entry) => entry.id === robot.id);
           const snapshotAt = netSnapshotAtRef?.current ?? now;
           if (motion) {
@@ -302,7 +309,7 @@ export function FieldCanvas({
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion]);
+  }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion, ownedRobotId, ownedPoseRef]);
 
   useEffect(() => {
     if (!showArtifacts || !liveArtifactsRef) return;

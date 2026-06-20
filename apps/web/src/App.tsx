@@ -52,6 +52,7 @@ import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
 import { installFtcSimDevApi } from './dev/inject-drive';
 import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
 import { useSessionClient } from './session/useSessionClient';
+import { useOwnedRobotPrediction } from './net/useOwnedRobotPrediction';
 import { LobbyScreen } from './session/LobbyScreen';
 import './panels.css';
 
@@ -372,7 +373,7 @@ export function App() {
   const match = useMatchClock();
   const { snapshot: matchSnap } = match;
   const displayMatchSnap = isNetActive ? (net.matchSnapshot ?? NET_SETUP_SNAPSHOT) : matchSnap;
-  useMatchAudio(displayMatchSnap, { enabled: matchSounds, volume: matchSoundVolume });
+  useMatchAudio(displayMatchSnap, { enabled: matchSounds && !isNetActive, volume: matchSoundVolume });
 
   const allowsDriveRef = useRef(matchSnap.allowsDrive);
   const matchActiveRef = useRef(matchSnap.running && !matchSnap.paused);
@@ -487,6 +488,16 @@ export function App() {
 
   const displayMatchGameState = isNetActive ? net.gameState : matchGameState;
   getMatchStateRef.current = () => displayMatchGameState;
+
+  const ownedPoseRef = useOwnedRobotPrediction({
+    enabled: isNetActive && Boolean(net.robotId),
+    robotId: net.robotId,
+    allowsDrive: displayMatchSnap.allowsDrive,
+    sampleInputRef: sampleInput,
+    driveFrameRef: teleopDriveFrameRef,
+    authoritativePose: isNetActive && net.pose ? net.pose : null,
+    snapshotTick: net.snapshot?.tick ?? 0,
+  });
 
   resetRobotRef.current = resetRobot;
 
@@ -874,6 +885,7 @@ export function App() {
         lanAddress={net.lanAddress}
         rttMs={net.rttMs}
         matchPhase={displayMatchSnap.phase}
+        versionWarning={net.versionWarning}
         onChooseSolo={() => {
           net.disconnect();
           setSessionMode('solo');
@@ -913,6 +925,11 @@ export function App() {
           <PanelsLogo />
           <span className="panels-nav__title">DECODE Sim</span>
           {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
+          {isNetActive && net.versionWarning && (
+            <span className="panels-nav__version-warn" title={net.versionWarning}>
+              Version mismatch
+            </span>
+          )}
           {isNetHost && hostLatencyMs != null && (
             <span
               className={`panels-nav__net-badge panels-nav__net-badge--latency${
@@ -1615,6 +1632,8 @@ export function App() {
               netSnapshotTick={net.snapshot?.tick ?? 0}
               netRobotMotionRef={net.netRobotMotionRef}
               netSnapshotAtRef={net.lastSnapshotAtRef}
+              ownedRobotId={isNetActive ? net.robotId : null}
+              ownedPoseRef={ownedPoseRef}
             />
             <MatchResultsCeremony
               snapshot={displayMatchSnap}
@@ -1642,6 +1661,7 @@ export function App() {
             matchName={overlayMatchName}
             redTeams={displayOverlayTeams.red}
             blueTeams={displayOverlayTeams.blue}
+            fieldRobotCatalog={displayFieldRobotCatalog}
           />
         </main>
 

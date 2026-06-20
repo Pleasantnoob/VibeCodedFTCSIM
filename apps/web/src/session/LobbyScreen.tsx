@@ -24,6 +24,7 @@ export interface LobbyScreenProps {
   lanAddress: string | null;
   rttMs: number | null;
   matchPhase: string | null;
+  versionWarning?: string | null;
   onChooseSolo: () => void;
   onConnect: (mode: 'host' | 'join', address: string, name: string) => void;
   onDisconnect: () => void;
@@ -47,6 +48,7 @@ export function LobbyScreen({
   lanAddress,
   rttMs,
   matchPhase,
+  versionWarning,
   onChooseSolo,
   onConnect,
   onDisconnect,
@@ -139,6 +141,11 @@ export function LobbyScreen({
       </div>
 
       <p className={`lobby-panel__status${connected ? ' lobby-panel__status--live' : ''}`}>{statusLine}</p>
+      {connected && versionWarning && (
+        <p className="lobby-version-warn" title={versionWarning}>
+          {versionWarning}
+        </p>
+      )}
       {connecting && error && <p className="lobby-error">{error}</p>}
 
       {connected && (

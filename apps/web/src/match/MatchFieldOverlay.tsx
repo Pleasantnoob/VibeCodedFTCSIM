@@ -217,6 +217,20 @@ function AllianceScoreColumn({
   );
 }
 
+function leaveMarksForTeams(
+  alliance: Alliance,
+  teams: [string, string],
+  catalog: Array<{ id: string; alliance: Alliance; teamNumber: string }>,
+  robotLeave: Record<string, boolean> | undefined,
+): [boolean, boolean] {
+  if (!robotLeave) return [false, false];
+  const mark = (teamNumber: string) => {
+    const robot = catalog.find((entry) => entry.alliance === alliance && entry.teamNumber === teamNumber);
+    return robot ? Boolean(robotLeave[robot.id]) : false;
+  };
+  return [mark(teams[0]), mark(teams[1])];
+}
+
 export interface MatchFieldOverlayProps {
   snapshot: MatchSnapshot;
   visible?: boolean;
@@ -226,6 +240,7 @@ export interface MatchFieldOverlayProps {
   blueTeams?: [string, string];
   alliance?: Alliance;
   matchGameState?: MatchState | null;
+  fieldRobotCatalog?: Array<{ id: string; alliance: Alliance; teamNumber: string }>;
 }
 
 export function MatchFieldOverlay({
@@ -235,8 +250,8 @@ export function MatchFieldOverlay({
   matchName = 'Practice Match',
   redTeams = DEFAULT_RED_TEAMS,
   blueTeams = DEFAULT_BLUE_TEAMS,
-  alliance = 'blue',
   matchGameState = null,
+  fieldRobotCatalog = [],
 }: MatchFieldOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const motifRef = useRef<ObeliskMotifId>('21');
@@ -268,11 +283,18 @@ export function MatchFieldOverlay({
   const redStats = allianceHudStats(matchGameState, 'red');
   const blueStats = allianceHudStats(matchGameState, 'blue');
 
-  const simLeave = (matchGameState?.score.leave ?? 0) > 0;
-  const redLeave: [boolean, boolean] =
-    alliance === 'red' ? [simLeave, false] : [false, false];
-  const blueLeave: [boolean, boolean] =
-    alliance === 'blue' ? [simLeave, false] : [false, false];
+  const redLeave = leaveMarksForTeams(
+    'red',
+    redTeams,
+    fieldRobotCatalog,
+    matchGameState?.robotLeave,
+  );
+  const blueLeave = leaveMarksForTeams(
+    'blue',
+    blueTeams,
+    fieldRobotCatalog,
+    matchGameState?.robotLeave,
+  );
 
   return (
     <div
