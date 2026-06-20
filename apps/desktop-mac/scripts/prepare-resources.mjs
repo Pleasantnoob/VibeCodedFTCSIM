@@ -30,11 +30,14 @@ function ensureFtcLiveAssets() {
     console.log('[prepare] FTC Live audio already present.');
     return;
   }
-  console.log('[prepare] Syncing FTC Live audio/fonts (one-time copy from FTC Live install)…');
-  run('node scripts/copy-ftc-assets.mjs');
+  console.log('[prepare] Syncing FTC Live audio/fonts (optional — skips if FTC Live not installed)…');
+  try {
+    run('node scripts/copy-ftc-assets.mjs');
+  } catch {
+    console.warn('[prepare] FTC Live sync skipped — continuing with bundled static assets.');
+  }
   if (!fs.existsSync(required)) {
-    console.warn('[prepare] Missing match audio — launch FTC Live 2026 once, then run node scripts/copy-ftc-assets.mjs');
-    console.warn('[prepare] Continuing without full audio (join client still works).');
+    console.warn('[prepare] Match audio not synced — join client still works; sounds may be limited.');
   }
 }
 
