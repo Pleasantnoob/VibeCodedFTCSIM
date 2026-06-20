@@ -38,6 +38,9 @@ importers:
 
   apps/match-server:
     dependencies:
+      '@dimforge/rapier2d-compat':
+        specifier: ^0.19.3
+        version: 0.19.3
       '@ftc-sim/field':
         specifier: workspace:*
         version: link:../../packages/field

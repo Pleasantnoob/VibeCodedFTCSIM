@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { FieldDefinition, Pose, StagedArtifactLayout } from '@ftc-sim/field';
 import type { Alliance, MatchState, MatchRobotSnapshot } from '@ftc-sim/game-decode';
 import type { SimArtifactState, MechanismLogEntry } from '@ftc-sim/mechanisms';
-import type { ControlSource as MatchControlSource, MatchPhase, MatchSnapshot } from '@ftc-sim/match';
+import type { MatchPhase, MatchSnapshot } from '@ftc-sim/match';
 import type { AutoSequenceRunner } from '@ftc-sim/pedro';
 import {
   DEFAULT_KINEMATIC_ROBOT,
@@ -10,6 +10,7 @@ import {
   type DriveFrame,
   type HolonomicInput,
 } from '@ftc-sim/robot';
+import { resolveDriveInput } from '@ftc-sim/session';
 import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION } from '../artifacts/artifact-world';
 import type { DriveTelemetryFrame } from '../dev/inject-drive';
 import type { EditableBarrier } from '../field/barrier-editor';
@@ -41,57 +42,6 @@ function barrierPolygons(barriers: EditableBarrier[]) {
   return barriers.map((barrier) => barrier.vertices.map((v) => ({ x: v.x, y: v.y })));
 }
 
-function resolveDriveInput(
-  sample: ReturnType<typeof sampleDriveInput>,
-  injected: HolonomicInput | null | undefined,
-  allowsDrive: boolean,
-  controlSource: MatchControlSource,
-  phase: MatchPhase,
-  matchActive: boolean,
-  follower: AutoSequenceRunner | null | undefined,
-  pose: Pose,
-  linear: { x: number; y: number },
-  dt: number,
-  limits: ReturnType<typeof simRobotLimits>,
-): { input: HolonomicInput; driveFrame: DriveFrame } {
-  if (injected) {
-    return { input: injected, driveFrame: 'field' };
-  }
-
-  const autoDrive =
-    matchActive &&
-    controlSource === 'autonomous' &&
-    (phase === 'auto' || phase === 'transition') &&
-    (follower?.isRunning() ?? false);
-
-  if (autoDrive && follower) {
-    follower.setPose(pose);
-    follower.setVelocity(linear);
-    const input = follower.updateHolonomic(dt, limits);
-    return {
-      input,
-      driveFrame: 'robot',
-    };
-  }
-
-  if (
-    matchActive &&
-    controlSource === 'autonomous' &&
-    (phase === 'auto' || phase === 'transition')
-  ) {
-    return {
-      input: { forward: 0, strafe: 0, turn: 0, brake: true, endpointBrake: true },
-      driveFrame: 'field',
-    };
-  }
-
-  if (allowsDrive) {
-    return { input: sample.input, driveFrame: 'field' };
-  }
-
-  return { input: ZERO_INPUT, driveFrame: 'field' };
-}
-
 export interface PhysicsRobotHud {
   speed: number;
   angularSpeed: number;
@@ -111,6 +61,7 @@ export interface PhysicsRobotOptions {
   getMatchStateRef?: RefObject<() => MatchState | null>;
   practiceRobotsRef?: RefObject<MatchRobotLayout[]>;
   playerTeamNumber?: string;
+  teleopDriveFrameRef?: RefObject<DriveFrame>;
 }
 
 export function usePhysicsRobot(
@@ -397,7 +348,11 @@ export function usePhysicsRobot(
           onPhysicsStepRef?.current?.(dt);
           applyMatchPhaseTransitions();
           const { input: driveInput, driveFrame } = resolveDriveInput(
-            sample,
+            {
+              input: sample.input,
+              driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'robot',
+              mechanism: sample.mechanism,
+            },
             injected,
             allowsDrive,
             controlSource,

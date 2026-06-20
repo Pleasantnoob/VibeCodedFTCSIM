@@ -1,5 +1,10 @@
 import type { HolonomicInput } from '@ftc-sim/robot';
 import type { MechanismCommand } from '@ftc-sim/mechanisms';
+import {
+  DEFAULT_DRIVE_KEYBINDS,
+  isActionPressed,
+  type DriveKeybinds,
+} from './drive-keybinds';
 
 const AXIS_DEADZONE = 0.15;
 const TURN_DEADZONE = 0.15;
@@ -32,7 +37,8 @@ export interface MechanismSample {
 }
 
 export interface DriveInputSamplerState {
-  keys: Set<string>;
+  pressedCodes: Set<string>;
+  keybinds: DriveKeybinds;
   smoothed: HolonomicInput;
   injectInput: HolonomicInput | null;
   gamepadConnected: boolean;
@@ -81,17 +87,18 @@ export function mapGamepadToDrive(pad: Gamepad): {
   };
 }
 
-function keyboardInput(keys: Set<string>): HolonomicInput {
+function keyboardInput(codes: Set<string>, keybinds: DriveKeybinds): HolonomicInput {
   let forward = 0;
   let strafe = 0;
   let turn = 0;
-  if (keys.has('w') || keys.has('arrowup')) forward += 1;
-  if (keys.has('s') || keys.has('arrowdown')) forward -= 1;
-  if (keys.has('a') || keys.has('arrowleft')) strafe += 1;
-  if (keys.has('d') || keys.has('arrowright')) strafe -= 1;
-  if (keys.has('q')) turn += 1;
-  if (keys.has('e')) turn -= 1;
-  const brake = keys.has('shift');
+  if (isActionPressed(codes, 'forward', keybinds)) forward += 1;
+  if (isActionPressed(codes, 'backward', keybinds)) forward -= 1;
+  if (isActionPressed(codes, 'strafeLeft', keybinds)) strafe += 1;
+  if (isActionPressed(codes, 'strafeRight', keybinds)) strafe -= 1;
+  if (isActionPressed(codes, 'turnLeft', keybinds)) turn += 1;
+  if (isActionPressed(codes, 'turnRight', keybinds)) turn -= 1;
+  const brake =
+    isActionPressed(codes, 'brake', keybinds) || codes.has('ShiftRight');
   return { forward, strafe, turn, brake };
 }
 
@@ -107,9 +114,10 @@ function smoothInput(prev: HolonomicInput, target: HolonomicInput): HolonomicInp
   };
 }
 
-export function createDriveInputSampler(): DriveInputSamplerState {
+export function createDriveInputSampler(keybinds: DriveKeybinds = DEFAULT_DRIVE_KEYBINDS): DriveInputSamplerState {
   return {
-    keys: new Set(),
+    pressedCodes: new Set(),
+    keybinds: { ...keybinds },
     smoothed: { ...ZERO_INPUT },
     injectInput: null,
     gamepadConnected: false,
@@ -132,9 +140,11 @@ function sampleMechanism(
   // Use trigger buttons only — axis fallbacks (e.g. axes[2]) pick up stick drift as intake.
   const intakeFromPad = pad ? readTriggerButton(pad, 6) : 0;
   const shootFromPad = pad ? readTriggerButton(pad, 7, 5) : 0;
-  const intakeFromKeys = state.keys.has('f') ? 1 : 0;
-  const shootNow = state.keys.has(' ') || shootFromPad > 0;
-  const gateNow = state.keys.has('b') || Boolean(pad?.buttons[1]?.pressed);
+  const intakeFromKeys = isActionPressed(state.pressedCodes, 'intake', state.keybinds) ? 1 : 0;
+  const shootNow =
+    isActionPressed(state.pressedCodes, 'shoot', state.keybinds) || shootFromPad > 0;
+  const gateNow =
+    isActionPressed(state.pressedCodes, 'gate', state.keybinds) || Boolean(pad?.buttons[1]?.pressed);
   const shootEdge = shootNow && !state.prevShoot;
   const gateEdge = gateNow && !state.prevGate;
   state.prevShoot = shootNow;
@@ -217,7 +227,7 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
   }
 
   state.smoothed = { ...ZERO_INPUT };
-  const kb = keyboardInput(state.keys);
+  const kb = keyboardInput(state.pressedCodes, state.keybinds);
   const hasKb = kb.forward !== 0 || kb.strafe !== 0 || kb.turn !== 0 || kb.brake;
   return {
     input: hasKb || kb.brake ? kb : ZERO_INPUT,
@@ -237,6 +247,10 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
       gate: mechanism.command.gate ?? false,
     },
   };
+}
+
+export function setDriveKeybinds(state: DriveInputSamplerState, keybinds: DriveKeybinds): void {
+  state.keybinds = { ...keybinds };
 }
 
 export function resetGamepadCalibration(state: DriveInputSamplerState): void {
@@ -260,6 +274,6 @@ export function hasActiveDriveInput(state: DriveInputSamplerState): boolean {
     );
   }
 
-  const kb = keyboardInput(state.keys);
+  const kb = keyboardInput(state.pressedCodes, state.keybinds);
   return kb.forward !== 0 || kb.strafe !== 0 || kb.turn !== 0;
 }

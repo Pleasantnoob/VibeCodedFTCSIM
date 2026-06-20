@@ -4,6 +4,7 @@ import net from 'node:net';
 import { MATCH_PORT, matchServerCwd, matchServerEntry } from './paths';
 
 let child: ChildProcess | null = null;
+let lastMatchServerStderr = '';
 
 export function isMatchServerRunning(): boolean {
   return child !== null && child.exitCode === null;
@@ -31,12 +32,15 @@ export function startMatchServer(): Promise<void> {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
+  lastMatchServerStderr = '';
   const proc = child;
   proc.stdout?.on('data', (chunk: Buffer) => {
     process.stdout.write(`[match-server] ${chunk.toString()}`);
   });
   proc.stderr?.on('data', (chunk: Buffer) => {
-    process.stderr.write(`[match-server] ${chunk.toString()}`);
+    const text = chunk.toString();
+    lastMatchServerStderr = (lastMatchServerStderr + text).slice(-2000);
+    process.stderr.write(`[match-server] ${text}`);
   });
   proc.on('exit', (code) => {
     child = null;
@@ -62,12 +66,29 @@ export function waitForMatchServerReady(timeoutMs: number): Promise<void> {
   return waitForPort(MATCH_PORT, timeoutMs);
 }
 
+function matchServerStartError(): Error {
+  const detail = lastMatchServerStderr.trim();
+  if (detail) {
+    const line =
+      detail
+        .split(/\r?\n/)
+        .map((part) => part.trim())
+        .find(Boolean) ?? detail;
+    return new Error(`Match server failed to start: ${line}`);
+  }
+  return new Error('Match server did not start in time');
+}
+
 function waitForPort(port: number, timeoutMs: number): Promise<void> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const tick = (): void => {
+      if (child === null || child.exitCode !== null) {
+        reject(matchServerStartError());
+        return;
+      }
       if (Date.now() - start > timeoutMs) {
-        reject(new Error('Match server did not start in time'));
+        reject(matchServerStartError());
         return;
       }
       const socket = net.connect({ port, host: '127.0.0.1' });

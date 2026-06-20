@@ -40,6 +40,9 @@ import {
   zonesToExportJson,
 } from './field/zone-editor';
 import { useDriveInput } from './input/useDriveInput';
+import { DriveControlsPanel } from './input/DriveControlsPanel';
+import { loadDriveSettings } from './input/drive-settings';
+import type { DriveFrame } from '@ftc-sim/robot';
 import { useMatchClock } from './match/useMatchClock';
 import type { MatchSnapshot } from '@ftc-sim/match';
 import { MatchFieldOverlay } from './match/MatchFieldOverlay';
@@ -371,8 +374,18 @@ export function App() {
     displayMatchSnap.phase === 'auto' ||
     displayMatchSnap.phase === 'transition' ||
     displayMatchSnap.phase === 'teleop';
-  const { samplerRef, sampleInput, updateHud, controlSource, gamepadConnected, driveDebug, setInjectInput, resetGamepad } =
-    useDriveInput(driveEnabled, listenForInput);
+  const teleopDriveFrameRef = useRef<DriveFrame>(loadDriveSettings().driveFrame);
+  const {
+    samplerRef,
+    sampleInput,
+    updateHud,
+    controlSource,
+    gamepadConnected,
+    driveDebug,
+    setInjectInput,
+    resetGamepad,
+    applyKeybinds,
+  } = useDriveInput(driveEnabled, listenForInput);
 
   const onHudTick = useCallback(
     (debug: NonNullable<typeof driveDebug>, source: string, connected: boolean) => {
@@ -445,6 +458,7 @@ export function App() {
       getMatchStateRef,
       practiceRobotsRef,
       playerTeamNumber: overlayBlueTeams[0],
+      teleopDriveFrameRef,
     },
   );
 
@@ -470,6 +484,7 @@ export function App() {
           turn: sample.input.turn,
           brake: sample.input.brake,
           endpointBrake: sample.input.endpointBrake,
+          driveFrame: teleopDriveFrameRef.current,
         },
         mechanism: {
           intake: sample.mechanism.command.intake,
@@ -1057,11 +1072,12 @@ export function App() {
           </PanelSection>
 
           <PanelSection title="Teleop" badge={matchSnap.phase}>
-            <p className="hint">
-              Field-centric drive: left stick moves on the field (W = north, D = east). Right stick
-              X rotates. Shift or left bumper brakes. LT / F = intake, RT / Space = shoot (hold for rapid fire every 0.2s).
-              Drive into a gate zone (robot footprint overlaps teal box) to auto-release ramp balls.
-            </p>
+            <DriveControlsPanel
+              onSettingsChange={(settings, keybinds) => {
+                teleopDriveFrameRef.current = settings.driveFrame;
+                applyKeybinds(keybinds);
+              }}
+            />
             <ul className="metrics">
               <li>
                 Match: <strong>{matchSnap.phase}</strong>

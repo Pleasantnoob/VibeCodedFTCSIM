@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HolonomicInput } from '@ftc-sim/robot';
 import {
   createDriveInputSampler,
-  resetGamepadCalibration,
   sampleDriveInput,
+  setDriveKeybinds,
   type ControlSource,
   type DriveInputDebug,
   type DriveInputSamplerState,
 } from './drive-input-sampler';
-
-export type { ControlSource, DriveInputDebug };
+import { loadDriveKeybinds, type DriveKeybinds } from './drive-keybinds';
 
 export function useDriveInput(driveEnabled: boolean, listenForInput = false) {
-  const samplerRef = useRef<DriveInputSamplerState>(createDriveInputSampler());
+  const samplerRef = useRef<DriveInputSamplerState>(createDriveInputSampler(loadDriveKeybinds()));
   const [controlSource, setControlSource] = useState<ControlSource>('none');
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const [driveDebug, setDriveDebug] = useState<DriveInputDebug | null>(null);
@@ -23,18 +21,23 @@ export function useDriveInput(driveEnabled: boolean, listenForInput = false) {
     if (!listen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      samplerRef.current.keys.add(e.key.toLowerCase());
+      samplerRef.current.pressedCodes.add(e.code);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      samplerRef.current.keys.delete(e.key.toLowerCase());
+      samplerRef.current.pressedCodes.delete(e.code);
+    };
+    const onBlur = () => {
+      samplerRef.current.pressedCodes.clear();
     };
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
     };
   }, [listen]);
 
@@ -53,11 +56,14 @@ export function useDriveInput(driveEnabled: boolean, listenForInput = false) {
     controlSource,
     gamepadConnected,
     driveDebug,
-    setInjectInput: (input: HolonomicInput | null) => {
+    applyKeybinds: (keybinds: DriveKeybinds) => {
+      setDriveKeybinds(samplerRef.current, keybinds);
+    },
+    setInjectInput: (input: import('@ftc-sim/robot').HolonomicInput | null) => {
       samplerRef.current.injectInput = input;
     },
     resetGamepad: () => {
-      resetGamepadCalibration(samplerRef.current);
+      samplerRef.current.smoothed = { forward: 0, strafe: 0, turn: 0 };
     },
   };
 }

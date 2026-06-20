@@ -160,6 +160,7 @@ export class SimSession {
         brake: frame.drive.brake,
         endpointBrake: frame.drive.endpointBrake,
       },
+      driveFrame: frame.drive.driveFrame === 'field' ? 'field' : 'robot',
       mechanism: {
         command: frame.mechanism,
         shootEdge: frame.shootEdge,
@@ -352,6 +353,7 @@ export class SimSession {
     }
 
     const npcInputs: Record<string, import('@ftc-sim/robot').HolonomicInput> = {};
+    const npcDriveFrames: Record<string, import('@ftc-sim/robot').DriveFrame> = {};
     for (const npc of activeNpcs) {
       const npcSample = this.robotInputs.get(npc.id);
       if (!npcSample || !matchSnap.allowsDrive) continue;
@@ -362,6 +364,7 @@ export class SimSession {
         brake: npcSample.input.brake,
         endpointBrake: npcSample.input.endpointBrake,
       };
+      npcDriveFrames[npc.id] = npcSample.driveFrame ?? 'robot';
     }
 
     const multi = stepMultiRobotDrive({
@@ -379,6 +382,7 @@ export class SimSession {
       barriers: this.barrierPolys,
       fieldSizeInches: this.config.field.fieldSizeInches ?? 144,
       driveFrame,
+      npcDriveFrames,
       maxAcceleration: this.robotConfig.maxAcceleration,
       maxAngularAcceleration: this.robotConfig.maxAngularAcceleration,
     });

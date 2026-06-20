@@ -55,6 +55,41 @@ function writeLatestYml(filePath, size) {
   console.log('[make-release-zip] Wrote latest.yml for auto-updater');
 }
 
+function removeStale(target, label) {
+  try {
+    if (!fs.existsSync(target)) return;
+    fs.rmSync(target, { recursive: true, force: true });
+    console.log('[make-release-zip] Removed stale', label);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[make-release-zip] Could not remove', label, '—', message);
+  }
+}
+
+function cleanupReleaseDir() {
+  const staleNames = [
+    'win-unpacked',
+    'staging',
+    'builder-debug.yml',
+    'FTC-Sim-win-x64-fixed.zip',
+    'FTC-Sim-win-x64.building.zip',
+  ];
+  for (const name of staleNames) {
+    removeStale(path.join(releaseDir, name), name);
+  }
+  try {
+    for (const entry of fs.readdirSync(releaseDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (/^FTC-Sim-v\d/i.test(entry.name)) {
+        removeStale(path.join(releaseDir, entry.name), entry.name);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[make-release-zip] Cleanup scan failed:', message);
+  }
+}
+
 if (!fs.existsSync(unpackedDir)) {
   console.error('[make-release-zip] Missing', unpackedDir, '— run pnpm run pack:dir first.');
   process.exit(1);
@@ -70,15 +105,19 @@ fs.rmSync(stagingDir, { recursive: true, force: true });
 fs.mkdirSync(stagingDir, { recursive: true });
 fs.cpSync(unpackedDir, stagingAppDir, { recursive: true, force: true });
 
-console.log('[make-release-zip] Creating zip (Windows Compress-Archive)…');
-fs.rmSync(zipPath, { force: true });
+console.log('[make-release-zip] Creating zip (Windows Compress-Archive, ~5 min, no progress bar)…');
+const zipBuildingPath = path.join(releaseDir, 'FTC-Sim-win-x64.building.zip');
+fs.rmSync(zipBuildingPath, { force: true });
 run(
-  `powershell -NoProfile -Command "Compress-Archive -Path ${psQuote(stagingAppDir)} -DestinationPath ${psQuote(zipPath)} -CompressionLevel Fastest -Force"`,
+  `powershell -NoProfile -Command "Compress-Archive -Path ${psQuote(stagingAppDir)} -DestinationPath ${psQuote(zipBuildingPath)} -CompressionLevel Fastest -Force"`,
   desktopRoot,
 );
+fs.rmSync(zipPath, { force: true });
+fs.renameSync(zipBuildingPath, zipPath);
 
 fs.rmSync(stagingDir, { recursive: true, force: true });
 
 const size = fs.statSync(zipPath).size;
 writeLatestYml(zipPath, size);
+cleanupReleaseDir();
 console.log(`[make-release-zip] Done: ${zipPath} (${(size / (1024 * 1024)).toFixed(1)} MB, v${version})`);

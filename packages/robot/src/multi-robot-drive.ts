@@ -24,6 +24,8 @@ export interface MultiRobotDriveParams {
   npcs: NpcDriveState[];
   /** Per-NPC holonomic input keyed by robot id; omitted slots stay idle. */
   npcInputs?: Record<string, HolonomicInput>;
+  /** Per-NPC drive frame keyed by robot id. */
+  npcDriveFrames?: Record<string, DriveFrame>;
   dt: number;
   limits: KinematicLimits;
   footprint: RobotFootprint;
@@ -79,7 +81,7 @@ export function stepMultiRobotDrive(params: MultiRobotDriveParams): MultiRobotDr
       footprint: npcFootprint,
       barriers,
       fieldSizeInches,
-      driveFrame: 'field',
+      driveFrame: params.npcDriveFrames?.[npc.id] ?? 'robot',
       maxAcceleration,
       maxAngularAcceleration,
     });

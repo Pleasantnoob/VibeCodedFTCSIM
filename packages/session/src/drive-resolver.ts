@@ -14,6 +14,7 @@ export interface AutoFollowerLike {
 
 export interface DriveSample {
   input: HolonomicInput;
+  driveFrame?: DriveFrame;
   mechanism: {
     command: { intake?: number; shoot?: boolean; gate?: boolean };
     shootEdge: boolean;
@@ -67,7 +68,7 @@ export function resolveDriveInput(
   }
 
   if (allowsDrive) {
-    return { input: sample.input, driveFrame: 'field' };
+    return { input: sample.input, driveFrame: sample.driveFrame ?? 'robot' };
   }
 
   return { input: ZERO_INPUT, driveFrame: 'field' };

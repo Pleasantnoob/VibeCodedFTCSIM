@@ -25,6 +25,8 @@ export interface HolonomicDriveInput {
   turn: number;
   brake?: boolean;
   endpointBrake?: boolean;
+  /** Teleop drive frame for this input (defaults to field when omitted). */
+  driveFrame?: 'field' | 'robot';
 }
 
 export interface MechanismInput {

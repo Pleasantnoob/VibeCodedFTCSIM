@@ -53,4 +53,10 @@ console.log('[prepare] Deploying match-server (production deps)…');
 fs.rmSync(serverOut, { recursive: true, force: true });
 run(`pnpm --config.confirmModulesPurge=false --filter @ftc-sim/match-server --prod deploy --legacy "${serverOut}"`);
 
+const rapierPath = path.join(serverOut, 'node_modules', '@dimforge', 'rapier2d-compat');
+if (!fs.existsSync(rapierPath)) {
+  console.error('[prepare] Deploy missing @dimforge/rapier2d-compat — Host Match will fail.');
+  process.exit(1);
+}
+
 console.log('[prepare] Done. Resources ready in apps/desktop/resources/');

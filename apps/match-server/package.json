@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dimforge/rapier2d-compat": "^0.19.3",
     "@ftc-sim/field": "workspace:*",
     "@ftc-sim/game-decode": "workspace:*",
     "@ftc-sim/match": "workspace:*",
