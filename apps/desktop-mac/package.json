@@ -1,0 +1,105 @@
+{
+  "name": "@ftc-sim/desktop-mac",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FTC Sim Player — Mac join-only desktop launcher",
+  "main": "dist/main.js",
+  "author": "VibeCodedFTCSIM",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron .",
+    "dev": "tsc && electron .",
+    "prepare:resources": "node scripts/prepare-resources.mjs",
+    "pack": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "pack:dir": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --config.directories.output=release/electron",
+    "dist": "pnpm run pack && node scripts/make-release-mac.mjs",
+    "release": "node scripts/release.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "cross-env": "^10.1.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3"
+  },
+  "build": {
+    "appId": "com.vibecodedftcsim.player.mac",
+    "productName": "FTC Sim Player",
+    "publish": {
+      "provider": "github",
+      "owner": "Pleasantnoob",
+      "repo": "VibeCodedFTCSIM"
+    },
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "launcher.html"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/web",
+        "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "README.txt",
+        "to": "README.txt"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.games",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "FTC-Sim-Player-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "FTC-Sim-Player-${version}-mac-${arch}.dmg",
+      "title": "FTC Sim Player ${version}",
+      "backgroundColor": "#0f1419",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "asar": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  }
+}

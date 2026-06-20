@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FTC Sim Player</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        background: #0f1419;
+        color: #e8eef5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: #9fb0c3;
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+      .join-panel {
+        background: #151c24;
+        border: 1px solid #243041;
+        border-radius: 12px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+      }
+      button.primary {
+        background: #2d6cdf;
+        color: white;
+      }
+      button.secondary {
+        background: #1c2430;
+        color: #e8eef5;
+        border: 1px solid #334155;
+      }
+      button.link {
+        background: transparent;
+        color: #7dd3fc;
+        border: none;
+        padding: 8px;
+        font-size: 0.85rem;
+        font-weight: 500;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      .addr-input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        background: #0f1419;
+        color: #7dd3fc;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9rem;
+      }
+      .error {
+        color: #fca5a5;
+        font-size: 0.85rem;
+        min-height: 1.2em;
+      }
+      .update-banner {
+        display: none;
+        background: #1e3a5f;
+        border: 1px solid #3b82f6;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+      }
+      .update-banner.visible {
+        display: block;
+      }
+      .update-banner button {
+        margin-top: 8px;
+        width: 100%;
+        padding: 8px;
+        font-size: 0.85rem;
+      }
+      .update-progress {
+        margin-top: 6px;
+        height: 6px;
+        background: #0f1419;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .update-progress__bar {
+        height: 100%;
+        width: 0%;
+        background: #3b82f6;
+        transition: width 0.15s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>FTC Sim Player</h1>
+      <p>Join a match hosted on Windows. Enter the address your host shared (e.g. 192.168.1.5:5191).</p>
+    </div>
+
+    <div class="update-banner" id="update-banner">
+      <span id="update-text"></span>
+      <div class="update-progress" id="update-progress" hidden>
+        <div class="update-progress__bar" id="update-progress-bar"></div>
+      </div>
+      <button class="secondary" id="btn-update" type="button">Download update</button>
+    </div>
+
+    <div class="join-panel">
+      <p><strong>Host address</strong></p>
+      <input
+        class="addr-input"
+        id="join-addr"
+        placeholder="192.168.1.5:5191"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="primary" id="btn-join" type="button">Join Match</button>
+    </div>
+
+    <p class="error" id="error"></p>
+
+    <button class="link" id="btn-help" type="button">How to join</button>
+
+    <script>
+      const joinInput = document.getElementById('join-addr');
+      const errorEl = document.getElementById('error');
+      const api = window.ftcLauncher;
+
+      function applyState(state) {
+        if (state.lastJoinAddress && !joinInput.value) {
+          joinInput.value = state.lastJoinAddress;
+        }
+      }
+
+      api.getState().then(applyState);
+      api.onState(applyState);
+
+      async function run(fn) {
+        errorEl.textContent = '';
+        try {
+          await fn();
+        } catch (err) {
+          errorEl.textContent = err?.message ?? String(err);
+        }
+      }
+
+      document.getElementById('btn-join').onclick = () =>
+        run(async () => {
+          const addr = joinInput.value.trim();
+          if (!addr) {
+            throw new Error('Enter the host address first');
+          }
+          await api.openJoin(addr);
+        });
+
+      document.getElementById('btn-help').onclick = () => run(() => api.openJoinHelp());
+
+      const updateBanner = document.getElementById('update-banner');
+      const updateText = document.getElementById('update-text');
+      const updateProgress = document.getElementById('update-progress');
+      const updateProgressBar = document.getElementById('update-progress-bar');
+      let pendingVersion = null;
+      document.getElementById('btn-update').onclick = () =>
+        run(async () => {
+          if (!pendingVersion) {
+            await api.openReleasePage();
+            return;
+          }
+          updateProgress.hidden = false;
+          const result = await api.downloadUpdate(pendingVersion);
+          updateProgress.hidden = true;
+          updateProgressBar.style.width = '0%';
+          if (!result.ok) {
+            errorEl.textContent = result.error || 'Download failed';
+          }
+        });
+      api.onUpdateProgress(({ percent }) => {
+        updateProgressBar.style.width = percent + '%';
+        updateText.textContent = 'Downloading v' + pendingVersion + '… ' + percent + '%';
+      });
+      api.onUpdateAvailable((info) => {
+        if (!info) {
+          pendingVersion = null;
+          updateBanner.classList.remove('visible');
+          return;
+        }
+        pendingVersion = info.version;
+        updateText.textContent =
+          'Update v' + info.version + ' available (you have v' + info.current + '). Unzip and replace in Applications.';
+        updateBanner.classList.add('visible');
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,130 @@
+name: Desktop Mac Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-mac-v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        env:
+          CI: true
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare resources and build Mac app (${{ matrix.arch }})
+        working-directory: apps/desktop-mac
+        env:
+          CI: true
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          pnpm prepare:resources
+          pnpm build
+          npx electron-builder --mac zip dmg --${{ matrix.arch }}
+
+      - name: Write latest-mac.yml
+        working-directory: apps/desktop-mac
+        run: node scripts/make-release-mac.mjs
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftc-sim-player-mac-${{ matrix.arch }}
+          path: |
+            apps/desktop-mac/release/FTC-Sim-Player-*-mac-${{ matrix.arch }}.dmg
+            apps/desktop-mac/release/FTC-Sim-Player-*-mac-${{ matrix.arch }}.zip
+            apps/desktop-mac/release/latest-mac.yml
+          if-no-files-found: error
+
+  publish-release:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/desktop-mac/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.ref }}" == refs/tags/desktop-mac-v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=desktop-mac-v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bundle shareable zip (both DMGs + install guide)
+        run: |
+          mkdir -p bundle
+          cp apps/desktop-mac/build/INSTALL-MAC.txt bundle/
+          find artifacts -name '*.dmg' -exec cp {} bundle/ \;
+          cd bundle
+          zip -r "../FTC-Sim-Player-mac-${{ steps.version.outputs.version }}.zip" .
+          cd ..
+          ls -la bundle/
+          ls -la "FTC-Sim-Player-mac-${{ steps.version.outputs.version }}.zip"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: FTC Sim Player v${{ steps.version.outputs.version }} (Mac)
+          draft: false
+          prerelease: false
+          make_latest: false
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            FTC-Sim-Player-mac-${{ steps.version.outputs.version }}.zip
+          body: |
+            **Mac join-only client** — connect to a Windows host and play.
+
+            ### One-click install (send this to Mac friends)
+
+            Download **`FTC-Sim-Player-mac-${{ steps.version.outputs.version }}.zip`** — contains both installers + install guide.
+
+            Or pick the right `.dmg` directly:
+            - **Apple Silicon (M1/M2/M3/M4):** `FTC-Sim-Player-*-mac-arm64.dmg`
+            - **Intel Mac:** `FTC-Sim-Player-*-mac-x64.dmg`
+
+            **Install:** open the `.dmg` → drag **FTC Sim Player** to **Applications** → open from Applications.
+
+            First launch may show a Gatekeeper warning (unsigned build). Right-click → **Open** → **Open** again.
+
+            ### Join a match
+
+            1. Friend hosts on **Windows** (FTC Sim desktop app).
+            2. They share their address (e.g. `192.168.1.5:5191`).
+            3. Open FTC Sim Player → paste address → **Join Match**.
+
+            See [docs/DESKTOP_MAC.md](https://github.com/Pleasantnoob/VibeCodedFTCSIM/blob/main/docs/DESKTOP_MAC.md).

@@ -8,6 +8,7 @@
     "dev:server": "pnpm --filter @ftc-sim/match-server dev",
     "dev:all": "pnpm --parallel --filter @ftc-sim/web --filter @ftc-sim/match-server dev",
     "dev:desktop": "pnpm --filter @ftc-sim/desktop dev",
+    "dev:desktop-mac": "pnpm --filter @ftc-sim/desktop-mac dev",
     "play": "pnpm dev:desktop",
     "play:node": "node scripts/play.mjs",
     "play:solo": "node scripts/play.mjs solo",
@@ -15,6 +16,8 @@
     "play:join": "node scripts/play.mjs join",
     "fix:electron": "node scripts/fix-electron.mjs",
     "build:desktop": "node scripts/fix-electron.mjs && pnpm --filter @ftc-sim/desktop dist",
+    "build:desktop-mac": "pnpm --filter @ftc-sim/desktop-mac dist",
+    "release:desktop-mac": "node scripts/publish-desktop-mac.mjs",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck"

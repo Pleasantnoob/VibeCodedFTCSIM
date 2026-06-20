@@ -1,0 +1,21 @@
+FTC Sim Player — Mac install
+============================
+
+1. Open the .dmg file (double-click).
+
+2. Drag "FTC Sim Player" to the Applications folder arrow.
+
+3. Open Applications → FTC Sim Player.
+
+   First launch (unsigned build): if macOS blocks the app, right-click
+   FTC Sim Player → Open → Open again. Or go to System Settings →
+   Privacy & Security → Open Anyway.
+
+4. Enter the host address from your Windows friend (e.g. 192.168.1.5:5191)
+   and click Join Match.
+
+Which .dmg?
+  • Apple Silicon (M1/M2/M3/M4): use *-mac-arm64.dmg
+  • Intel Mac: use *-mac-x64.dmg
+
+You cannot host matches from Mac — join only.

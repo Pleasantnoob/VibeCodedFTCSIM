@@ -4,6 +4,10 @@ Free FTC DECODE practice simulator for Windows. Drive a holonomic robot, score a
 
 **Download:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip** (Windows built-in Extract often fails), open the `FTC Sim` folder, run `FTC Sim.exe`.
 
+**Mac (join only):** [FTC Sim Player for Mac](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — download `FTC-Sim-Player-mac-*.zip`, send to Mac friends; open the `.dmg` and drag to Applications. See [`docs/DESKTOP_MAC.md`](docs/DESKTOP_MAC.md).
+
+**Publish Mac build from Windows:** `pnpm release:desktop-mac` (uses GitHub Actions — no Mac required).
+
 - **Solo** — Play Solo in the launcher.
 - **LAN** — Host shares `192.168.x.x:5191` on the same Wi‑Fi.
 - **Internet** — Host forwards **TCP 5191**, shares `public-ip:5191`.
@@ -29,6 +33,8 @@ If match sounds or results video are missing after clone, run once (with [FTC Li
 
 ```
 apps/web/          Vite + React sim UI
+apps/desktop/      Windows Electron launcher (host + join + solo)
+apps/desktop-mac/  Mac Electron launcher (join only)
 packages/          Monorepo libraries (field, robot, physics, game-decode, …)
 docs/              Roadmap, multiplayer manifest, research papers
 scripts/           Asset sync and one-off tooling
