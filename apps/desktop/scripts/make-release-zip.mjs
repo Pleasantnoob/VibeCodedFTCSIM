@@ -115,6 +115,10 @@ function cleanupReleaseDir() {
     'builder-debug.yml',
     'FTC-Sim-win-x64-fixed.zip',
     'FTC-Sim-win-x64.building.zip',
+    'FTC-Sim-robocopy',
+    'FTC-Sim-test',
+    'FTC-Sim-test2',
+    'ms-copy-test',
   ];
   for (const name of staleNames) {
     removeDirAggressive(path.join(releaseDir, name), name);
