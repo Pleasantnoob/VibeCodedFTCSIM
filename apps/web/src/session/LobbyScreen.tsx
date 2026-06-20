@@ -25,6 +25,9 @@ export interface LobbyScreenProps {
   rttMs: number | null;
   matchPhase: string | null;
   versionWarning?: string | null;
+  initialTeamLabel?: string;
+  onPlayerNameChange?: (name: string) => void;
+  onRobotTeamNameChange?: (teamLabel: string) => void;
   onChooseSolo: () => void;
   onConnect: (mode: 'host' | 'join', address: string, name: string) => void;
   onDisconnect: () => void;
@@ -49,6 +52,9 @@ export function LobbyScreen({
   rttMs,
   matchPhase,
   versionWarning,
+  initialTeamLabel = '',
+  onPlayerNameChange,
+  onRobotTeamNameChange,
   onChooseSolo,
   onConnect,
   onDisconnect,
@@ -64,7 +70,11 @@ export function LobbyScreen({
   const [internetCopied, setInternetCopied] = useState(false);
   const [internetInvite, setInternetInvite] = useState('');
   const [collapsed, setCollapsed] = useState(initialMode === 'solo' && !connected);
-  const [teamLabel, setTeamLabel] = useState('');
+  const [teamLabel, setTeamLabel] = useState(initialTeamLabel);
+
+  useEffect(() => {
+    setTeamLabel(initialTeamLabel);
+  }, [initialTeamLabel]);
 
   useEffect(() => {
     if (fromLauncher && !robotId && connected) {
@@ -152,11 +162,14 @@ export function LobbyScreen({
         <div className="lobby-slots">
           <p className="lobby-share__label">Pick your robot</p>
           <label className="lobby-field">
-            Team # or name (shown on field)
+            Team # (on robot)
             <input
               value={teamLabel}
-              onChange={(e) => setTeamLabel(e.target.value)}
-              placeholder="e.g. 12345 or Driver"
+              onChange={(e) => {
+                setTeamLabel(e.target.value);
+                onRobotTeamNameChange?.(e.target.value);
+              }}
+              placeholder="e.g. 12345"
               maxLength={12}
             />
           </label>
@@ -295,13 +308,20 @@ export function LobbyScreen({
           {!fromLauncher && (
             <label className="lobby-field">
               Your name
-              <input value={name} onChange={(e) => setName(e.target.value)} disabled={connecting} />
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  onPlayerNameChange?.(e.target.value);
+                }}
+                disabled={connecting}
+              />
             </label>
           )}
         </>
       )}
 
-      {error && !error.includes('host is already') && <p className="lobby-error">{error}</p>}
+      {error && <p className="lobby-error">{error}</p>}
       {connected && lanAddress && !fromLauncher && (
         <p className="lobby-status">LAN: {lanAddress}</p>
       )}

@@ -9,7 +9,7 @@ import { prepareInternetHost, unmapUpnpPort } from './internet-host';
 import { fetchPublicIp, suggestedInternetAddress } from './public-ip';
 import { startStaticServer } from './static-server';
 import { resolveJoinAddress } from './join-address';
-import { setupAutoUpdater, startDownload, getPendingUpdateVersion } from './auto-updater';
+import { setupAutoUpdater, startDownload, getPendingUpdateVersion, manualCheckForUpdates } from './auto-updater';
 
 const INTERNET_PLAY_DOC =
   'https://github.com/Pleasantnoob/VibeCodedFTCSIM/blob/main/docs/INTERNET_PLAY.md';
@@ -38,7 +38,7 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '1.0.0',
+    v: '1.1.0',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }
@@ -62,6 +62,7 @@ async function launcherStatePayload() {
     internetAddress: settings.internetAddress,
     publicIp,
     suggestedInternetAddress: suggested,
+    appVersion: app.getVersion(),
   };
 }
 
@@ -134,11 +135,11 @@ async function sendLauncherState(): Promise<void> {
 
 async function createLauncherWindow(): Promise<void> {
   launcherWindow = new BrowserWindow({
-    width: 420,
-    height: 560,
+    width: 440,
+    height: 680,
     resizable: false,
     autoHideMenuBar: true,
-    title: 'FTC Sim',
+    title: 'FTCSIM Launcher',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -161,6 +162,15 @@ async function createLauncherWindow(): Promise<void> {
   });
 }
 
+async function launchHostMatch(copyInvite = false): Promise<Awaited<ReturnType<typeof prepareInternetHost>>> {
+  await startMatchServer();
+  await openGameWindow('host');
+  const prep = await prepareInternetHost(MATCH_PORT);
+  clipboard.writeText(copyInvite ? prep.inviteAddress : prep.lanAddress);
+  await sendLauncherState();
+  return prep;
+}
+
 function registerLauncherIpc(): void {
   ipcMain.handle('launcher:open-solo', async () => {
     await openGameWindow('solo');
@@ -168,12 +178,7 @@ function registerLauncherIpc(): void {
 
   ipcMain.handle('launcher:open-host', async () => {
     try {
-      await startMatchServer();
-      await openGameWindow('host');
-      const prep = await prepareInternetHost(MATCH_PORT);
-      clipboard.writeText(prep.lanAddress);
-      await sendLauncherState();
-      return prep;
+      return await launchHostMatch(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(message);
@@ -182,12 +187,7 @@ function registerLauncherIpc(): void {
 
   ipcMain.handle('launcher:host-online', async () => {
     try {
-      await startMatchServer();
-      await openGameWindow('host');
-      const prep = await prepareInternetHost(MATCH_PORT);
-      clipboard.writeText(prep.inviteAddress);
-      await sendLauncherState();
-      return prep;
+      return await launchHostMatch(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(message);
@@ -206,10 +206,14 @@ function registerLauncherIpc(): void {
     await openGameWindow('join', { joinAddress: trimmed });
   });
 
-  ipcMain.handle('launcher:copy-lan', () => {
-    const addr = lanAddress(MATCH_PORT);
-    clipboard.writeText(addr);
-    return addr;
+  ipcMain.handle('launcher:copy-lan', () => lanAddress(MATCH_PORT));
+
+  ipcMain.handle('launcher:write-clipboard', (_event, text: string) => {
+    const value = String(text ?? '').trim();
+    if (!value) {
+      throw new Error('Nothing to copy');
+    }
+    clipboard.writeText(value);
   });
 
   ipcMain.handle('launcher:stop-server', () => {
@@ -225,10 +229,10 @@ function registerLauncherIpc(): void {
     return saved.internetAddress;
   });
 
-  ipcMain.handle('launcher:copy-internet', () => {
-    const addr = readHostSettings().internetAddress;
-    if (addr) clipboard.writeText(addr);
-    return addr;
+  ipcMain.handle('launcher:copy-internet', (_event, address?: string) => {
+    const typed = String(address ?? '').trim();
+    if (typed) return typed;
+    return readHostSettings().internetAddress ?? '';
   });
 
   ipcMain.handle('launcher:detect-public-ip', async () => {
@@ -253,6 +257,8 @@ function registerLauncherIpc(): void {
     }
     return startDownload(target, () => launcherWindow);
   });
+
+  ipcMain.handle('launcher:check-updates', () => manualCheckForUpdates(() => launcherWindow));
 
   // Legacy IPC names
   ipcMain.handle('launcher:save-playit', (_event, address: string) => {

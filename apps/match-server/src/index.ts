@@ -242,6 +242,15 @@ async function main(): Promise<void> {
     });
   });
 
+  let tickCounter = 0;
+  let prevMatchSnapshot: MatchSnapshot | null = null;
+
+  const broadcastAudioCues = (prev: MatchSnapshot | null, next: MatchSnapshot) => {
+    for (const cue of matchAudioCues(prev, next)) {
+      broadcast({ type: 'audio_cue', cue: cue as MatchAudioCue });
+    }
+  };
+
   function handleMessage(ws: WebSocket, message: ClientMessage): void {
     if (message.type === 'hello') {
       if (clients.size >= MAX_CLIENTS && !clients.has(ws)) {
@@ -296,12 +305,19 @@ async function main(): Promise<void> {
       };
       clients.set(ws, record);
       if (role === 'host') hostClient = record;
+      if (role === 'host' && message.hostRoom) {
+        session.applyHostRoomSettings(message.hostRoom);
+      }
+      if (role === 'host') {
+        claimSlot(record, 'player', message.hostRoom?.teamLabel, ws);
+      }
 
       const field = getDecodeField();
       const barriers = getBarrierBodies(field).map((body) => ({
         id: body.id,
         vertices: getBodyOutline(body).map((v) => ({ x: v.x, y: v.y })),
       }));
+      const hostRoom = session.getHostRoomSettings();
 
       ws.send(
         encodeMessage({
@@ -314,6 +330,8 @@ async function main(): Promise<void> {
             alliance: 'blue',
             barrierHash: hashBarriers(barriers),
             artifactFriction: 0.25,
+            robotPreload: hostRoom.robotPreload,
+            robot: hostRoom.robot,
           },
         }),
       );
@@ -365,7 +383,11 @@ async function main(): Promise<void> {
 
     if (message.type === 'host_cmd') {
       if (client.role !== 'host') return;
+      const beforeSnap = session.clock.snapshot();
       session.applyHostCommand(message.cmd);
+      const afterSnap = session.clock.snapshot();
+      broadcastAudioCues(beforeSnap, afterSnap);
+      prevMatchSnapshot = afterSnap;
       broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS, true));
       return;
     }
@@ -402,15 +424,6 @@ async function main(): Promise<void> {
   }
 
   setInterval(() => logLatencySummary(clients), 10_000);
-
-  let tickCounter = 0;
-  let prevMatchSnapshot: MatchSnapshot | null = null;
-
-  const broadcastAudioCues = (prev: MatchSnapshot | null, next: MatchSnapshot) => {
-    for (const cue of matchAudioCues(prev, next)) {
-      broadcast({ type: 'audio_cue', cue: cue as MatchAudioCue });
-    }
-  };
 
   startFixedTickLoop({
     hz: SERVER_TICK_HZ,

@@ -1,3 +1,4 @@
+import type { NetRobotConfig } from '@ftc-sim/net';
 import type { KinematicLimits, RobotFootprint } from '@ftc-sim/robot';
 import { DEFAULT_KINEMATIC_ROBOT } from '@ftc-sim/robot';
 
@@ -34,5 +35,31 @@ export function simRobotFootprint(config: SimRobotConfig): RobotFootprint {
   return {
     width: config.footprintWidth,
     length: config.footprintLength,
+  };
+}
+
+export function simRobotConfigFromNet(net: NetRobotConfig): SimRobotConfig {
+  return {
+    presetId: net.presetId ?? DEFAULT_SIM_ROBOT_CONFIG.presetId,
+    maxVelocity: net.maxVelocity,
+    maxAngularVelocity: net.maxAngularVelocity,
+    maxAcceleration: net.maxAcceleration,
+    maxAngularAcceleration: net.maxAngularAcceleration,
+    mass: net.mass,
+    footprintWidth: net.footprintWidth,
+    footprintLength: net.footprintLength,
+  };
+}
+
+export function netRobotConfigFromSim(sim: SimRobotConfig): NetRobotConfig {
+  return {
+    presetId: sim.presetId,
+    maxVelocity: sim.maxVelocity,
+    maxAngularVelocity: sim.maxAngularVelocity,
+    maxAcceleration: sim.maxAcceleration,
+    maxAngularAcceleration: sim.maxAngularAcceleration,
+    mass: sim.mass,
+    footprintWidth: sim.footprintWidth,
+    footprintLength: sim.footprintLength,
   };
 }

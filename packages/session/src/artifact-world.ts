@@ -37,6 +37,13 @@ export interface RobotMechanismTickInput {
 
 export const DEFAULT_ARTIFACT_FRICTION = 0.25;
 
+/** Park pose for reserve balls before teleop (matches mechanisms sim). */
+export const HIDDEN_RESERVE_ARTIFACT_POSE: Pose = { x: -96, y: -96, heading: 0 };
+
+export interface ArtifactWorldLayoutOptions {
+  preload?: boolean;
+}
+
 export class ArtifactWorld {
   private physics = new PhysicsWorld({ timestep: 1 / 120 });
   private rules: DecodeRulesEngine;
@@ -47,6 +54,7 @@ export class ArtifactWorld {
   private editableBarrierIds: string[] = [];
   private artifactFriction = DEFAULT_ARTIFACT_FRICTION;
   private pendingNpcSync: NpcRobotSync[] = [];
+  private footprint: RobotFootprint | null = null;
   private static readonly MAX_ARTIFACT_SPEED_IN_S = 68;
 
   constructor(
@@ -54,11 +62,13 @@ export class ArtifactWorld {
     alliance: Alliance,
   ) {
     this.field = field;
+    this.alliance = alliance;
     this.rules = new DecodeRulesEngine({ field, alliance });
     this.sim = new ArtifactSimulation(field, this.rules, alliance);
   }
 
   private field: FieldDefinition;
+  private alliance: Alliance;
 
   get ready(): boolean {
     return this.initialized;
@@ -70,6 +80,7 @@ export class ArtifactWorld {
     startPose: Pose,
     footprint: RobotFootprint,
     npcRobots?: NpcRobotSync[],
+    options?: ArtifactWorldLayoutOptions,
   ): Promise<void> {
     await this.physics.init();
     physicsLog.clear();
@@ -94,7 +105,6 @@ export class ArtifactWorld {
       footprint.length,
       0.8,
     );
-    this.physics.setRobotArtifactCollision(ROBOT_BODY_ID, true);
 
     const piece = this.field.gamePieces?.find((entry) => entry.type === 'artifact');
     const radius = piece?.radius ?? 2.5;
@@ -108,16 +118,74 @@ export class ArtifactWorld {
       this.physics.createDynamicCircle(bodyId, spawn.pose, radius, mass, material);
     }
 
-    this.sim.init(staging);
-    this.pendingNpcSync = [];
-    this.sim.settle(this.adapter(), 24);
-
+    this.footprint = footprint;
     this.installNpcBodies(footprint, npcRobots ?? []);
     this.pendingNpcSync = npcRobots ?? [];
-    this.syncNpcRobots(npcRobots ?? []);
-    this.sim.settle(this.adapter(), 8);
-
+    this.layoutMatch(staging, startPose, npcRobots ?? [], options);
     this.initialized = true;
+  }
+
+  private layoutMatch(
+    staging: StagedArtifactLayout[],
+    startPose: Pose,
+    npcRobots: NpcRobotSync[],
+    options?: ArtifactWorldLayoutOptions,
+  ): void {
+    const footprint = this.footprint;
+    if (!footprint) return;
+
+    for (const bodyId of this.artifactBodyIds) {
+      this.physics.parkArtifactBody(bodyId, { x: 0, y: 0, heading: 0 });
+    }
+
+    this.sim.init(staging);
+
+    this.physics.syncKinematicRobot(ROBOT_BODY_ID, startPose, 0, 0);
+    this.physics.setColliderEnabled(ROBOT_BODY_ID, true);
+    this.physics.setRobotArtifactCollision(ROBOT_BODY_ID, false);
+
+    const spawnById = new Map(staging.map((spawn) => [spawn.id, spawn]));
+    for (const bodyId of this.artifactBodyIds) {
+      const artifactId = bodyId.replace(/^artifact_/, '');
+      const spawn = spawnById.get(artifactId);
+      if (!spawn) continue;
+      if (spawn.source.endsWith('_human_player_reserve')) {
+        this.physics.parkArtifactBody(bodyId, HIDDEN_RESERVE_ARTIFACT_POSE);
+        continue;
+      }
+      if (spawn.source.endsWith('_human_player_station')) {
+        this.physics.parkArtifactBody(bodyId, spawn.pose);
+        continue;
+      }
+      this.physics.activateArtifactBody(bodyId, spawn.pose, 0, 0);
+    }
+
+    this.syncNpcRobots(npcRobots);
+    for (const bodyId of this.npcBodyIds) {
+      this.physics.setColliderEnabled(bodyId, true);
+      this.physics.setRobotArtifactCollision(bodyId, false);
+    }
+
+    this.sim.settle(this.adapter(), 24);
+
+    if (options?.preload) {
+      this.sim.applyPlayerPreload(
+        PLAYER_ROBOT_ID,
+        this.alliance,
+        startPose,
+        footprint,
+        this.adapter(),
+      );
+    }
+
+    this.physics.setRobotArtifactCollision(ROBOT_BODY_ID, true);
+    for (const bodyId of this.npcBodyIds) {
+      this.physics.setRobotArtifactCollision(bodyId, true);
+    }
+
+    this.sim.settle(this.adapter(), 8);
+    this.sim.syncHumanPlayerStation('setup', this.adapter());
+    this.sim.syncHumanPlayerReserve('setup', this.adapter());
     this.applyArtifactFriction();
   }
 
@@ -162,37 +230,15 @@ export class ArtifactWorld {
     startPose: Pose,
     npcRobots?: NpcRobotSync[],
     motif?: ObeliskMotifId,
+    options?: ArtifactWorldLayoutOptions,
   ): void {
     if (!this.initialized) return;
 
-    // Park every artifact body first so held / ramp / flight states cannot leak into the new layout.
-    for (const bodyId of this.artifactBodyIds) {
-      this.physics.parkArtifactBody(bodyId, { x: 0, y: 0, heading: 0 });
-    }
-
-    this.sim.init(staging);
     if (motif) this.setMotif(motif);
     else this.randomizeMotif();
 
-    const spawnById = new Map(staging.map((spawn) => [spawn.id, spawn]));
-    for (const bodyId of this.artifactBodyIds) {
-      const artifactId = bodyId.replace(/^artifact_/, '');
-      const spawn = spawnById.get(artifactId);
-      if (!spawn) continue;
-      this.physics.activateArtifactBody(bodyId, spawn.pose, 0, 0);
-    }
-
-    this.physics.syncKinematicRobot(ROBOT_BODY_ID, startPose, 0, 0);
-    this.physics.setColliderEnabled(ROBOT_BODY_ID, true);
-    this.physics.setRobotArtifactCollision(ROBOT_BODY_ID, true);
     this.pendingNpcSync = npcRobots ?? [];
-    this.syncNpcRobots(npcRobots ?? []);
-    for (const bodyId of this.npcBodyIds) {
-      this.physics.setColliderEnabled(bodyId, true);
-      this.physics.setRobotArtifactCollision(bodyId, true);
-    }
-    this.sim.settle(this.adapter(), 12);
-    this.applyArtifactFriction();
+    this.layoutMatch(staging, startPose, npcRobots ?? [], options);
   }
 
   syncNpcRobots(npcRobots: NpcRobotSync[]): void {
@@ -230,6 +276,26 @@ export class ArtifactWorld {
     this.sim.evaluateEndOfMatch(robots);
   }
 
+  syncRobotFootprint(footprint: RobotFootprint): void {
+    if (!this.initialized || !this.footprint) return;
+    if (
+      this.footprint.width === footprint.width &&
+      this.footprint.length === footprint.length
+    ) {
+      return;
+    }
+    this.footprint = footprint;
+    this.physics.resizeKinematicRobotFootprint(
+      ROBOT_BODY_ID,
+      footprint.width,
+      footprint.length,
+      0.8,
+    );
+    for (const bodyId of this.npcBodyIds) {
+      this.physics.resizeKinematicRobotFootprint(bodyId, footprint.width, footprint.length, 0.8);
+    }
+  }
+
   tickRobots(
     dt: number,
     robots: RobotMechanismTickInput[],
@@ -241,13 +307,20 @@ export class ArtifactWorld {
   ): void {
     if (!this.initialized) return;
     const scoringPhase = matchPhase === 'auto' ? 'auto' : 'teleop';
+    const mechanismsEnabled =
+      matchPhase === 'auto' || matchPhase === 'transition' || matchPhase === 'teleop';
     this.pendingNpcSync = npcRobots ?? [];
 
     for (const robot of robots) {
       const bodyId = robotPhysicsBodyId(robot.robotId);
       this.physics.syncKinematicRobot(bodyId, robot.pose, robot.linear.x, robot.linear.y);
-      this.sim.applyCommand(robot.robotId, robot.command, robot.shootEdge, robot.gateEdge);
-      this.sim.setShootHold(robot.robotId, robot.shootHeld);
+      this.sim.applyCommand(
+        robot.robotId,
+        mechanismsEnabled ? robot.command : undefined,
+        mechanismsEnabled ? robot.shootEdge : false,
+        robot.gateEdge,
+      );
+      this.sim.setShootHold(robot.robotId, mechanismsEnabled ? robot.shootHeld : false);
       this.physics.setRobotArtifactCollision(
         bodyId,
         !this.sim.shouldBypassRobotArtifactCollision(
@@ -275,7 +348,7 @@ export class ArtifactWorld {
       simRobots,
       footprint,
       this.adapter(),
-      scoringPhase,
+      matchPhase,
       matchRobots,
       teleopTimeRemainingSec,
     );
@@ -387,6 +460,16 @@ export class ArtifactWorld {
     }
   }
 
+  applyClaimedSlotPreload(
+    robotId: string,
+    robotAlliance: import('@ftc-sim/game-decode').Alliance,
+    pose: Pose,
+    footprint: RobotFootprint,
+  ): void {
+    if (!this.initialized) return;
+    this.sim.applyPlayerPreload(robotId, robotAlliance, pose, footprint, this.adapter());
+  }
+
   setRobotSlotActive(robotId: string, active: boolean, pose: Pose, _footprint: RobotFootprint): void {
     if (!this.initialized) return;
     const bodyId = robotPhysicsBodyId(robotId);
@@ -412,6 +495,8 @@ export class ArtifactWorld {
       parkArtifactBody: (bodyId, pose) => this.physics.parkArtifactBody(bodyId, pose),
       activateArtifactBody: (bodyId, pose, vx, vy) =>
         this.physics.activateArtifactBody(bodyId, pose, vx, vy),
+      activateStationArtifactBody: (bodyId, pose, vx, vy) =>
+        this.physics.activateStationArtifactBody(bodyId, pose, vx, vy),
       syncRobotCollider: (pose, vx, vy) =>
         this.physics.syncKinematicRobot(ROBOT_BODY_ID, pose, vx, vy),
       step: () => {

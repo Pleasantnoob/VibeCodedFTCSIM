@@ -65,6 +65,42 @@ async function pipeResponse(
   return dest;
 }
 
+export async function manualCheckForUpdates(
+  getLauncherWindow: () => BrowserWindow | null,
+): Promise<{
+  status: 'dev' | 'available' | 'current' | 'error';
+  version?: string;
+  current: string;
+  message?: string;
+}> {
+  const current = app.getVersion();
+  if (!app.isPackaged) {
+    const result = { status: 'current' as const, current };
+    getLauncherWindow()?.webContents.send('launcher:update-check-result', result);
+    return result;
+  }
+
+  try {
+    const check = await autoUpdater.checkForUpdates();
+    const latest = check?.updateInfo?.version;
+    if (latest && latest !== current) {
+      pendingUpdateVersion = latest;
+      const result = { status: 'available' as const, version: latest, current };
+      getLauncherWindow()?.webContents.send('launcher:update-available', { version: latest, current });
+      return result;
+    }
+    const result = { status: 'current' as const, current };
+    getLauncherWindow()?.webContents.send('launcher:update-check-result', result);
+    getLauncherWindow()?.webContents.send('launcher:update-available', null);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const result = { status: 'error' as const, current, message };
+    getLauncherWindow()?.webContents.send('launcher:update-check-result', result);
+    return result;
+  }
+}
+
 /** Check GitHub Releases (latest.yml) and download zip with progress when user accepts. */
 export function setupAutoUpdater(getLauncherWindow: () => BrowserWindow | null): void {
   if (!app.isPackaged) {

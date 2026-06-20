@@ -58,6 +58,30 @@ describe('resolveDriveInput', () => {
     expect(result.driveFrame).toBe('robot');
   });
 
+  it('still follows during transition when follower is running', () => {
+    const follower = {
+      isRunning: () => true,
+      setPose: vi.fn(),
+      setVelocity: vi.fn(),
+      updateHolonomic: vi.fn(() => ({ forward: 0.5, strafe: 0, turn: 0 })),
+    };
+    const result = resolveDriveInput(
+      SAMPLE,
+      null,
+      false,
+      'autonomous',
+      'transition',
+      true,
+      follower,
+      POSE,
+      LINEAR,
+      0.02,
+      LIMITS,
+    );
+    expect(result.input.forward).toBe(0.5);
+    expect(follower.updateHolonomic).toHaveBeenCalled();
+  });
+
   it('uses teleop sample when allowsDrive is true', () => {
     const result = resolveDriveInput(
       { ...SAMPLE, driveFrame: 'field' },

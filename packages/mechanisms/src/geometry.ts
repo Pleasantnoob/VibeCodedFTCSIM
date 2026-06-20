@@ -146,9 +146,37 @@ export function buildStraightTrajectory(
 }
 
 export function humanPlayerRespawnPose(alliance: Alliance, slotIndex: number): Pose {
-  const x = alliance === 'blue' ? 5 : 139;
-  const ys = [5, 10, 15];
-  return { x, y: ys[slotIndex % ys.length]!, heading: 0 };
+  const slots = humanPlayerAllDepotPositions(alliance);
+  const slot = slots[slotIndex % slots.length]!;
+  return { x: slot.x, y: slot.y, heading: 0 };
+}
+
+/** Three loading-zone slots (always on field edge; teleop intake). */
+export function humanPlayerStationPositions(alliance: Alliance): Vector2[] {
+  const x = alliance === 'blue' ? 5 : 144 - 5;
+  return [5, 10, 15].map((y) => ({ x, y }));
+}
+
+/** Six reserve slots outside the field (teleop human-player feed). */
+export function humanPlayerReservePositions(alliance: Alliance): Vector2[] {
+  const xs = alliance === 'blue' ? [2, 8] : [144 - 2, 144 - 8];
+  const ys = [4, 10, 16];
+  const out: Vector2[] = [];
+  for (const x of xs) {
+    for (const y of ys) {
+      out.push({ x, y });
+    }
+  }
+  return out;
+}
+
+export function humanPlayerAllDepotPositions(alliance: Alliance): Vector2[] {
+  return [...humanPlayerReservePositions(alliance), ...humanPlayerStationPositions(alliance)];
+}
+
+/** @deprecated use humanPlayerAllDepotPositions */
+export function humanPlayerSlotPositions(alliance: Alliance): Vector2[] {
+  return humanPlayerAllDepotPositions(alliance);
 }
 
 export function robotForwardUnit(pose: Pose): Vector2 {

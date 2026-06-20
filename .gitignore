@@ -45,5 +45,7 @@ blob-report/
 # Electron desktop bundle output
 apps/desktop/resources/
 apps/desktop/release/
+apps/desktop/apps/
+apps/desktop/release2/
 apps/desktop-mac/resources/
 apps/desktop-mac/release/

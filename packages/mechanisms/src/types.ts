@@ -20,6 +20,8 @@ export interface StoredArtifact {
 
 export type ArtifactSimPhase =
   | 'onField'
+  | 'humanPlayerStation'
+  | 'humanPlayerReserve'
   | 'held'
   | 'inFlight'
   | 'onRamp'
@@ -32,6 +34,8 @@ export interface SimArtifactState {
   bodyId: string;
   pose: { x: number; y: number; heading: number };
   opacity: number;
+  /** Staging source tag (e.g. blue_human_player, blue_spike_y36). */
+  source?: string;
   rampSlot?: number;
   flightElapsed?: number;
   scored?: boolean;

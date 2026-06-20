@@ -1,6 +1,6 @@
 import type { FieldDefinition, Pose, StagedArtifactLayout } from '@ftc-sim/field';
 import type { Alliance, MatchPhase } from '@ftc-sim/game-decode';
-import type { HostCommand, InputFrame, StateSnapshot } from '@ftc-sim/net';
+import type { HostCommand, HostRoomSettings, InputFrame, StateSnapshot } from '@ftc-sim/net';
 import { MatchClock } from '@ftc-sim/match';
 import type { MechanismLogEntry, SimArtifactState } from '@ftc-sim/mechanisms';
 import {
@@ -20,6 +20,7 @@ import {
   buildFieldRobotRenderStates,
   createNpcMotionStates,
   matchRobotSnapshots,
+  allianceForClaimableSlot,
   PLAYER_ROBOT_ID,
   spawnPoseForClaimableSlot,
   isClaimableRobotId,
@@ -31,6 +32,8 @@ import {
 } from './match-robots.js';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
+  netRobotConfigFromSim,
+  simRobotConfigFromNet,
   simRobotFootprint,
   simRobotLimits,
   type SimRobotConfig,
@@ -53,6 +56,7 @@ export interface SimSessionConfig {
   fixedMotif?: '21' | '22' | '23';
   /** Net multiplayer: robots appear only after a player claims their slot. */
   onlyClaimedRobots?: boolean;
+  robotPreload?: boolean;
 }
 
 export interface SimSessionState {
@@ -100,10 +104,13 @@ export class SimSession {
   private lastSnapshotPhase: MatchPhase = 'setup';
   private lastSnapshotScore = { blue: 0, red: 0 };
   private snapshotCounter = 0;
+  private robotPreload = false;
+  private hostTeamLabel: string | undefined;
 
   constructor(config: SimSessionConfig) {
     this.config = config;
     this.robotConfig = config.robotConfig ?? DEFAULT_SIM_ROBOT_CONFIG;
+    this.robotPreload = config.robotPreload ?? false;
     this.barriers = config.barriers;
     this.barrierPolys = barrierPolygons(config.barriers);
     this.pose = { ...config.startPose };
@@ -146,11 +153,6 @@ export class SimSession {
 
   cancelAutoFollower(): void {
     this.autoFollower.cancelPath();
-  }
-
-  private hasActiveDriveInput(sample: DriveSample): boolean {
-    const input = sample.input;
-    return Math.abs(input.forward) + Math.abs(input.strafe) + Math.abs(input.turn) > 0.05;
   }
 
   async init(): Promise<void> {
@@ -257,6 +259,30 @@ export class SimSession {
     this.refreshFieldRobots();
   }
 
+  applyHostRoomSettings(settings: HostRoomSettings): void {
+    this.robotConfig = simRobotConfigFromNet(settings.robot);
+    this.config = { ...this.config, robotConfig: this.robotConfig };
+    this.robotPreload = settings.robotPreload;
+    this.hostTeamLabel = settings.teamLabel?.trim() || undefined;
+    this.autoFollower.updateConstants({ mass: this.robotConfig.mass });
+    const width = this.robotConfig.footprintWidth;
+    const length = this.robotConfig.footprintLength;
+    this.practiceLayouts = this.practiceLayouts.map((layout) => ({ ...layout, width, length }));
+    for (const npc of this.npcMotion) {
+      npc.width = width;
+      npc.length = length;
+    }
+    this.refreshFieldRobots();
+  }
+
+  getHostRoomSettings(): HostRoomSettings {
+    return {
+      robotPreload: this.robotPreload,
+      teamLabel: this.hostTeamLabel,
+      robot: netRobotConfigFromSim(this.robotConfig),
+    };
+  }
+
   claimRobotSlot(robotId: string, teamLabel?: string): void {
     if (!isClaimableRobotId(robotId)) return;
     const pose = spawnPoseForClaimableSlot(robotId);
@@ -278,6 +304,14 @@ export class SimSession {
       this.setRobotTeamLabel(robotId, teamLabel);
     }
     this.world.setRobotSlotActive(robotId, true, pose, footprint);
+    if (this.robotPreload && isClaimableRobotId(robotId)) {
+      this.world.applyClaimedSlotPreload(
+        robotId,
+        allianceForClaimableSlot(robotId),
+        pose,
+        footprint,
+      );
+    }
     this.refreshFieldRobots();
   }
 
@@ -383,21 +417,6 @@ export class SimSession {
     const phase = matchSnap.phase;
     const limits = simRobotLimits(this.robotConfig);
     const footprint = simRobotFootprint(this.robotConfig);
-
-    if (
-      matchActive &&
-      (phase === 'auto' || phase === 'transition')
-    ) {
-      for (const robotId of this.claimedRobotIds) {
-        const robotSample = this.robotInputs.get(robotId);
-        if (!robotSample || !this.hasActiveDriveInput(robotSample)) continue;
-        if (robotId === PLAYER_ROBOT_ID) {
-          this.cancelAutoFollower();
-        }
-        this.clock.startTeleop();
-        break;
-      }
-    }
 
     let driveInput: import('@ftc-sim/robot').HolonomicInput = {
       forward: 0,
@@ -572,6 +591,8 @@ export class SimSession {
         id: robot.id,
         alliance: robot.alliance,
         teamNumber: robot.teamNumber,
+        width: robot.width,
+        length: robot.length,
         pose: { ...robot.pose },
         linear:
           robot.id === PLAYER_ROBOT_ID
@@ -631,6 +652,7 @@ export class SimSession {
     if (prevPhase === phaseNow) return;
 
     if (prevPhase === 'auto' && phaseNow === 'transition') {
+      this.cancelAutoFollower();
       this.world.evaluateEndOfAuto(this.buildMatchRobots());
     }
     if (prevPhase === 'teleop' && phaseNow === 'post') {

@@ -54,23 +54,7 @@ function horizontalSpike(
   }));
 }
 
-function verticalSpike(
-  x: number,
-  centerY: number,
-  colors: [ArtifactColor, ArtifactColor, ArtifactColor],
-  source: string,
-  idStart: number,
-): StagedArtifactLayout[] {
-  const ys = [centerY - ARTIFACT_SPACING, centerY, centerY + ARTIFACT_SPACING];
-  return colors.map((color, i) => ({
-    id: `artifact_${idStart + i}`,
-    color,
-    pose: { x, y: ys[i]!, heading: 0 },
-    source,
-  }));
-}
-
-/** Full match artifact staging: 24 on-field pieces (no preloads). */
+/** Full match: 18 spike + 3 station + 6 reserve per alliance (36 total). */
 export function getMatchArtifactStaging(): StagedArtifactLayout[] {
   const out: StagedArtifactLayout[] = [];
   let id = 0;
@@ -101,9 +85,44 @@ export function getMatchArtifactStaging(): StagedArtifactLayout[] {
     id += 3;
   }
 
-  out.push(...verticalSpike(5, 10, HUMAN_PLAYER_COLORS, 'blue_human_player', id));
+  out.push(...humanPlayerStation('blue', id));
   id += 3;
-  out.push(...verticalSpike(FIELD_SIZE_INCHES - 5, 10, HUMAN_PLAYER_COLORS, 'red_human_player', id));
+  out.push(...humanPlayerReserve('blue', id));
+  id += 6;
+  out.push(...humanPlayerStation('red', id));
+  id += 3;
+  out.push(...humanPlayerReserve('red', id));
 
+  return out;
+}
+
+/** Three balls in the human-player loading zone (always visible; teleop feed). */
+function humanPlayerStation(alliance: 'blue' | 'red', idStart: number): StagedArtifactLayout[] {
+  const x = alliance === 'blue' ? 5 : FIELD_SIZE_INCHES - 5;
+  const ys = [5, 10, 15];
+  return HUMAN_PLAYER_COLORS.map((color, i) => ({
+    id: `artifact_${idStart + i}`,
+    color,
+    pose: { x, y: ys[i]!, heading: 0 },
+    source: `${alliance}_human_player_station`,
+  }));
+}
+
+/** Six balls outside the field with the human player (preload + teleop feed). */
+function humanPlayerReserve(alliance: 'blue' | 'red', idStart: number): StagedArtifactLayout[] {
+  const xs = alliance === 'blue' ? [2, 8] : [FIELD_SIZE_INCHES - 2, FIELD_SIZE_INCHES - 8];
+  const ys = [4, 10, 16];
+  const out: StagedArtifactLayout[] = [];
+  let id = idStart;
+  for (const x of xs) {
+    for (let i = 0; i < HUMAN_PLAYER_COLORS.length; i++) {
+      out.push({
+        id: `artifact_${id++}`,
+        color: HUMAN_PLAYER_COLORS[i]!,
+        pose: { x, y: ys[i]!, heading: 0 },
+        source: `${alliance}_human_player_reserve`,
+      });
+    }
+  }
   return out;
 }

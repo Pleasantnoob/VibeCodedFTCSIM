@@ -416,7 +416,10 @@ export function FieldCanvas({
         )}
         {showArtifacts && !liveArtifactsRef && (
           <div className="field-artifact-layer" aria-hidden>
-            {(liveArtifacts.length > 0 ? liveArtifacts : artifactSpawns).map((artifact) => {
+            {(liveArtifacts.length > 0
+              ? liveArtifacts
+              : artifactSpawns.filter((a) => !a.source.endsWith('_human_player_reserve'))
+            ).map((artifact) => {
               const px = pedroToFieldPx(artifact.pose, viewport);
               const diameterPx = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
               const radiusPx = diameterPx / 2;

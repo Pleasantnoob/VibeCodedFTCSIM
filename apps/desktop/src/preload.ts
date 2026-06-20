@@ -8,6 +8,14 @@ export interface LauncherState {
   internetAddress: string;
   publicIp: string | null;
   suggestedInternetAddress: string | null;
+  appVersion: string;
+}
+
+export interface UpdateCheckResult {
+  status: 'dev' | 'available' | 'current' | 'error';
+  version?: string;
+  current: string;
+  message?: string;
 }
 
 export interface PrepareInternetHostResult {
@@ -30,9 +38,10 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
   openHost: (): Promise<PrepareInternetHostResult> => ipcRenderer.invoke('launcher:open-host'),
   hostOnline: (): Promise<PrepareInternetHostResult> => ipcRenderer.invoke('launcher:host-online'),
   openJoin: (address: string): Promise<void> => ipcRenderer.invoke('launcher:open-join', address),
-  openJoinLocal: (): Promise<void> => ipcRenderer.invoke('launcher:open-join-local'),
+  checkForUpdates: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('launcher:check-updates'),
   copyLan: (): Promise<string> => ipcRenderer.invoke('launcher:copy-lan'),
-  copyInternet: (): Promise<string> => ipcRenderer.invoke('launcher:copy-internet'),
+  copyInternet: (address?: string): Promise<string> => ipcRenderer.invoke('launcher:copy-internet', address),
+  writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('launcher:write-clipboard', text),
   saveInternet: (address: string): Promise<string> => ipcRenderer.invoke('launcher:save-internet', address),
   detectPublicIp: (): Promise<{ publicIp: string | null; suggestedInternetAddress: string | null }> =>
     ipcRenderer.invoke('launcher:detect-public-ip'),
@@ -60,5 +69,10 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
       handler(info);
     ipcRenderer.on('launcher:update-progress', listener);
     return () => ipcRenderer.removeListener('launcher:update-progress', listener);
+  },
+  onUpdateCheckResult: (handler: (result: UpdateCheckResult) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: UpdateCheckResult) => handler(result);
+    ipcRenderer.on('launcher:update-check-result', listener);
+    return () => ipcRenderer.removeListener('launcher:update-check-result', listener);
   },
 });

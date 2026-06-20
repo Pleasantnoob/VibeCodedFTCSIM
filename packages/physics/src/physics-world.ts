@@ -37,6 +37,8 @@ const DEFAULT_CONFIG: PhysicsConfig = {
 export const PHYSICS_GROUP_ROBOT = 0x0001;
 export const PHYSICS_GROUP_ARTIFACT = 0x0002;
 export const PHYSICS_GROUP_STATIC = 0x0004;
+/** Human-player loading-zone station balls — always collide with robot (even during intake bypass). */
+export const PHYSICS_GROUP_HP_STATION = 0x0008;
 
 function collisionGroups(membership: number, filter: number): number {
   return (membership << 16) | filter;
@@ -44,15 +46,20 @@ function collisionGroups(membership: number, filter: number): number {
 
 const STATIC_COLLISION_GROUPS = collisionGroups(
   PHYSICS_GROUP_STATIC,
-  PHYSICS_GROUP_ROBOT | PHYSICS_GROUP_ARTIFACT,
+  PHYSICS_GROUP_ROBOT | PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_HP_STATION,
 );
 const ROBOT_COLLISION_GROUPS = collisionGroups(
   PHYSICS_GROUP_ROBOT,
-  PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_STATIC,
+  PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION,
 );
 const ARTIFACT_COLLISION_GROUPS = collisionGroups(
   PHYSICS_GROUP_ARTIFACT,
-  PHYSICS_GROUP_ROBOT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_ARTIFACT,
+  PHYSICS_GROUP_ROBOT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_HP_STATION,
+);
+/** Station line: always hits robot (intake bypass) + walls + field/other station balls. */
+const HP_STATION_ARTIFACT_COLLISION_GROUPS = collisionGroups(
+  PHYSICS_GROUP_HP_STATION,
+  PHYSICS_GROUP_ROBOT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_HP_STATION,
 );
 /** Parked artifacts (held, in flight, on ramp) collide with nothing. */
 const PARKED_COLLISION_GROUPS = collisionGroups(0, 0);
@@ -285,6 +292,31 @@ export class PhysicsWorld {
     return handle;
   }
 
+  /** Replace robot OBB collider when footprint sliders change. */
+  resizeKinematicRobotFootprint(
+    id: string,
+    widthInches: number,
+    lengthInches: number,
+    friction: number,
+  ): void {
+    const bodyHandle = this.bodies.get(id);
+    if (!bodyHandle) return;
+    const artifactCollision = bodyHandle.collider.collisionGroups() !== collisionGroups(PHYSICS_GROUP_ROBOT, PHYSICS_GROUP_STATIC);
+    this.world.removeCollider(bodyHandle.collider, true);
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(
+      (widthInches * INCHES_TO_METERS) / 2,
+      (lengthInches * INCHES_TO_METERS) / 2,
+    )
+      .setFriction(Math.max(0.45, friction * 0.65))
+      .setRestitution(0)
+      .setCollisionGroups(
+        artifactCollision
+          ? ROBOT_COLLISION_GROUPS
+          : collisionGroups(PHYSICS_GROUP_ROBOT, PHYSICS_GROUP_STATIC),
+      );
+    bodyHandle.collider = this.world.createCollider(colliderDesc, bodyHandle.handle);
+  }
+
   createDynamicCircle(
     id: string,
     pose: Pose,
@@ -314,13 +346,13 @@ export class PhysicsWorld {
     return handle;
   }
 
-  /** When false, robot collider ignores artifacts (intake running) but still hits walls. */
+  /** When false, robot collider ignores field artifacts (intake running) but still hits walls + HP station. */
   setRobotArtifactCollision(id: string, enabled: boolean): void {
     const bodyHandle = this.bodies.get(id);
     if (!bodyHandle) return;
     const filter = enabled
-      ? PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_STATIC
-      : PHYSICS_GROUP_STATIC;
+      ? PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION
+      : PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION;
     bodyHandle.collider.setCollisionGroups(collisionGroups(PHYSICS_GROUP_ROBOT, filter));
   }
 
@@ -447,6 +479,17 @@ export class PhysicsWorld {
     if (!bodyHandle) return;
     this.setBodyPose(id, pose);
     bodyHandle.collider.setCollisionGroups(ARTIFACT_COLLISION_GROUPS);
+    bodyHandle.collider.setEnabled(true);
+    this.setLinearVelocityInches(id, vx, vy);
+    bodyHandle.handle.wakeUp();
+  }
+
+  /** Human-player station line — always collides with robot (including intake bypass). */
+  activateStationArtifactBody(id: string, pose: Pose, vx: number, vy: number): void {
+    const bodyHandle = this.bodies.get(id);
+    if (!bodyHandle) return;
+    this.setBodyPose(id, pose);
+    bodyHandle.collider.setCollisionGroups(HP_STATION_ARTIFACT_COLLISION_GROUPS);
     bodyHandle.collider.setEnabled(true);
     this.setLinearVelocityInches(id, vx, vy);
     bodyHandle.handle.wakeUp();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getDecodeField } from '@ftc-sim/season-decode';
+import { getDecodeField, getMatchArtifactStaging } from '@ftc-sim/season-decode';
 import { DecodeRulesEngine } from '@ftc-sim/game-decode';
-import { ArtifactSimulation } from './artifact-simulation.js';
+import { ArtifactSimulation, type PhysicsAdapter } from './artifact-simulation.js';
 import {
   artifactTouchesFrontEdge,
   detectArtifactStuckInStructure,
@@ -14,6 +14,20 @@ import {
   robotInLaunchZone,
 } from './geometry.js';
 import { DEFAULT_KINEMATIC_ROBOT } from '@ftc-sim/robot';
+
+function mockPhysics(): PhysicsAdapter {
+  return {
+    getArtifactPose: () => ({ x: 0, y: 0, heading: 0 }),
+    setArtifactPose: () => {},
+    setArtifactVelocity: () => {},
+    setArtifactEnabled: () => {},
+    parkArtifactBody: () => {},
+    activateArtifactBody: () => {},
+    activateStationArtifactBody: () => {},
+    syncRobotCollider: () => {},
+    step: () => {},
+  };
+}
 
 describe('gate proximity', () => {
   const field = getDecodeField();
@@ -31,20 +45,96 @@ describe('gate proximity', () => {
   });
 });
 
+describe('human player reserve visibility', () => {
+  it('hides reserve balls until teleop', () => {
+    const field = getDecodeField();
+    const sim = new ArtifactSimulation(
+      field,
+      new DecodeRulesEngine({ field, alliance: 'blue' }),
+      'blue',
+    );
+    sim.init(getMatchArtifactStaging());
+    const physics = mockPhysics();
+
+    sim.syncHumanPlayerReserve('setup', physics);
+    const hidden = sim.getRenderArtifacts().filter((a) => a.source?.endsWith('_human_player_reserve'));
+    expect(hidden).toHaveLength(0);
+
+    sim.syncHumanPlayerReserve('teleop', physics);
+    const visible = sim.getRenderArtifacts().filter((a) => a.source?.endsWith('_human_player_reserve'));
+    expect(visible).toHaveLength(12);
+  });
+
+  it('preload consumes reserve balls, not loading-zone station', () => {
+    const field = getDecodeField();
+    const footprint = DEFAULT_KINEMATIC_ROBOT.footprint;
+    const sim = new ArtifactSimulation(
+      field,
+      new DecodeRulesEngine({ field, alliance: 'blue' }),
+      'blue',
+    );
+    sim.init(getMatchArtifactStaging());
+    const physics = mockPhysics();
+    const pose = { x: 20, y: 10, heading: 0 };
+
+    sim.applyPlayerPreload('player', 'blue', pose, footprint, physics, () => 0.5);
+
+    const station = [...sim.getRenderArtifacts()].filter(
+      (a) => a.source === 'blue_human_player_station',
+    );
+    expect(station).toHaveLength(3);
+    expect(sim.getStoredCount('player')).toBe(3);
+
+    const reserveLeft = sim.getSnapshot().artifacts.filter(
+      (a) => a.phase === 'humanPlayerReserve' && a.source === 'blue_human_player_reserve',
+    );
+    expect(reserveLeft).toHaveLength(3);
+  });
+});
+
+describe('human player station during auto', () => {
+  it('intakes loading-zone station balls during auto', () => {
+    const field = getDecodeField();
+    const footprint = DEFAULT_KINEMATIC_ROBOT.footprint;
+    const sim = new ArtifactSimulation(
+      field,
+      new DecodeRulesEngine({ field, alliance: 'blue' }),
+      'blue',
+    );
+    sim.init(getMatchArtifactStaging());
+    const physics = mockPhysics();
+    sim.syncHumanPlayerStation('auto', physics);
+
+    const station = [...sim.getSnapshot().artifacts].find(
+      (a) => a.source === 'blue_human_player_station',
+    );
+    expect(station).toBeDefined();
+
+    const robotPose = { x: station!.pose.x, y: station!.pose.y - footprint.length / 2 - 1, heading: Math.PI / 2 };
+    sim.applyCommand('player', { intake: 1, shoot: 0 }, false, false);
+    sim.tickRobots(
+      1 / 120,
+      [{ robotId: 'player', pose: robotPose, linear: { x: 0, y: 0 }, alliance: 'blue', shootEdge: false, gateEdge: false, shootHeld: false }],
+      footprint,
+      physics,
+      'auto',
+    );
+
+    expect(sim.getStoredCount('player')).toBeGreaterThan(0);
+  });
+});
+
 describe('robot-artifact collision bypass', () => {
   const field = getDecodeField();
   const footprint = DEFAULT_KINEMATIC_ROBOT.footprint;
   const pose = { x: 72, y: 40, heading: Math.PI / 2 };
 
-  it('bypasses all artifact collisions during auto', () => {
+  it('requires intake on to bypass collisions (auto and teleop)', () => {
     const sim = new ArtifactSimulation(field, new DecodeRulesEngine({ field, alliance: 'blue' }), 'blue');
-    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'auto')).toBe(true);
-  });
-
-  it('requires intake on during teleop to bypass collisions', () => {
-    const sim = new ArtifactSimulation(field, new DecodeRulesEngine({ field, alliance: 'blue' }), 'blue');
+    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'auto')).toBe(false);
     expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'teleop')).toBe(false);
     sim.applyCommand('player', { intake: 1 }, false, false);
+    expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'auto')).toBe(true);
     expect(sim.shouldBypassRobotArtifactCollision('player', pose, footprint, 'teleop')).toBe(true);
   });
 });

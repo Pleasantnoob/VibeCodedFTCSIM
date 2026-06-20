@@ -20,17 +20,22 @@ function mirrorPedroPose(pose: Pose): Pose {
   };
 }
 
-/** Blue alliance far-side start (human player station corner). Heading in degrees. */
-export const BLUE_FAR_SPAWN: Pose = {
+/** Blue alliance near launch (top of field, y ≈ 124). */
+export const BLUE_NEAR_SPAWN: Pose = {
   x: 22,
   y: 124,
   heading: (144 * Math.PI) / 180,
 };
 
+/** Blue alliance far launch (bottom of field, y ≈ 8). */
+export const BLUE_FAR_SPAWN: Pose = {
+  x: 56,
+  y: 8,
+  heading: Math.PI / 2,
+};
+
 /** Red far-side start — mirror of {@link BLUE_FAR_SPAWN}. */
 export const RED_FAR_SPAWN: Pose = mirrorPedroPose(BLUE_FAR_SPAWN);
-
-const BLUE_NEAR_SPAWN: Pose = { x: 56, y: 8, heading: Math.PI / 2 };
 
 /** Near-field alliance starts (inches, Pedro coords). Red mirrors blue. */
 export const ALLIANCE_NEAR_SPAWN: Record<MatchAlliance, Pose> = {
@@ -85,12 +90,12 @@ export function isClaimableRobotId(id: string): id is ClaimableRobotId {
   return (CLAIMABLE_ROBOT_IDS as readonly string[]).includes(id);
 }
 
-/** Lobby labels (field top = “near” on screen; bottom = “far”). */
+/** Lobby labels (field top = near launch, bottom = far launch). */
 export const ROBOT_SLOT_LABELS: Record<ClaimableRobotId, string> = {
-  player: 'Blue near',
-  'blue-near': 'Blue far',
-  'red-far': 'Red near',
-  'red-near': 'Red far',
+  player: 'Blue far',
+  'blue-near': 'Blue near',
+  'red-far': 'Red far',
+  'red-near': 'Red near',
 };
 
 /** Spawn pose when a lobby slot is claimed. */
@@ -107,11 +112,47 @@ export function spawnPoseForClaimableSlot(id: ClaimableRobotId): Pose {
   }
 }
 
+export function allianceForClaimableSlot(id: ClaimableRobotId): MatchAlliance {
+  switch (id) {
+    case 'player':
+    case 'blue-near':
+      return 'blue';
+    case 'red-far':
+    case 'red-near':
+      return 'red';
+  }
+}
+
 /** Display order in lobby grid (blue top row, red bottom row). */
 export const LOBBY_SLOT_ORDER: ClaimableRobotId[] = ['player', 'blue-near', 'red-far', 'red-near'];
 
-export function playerSpawnPose(): Pose {
-  return BLUE_FAR_SPAWN;
+/** Solo practice spawn corners (alliance + near/far launch). */
+export type SoloSpawnSlot = 'blue-near' | 'blue-far' | 'red-near' | 'red-far';
+
+export const SOLO_SPAWN_SLOTS: SoloSpawnSlot[] = ['blue-near', 'blue-far', 'red-near', 'red-far'];
+
+export const SOLO_SPAWN_LABELS: Record<SoloSpawnSlot, string> = {
+  'blue-near': 'Blue near',
+  'blue-far': 'Blue far',
+  'red-near': 'Red near',
+  'red-far': 'Red far',
+};
+
+export function allianceForSpawnSlot(slot: SoloSpawnSlot): MatchAlliance {
+  return slot.startsWith('blue') ? 'blue' : 'red';
+}
+
+export function playerSpawnPose(slot: SoloSpawnSlot = 'blue-far'): Pose {
+  switch (slot) {
+    case 'blue-near':
+      return ALLIANCE_NEAR_SPAWN.blue;
+    case 'blue-far':
+      return BLUE_FAR_SPAWN;
+    case 'red-near':
+      return RED_NEAR_SPAWN;
+    case 'red-far':
+      return RED_FAR_SPAWN;
+  }
 }
 
 /** Non-controlled robots for a practice 2v2 field. */

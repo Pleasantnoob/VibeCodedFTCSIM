@@ -8,10 +8,10 @@ import {
 describe('getMatchArtifactStaging', () => {
   const staging = getMatchArtifactStaging();
 
-  it('stages 24 artifacts total', () => {
-    expect(staging).toHaveLength(24);
+  it('stages 36 artifacts total (18 spikes + 6 station + 12 reserve)', () => {
+    expect(staging).toHaveLength(36);
     expect(staging.map((a) => a.id)).toEqual(
-      Array.from({ length: 24 }, (_, i) => `artifact_${i}`),
+      Array.from({ length: 36 }, (_, i) => `artifact_${i}`),
     );
   });
 
@@ -34,12 +34,20 @@ describe('getMatchArtifactStaging', () => {
     expect(byX[1]!.pose.x).toBe(RED_SPIKE_SEAM_X);
   });
 
-  it('blue human player vertical spike: PGP at (5,5/10/15)', () => {
-    const row = staging.filter((a) => a.source === 'blue_human_player');
+  it('blue human player station: 3 loading-zone balls', () => {
+    const row = staging.filter((a) => a.source === 'blue_human_player_station');
     expect(row).toHaveLength(3);
     const byY = [...row].sort((a, b) => a.pose.y - b.pose.y);
+    expect(byY.map((a) => a.pose.x)).toEqual([5, 5, 5]);
     expect(byY.map((a) => a.pose.y)).toEqual([5, 10, 15]);
-    expect(byY.every((a) => a.pose.x === 5)).toBe(true);
     expect(byY.map((a) => a.color)).toEqual(['purple', 'green', 'purple']);
+  });
+
+  it('blue human player reserve: 6 balls outside the field', () => {
+    const row = staging.filter((a) => a.source === 'blue_human_player_reserve');
+    expect(row).toHaveLength(6);
+    const byX = [...row].sort((a, b) => a.pose.x - b.pose.x || a.pose.y - b.pose.y);
+    expect(byX.map((a) => a.pose.x)).toEqual([2, 2, 2, 8, 8, 8]);
+    expect(byX.map((a) => a.pose.y)).toEqual([4, 10, 16, 4, 10, 16]);
   });
 });

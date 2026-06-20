@@ -7,7 +7,9 @@ import {
   encodeMessage,
   SIM_NET_PROTOCOL_VERSION,
   type HostCommand,
+  type HostRoomSettings,
   type InputFrame,
+  type RoomConfig,
   type RobotSnapshotEntry,
   type ServerMessage,
   type SessionRole,
@@ -28,9 +30,27 @@ import { buildWsUrl } from './session-mode';
 
 declare const __APP_VERSION__: string;
 
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0';
 const CONNECT_TIMEOUT_MS = 12_000;
 const HUD_UPDATE_MS = 1000 / 12;
+const DEFAULT_ROBOT_FOOTPRINT = 18;
+
+function connectTimeoutMessage(address: string): string {
+  const base = 'Connection timed out — check host address and port 5191';
+  const normalized = address.trim().replace(/^wss?:\/\//, '');
+  const colon = normalized.lastIndexOf(':');
+  const host = (colon > 0 ? normalized.slice(0, colon) : normalized).toLowerCase();
+  if (host === '192.168.1.100') {
+    return `${base}. 192.168.1.100 was the old dev mock — on this PC use 127.0.0.1:5191 and run pnpm dev:server.`;
+  }
+  if (typeof window !== 'undefined') {
+    const pageHost = window.location.hostname.toLowerCase();
+    if (pageHost === 'localhost' || pageHost === '127.0.0.1') {
+      return `${base}. Same-PC browser testing: use 127.0.0.1:5191 and run pnpm dev:server.`;
+    }
+  }
+  return base;
+}
 
 const DEFAULT_TEAM_BY_ROBOT_ID: Record<string, string> = {
   [PLAYER_ROBOT_ID]: DEFAULT_PRACTICE_TEAMS.blueFar,
@@ -41,23 +61,27 @@ const DEFAULT_TEAM_BY_ROBOT_ID: Record<string, string> = {
 
 function snapshotRobotToFieldState(robot: RobotSnapshotEntry): FieldRobotRenderState {
   const teamNumber = robot.teamNumber ?? DEFAULT_TEAM_BY_ROBOT_ID[robot.id] ?? '?';
+  const width = robot.width ?? DEFAULT_ROBOT_FOOTPRINT;
+  const length = robot.length ?? DEFAULT_ROBOT_FOOTPRINT;
   return {
     id: robot.id,
     alliance: robot.alliance,
     teamNumber,
-    width: 18,
-    length: 18,
+    width,
+    length,
     pose: robot.pose,
   };
 }
 
 function snapshotRobotToCatalog(robot: RobotSnapshotEntry): FieldRobotCatalogEntry {
+  const width = robot.width ?? DEFAULT_ROBOT_FOOTPRINT;
+  const length = robot.length ?? DEFAULT_ROBOT_FOOTPRINT;
   return {
     id: robot.id,
     alliance: robot.alliance,
     teamNumber: robot.teamNumber ?? DEFAULT_TEAM_BY_ROBOT_ID[robot.id] ?? '?',
-    width: 18,
-    length: 18,
+    width,
+    length,
   };
 }
 
@@ -81,6 +105,7 @@ export interface SessionClientState {
   slotError: string | null;
   netFollower: StateSnapshot['follower'] | null;
   versionWarning: string | null;
+  roomConfig: RoomConfig | null;
 }
 
 const EMPTY: SessionClientState = {
@@ -103,6 +128,7 @@ const EMPTY: SessionClientState = {
   slotError: null,
   netFollower: null,
   versionWarning: null,
+  roomConfig: null,
 };
 
 function snapshotToArtifacts(snapshot: StateSnapshot): SimArtifactState[] {
@@ -134,6 +160,7 @@ export function useSessionClient() {
   const lastSnapshotAtRef = useRef(0);
   const lastMatchPhaseRef = useRef<string | null>(null);
   const onAudioCueRef = useRef<((cue: MatchAudioCue) => void) | null>(null);
+  const disconnectRef = useRef<() => void>(() => {});
 
   const clearConnectTimeout = useCallback(() => {
     if (connectTimeoutRef.current) {
@@ -167,6 +194,8 @@ export function useSessionClient() {
     setState(EMPTY);
   }, [clearConnectTimeout]);
 
+  disconnectRef.current = disconnect;
+
   const applySnapshot = useCallback((message: StateSnapshot, force = false) => {
     const fieldRobots = message.robots.map(snapshotRobotToFieldState);
     fieldRobotsRef.current = fieldRobots;
@@ -189,6 +218,23 @@ export function useSessionClient() {
     const throttleElapsed = now - lastHudPaintRef.current >= HUD_UPDATE_MS;
 
     if (!force && !phaseChanged && !throttleElapsed) {
+      setState((prev) => {
+        const m = message.match;
+        if (
+          prev.matchSnapshot?.phase === m.phase &&
+          prev.matchSnapshot?.timeElapsed === m.timeElapsed &&
+          prev.matchSnapshot?.timeRemainingInPhase === m.timeRemainingInPhase &&
+          prev.matchSnapshot?.running === m.running &&
+          prev.matchSnapshot?.paused === m.paused
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          snapshot: message,
+          matchSnapshot: m,
+        };
+      });
       return;
     }
     lastHudPaintRef.current = now;
@@ -209,7 +255,7 @@ export function useSessionClient() {
   }, []);
 
   const connect = useCallback(
-    (address: string, displayName: string, intent: 'host' | 'join') => {
+    (address: string, displayName: string, intent: 'host' | 'join', hostRoom?: HostRoomSettings) => {
       clearConnectTimeout();
       const gen = ++connectGenRef.current;
 
@@ -249,7 +295,7 @@ export function useSessionClient() {
           ...prev,
           connecting: false,
           connected: false,
-          error: 'Connection timed out — check host address and port 5191',
+          error: connectTimeoutMessage(address),
         }));
       };
 
@@ -267,6 +313,7 @@ export function useSessionClient() {
             appVersion: APP_VERSION,
             displayName,
             intent,
+            hostRoom: intent === 'host' ? hostRoom : undefined,
           }),
         );
       };
@@ -305,6 +352,7 @@ export function useSessionClient() {
             playerId: message.playerId,
             role: message.role,
             robotId: message.robotId ?? null,
+            roomConfig: message.roomConfig,
             slotError: null,
             versionWarning,
           }));
@@ -402,11 +450,12 @@ export function useSessionClient() {
         }
 
         if (message.type === 'match_ended') {
-          setState((prev) => ({
-            ...prev,
-            connected: false,
-            error: `Match ended: ${message.reason}`,
-          }));
+          const reason = message.reason;
+          disconnectRef.current();
+          setState({
+            ...EMPTY,
+            error: `Match ended: ${reason}`,
+          });
           return;
         }
 

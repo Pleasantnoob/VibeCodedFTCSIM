@@ -5,8 +5,10 @@ export type MatchOutcome = 'red' | 'blue' | 'tie';
 
 export const MATCH_RESULTS_AUDIO = '/ftc-live/audio/results.wav';
 export const MATCH_END_DELAY_MS = 3000;
-/** Win/tie reveal video plays at half volume (results sting uses full match volume). */
-export const MATCH_REVEAL_VIDEO_VOLUME = 0.5;
+/** Crossfade from win reveal video into the score results overlay. */
+export const MATCH_RESULTS_CROSSFADE_MS = 2000;
+/** Win/tie reveal video at 25% of the match volume slider (results sting uses full match volume). */
+export const MATCH_REVEAL_VIDEO_VOLUME = 0.25;
 
 export const MATCH_WIN_VIDEOS: Record<MatchOutcome, string> = {
   red: '/ftc-live/video/red-win.webm',

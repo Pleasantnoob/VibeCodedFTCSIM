@@ -7,14 +7,16 @@ import {
   MATCH_END_DELAY_MS,
   MATCH_REVEAL_VIDEO_VOLUME,
   MATCH_RESULTS_AUDIO,
+  MATCH_RESULTS_CROSSFADE_MS,
   MATCH_WIN_VIDEOS,
   pickBestMatchState,
   resolveMatchOutcome,
   type ResolvedMatchOutcome,
 } from './match-results-assets';
+import { unlockMatchAudio } from './useMatchAudio';
 import './match-results.css';
 
-type CeremonyPhase = 'idle' | 'delay' | 'video' | 'results';
+type CeremonyPhase = 'idle' | 'delay' | 'video' | 'fade' | 'results';
 
 export interface MatchResultsCeremonyProps {
   snapshot: MatchSnapshot;
@@ -100,6 +102,7 @@ export function MatchResultsCeremony({
 
   const playResultsSting = useCallback(() => {
     if (!audioEnabled) return;
+    unlockMatchAudio();
     let clip = resultsAudioRef.current;
     if (!clip) {
       clip = new Audio(MATCH_RESULTS_AUDIO);
@@ -113,14 +116,14 @@ export function MatchResultsCeremony({
     });
   }, [audioEnabled, volume]);
 
-  const beginResultsScreen = useCallback(() => {
+  const beginResultsTransition = useCallback(() => {
     captureOutcome();
-    setPhase('results');
-    playResultsSting();
-  }, [captureOutcome, playResultsSting]);
+    videoRef.current?.pause();
+    setPhase('fade');
+  }, [captureOutcome]);
 
-  const beginResultsScreenRef = useRef(beginResultsScreen);
-  beginResultsScreenRef.current = beginResultsScreen;
+  const beginResultsTransitionRef = useRef(beginResultsTransition);
+  beginResultsTransitionRef.current = beginResultsTransition;
 
   const startCeremony = useCallback(() => {
     if (ceremonyActiveRef.current) return;
@@ -173,6 +176,15 @@ export function MatchResultsCeremony({
   }, [phase]);
 
   useEffect(() => {
+    if (phase !== 'fade') return;
+    playResultsSting();
+    const timer = window.setTimeout(() => {
+      setPhase('results');
+    }, MATCH_RESULTS_CROSSFADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase, playResultsSting]);
+
+  useEffect(() => {
     if (phase !== 'video') {
       videoStartedRef.current = false;
       return;
@@ -187,7 +199,7 @@ export function MatchResultsCeremony({
       video.volume = MATCH_REVEAL_VIDEO_VOLUME;
       video.currentTime = 0;
       void video.play().catch(() => {
-        beginResultsScreenRef.current();
+        beginResultsTransitionRef.current();
       });
     };
 
@@ -246,27 +258,33 @@ export function MatchResultsCeremony({
           className="match-results-ceremony__viewport"
           style={{ transform: `scale(${viewportScale})` }}
         >
-        {phase === 'video' ? (
+        {phase === 'video' || phase === 'fade' ? (
           <video
             key={videoSrc}
             ref={videoRef}
-            className="matchResultVideo"
+            className={`matchResultVideo${phase === 'fade' ? ' matchResultVideo--fade-out' : ''}`}
             src={videoSrc}
             playsInline
             preload="auto"
-            onEnded={() => beginResultsScreenRef.current()}
-            onError={() => beginResultsScreenRef.current()}
+            onEnded={() => beginResultsTransitionRef.current()}
+            onError={() => beginResultsTransitionRef.current()}
           />
         ) : null}
 
-        {phase === 'results' ? (
-          <MatchResultsOverlay
-            outcome={outcome}
-            eventName={eventName}
-            matchName={matchName}
-            redTeams={redTeams}
-            blueTeams={blueTeams}
-          />
+        {phase === 'fade' || phase === 'results' ? (
+          <div
+            className={`match-results-ceremony__results-layer${
+              phase === 'fade' ? ' match-results-ceremony__results-layer--fade-in' : ''
+            }`}
+          >
+            <MatchResultsOverlay
+              outcome={outcome}
+              eventName={eventName}
+              matchName={matchName}
+              redTeams={redTeams}
+              blueTeams={blueTeams}
+            />
+          </div>
         ) : null}
         </div>
       </div>
@@ -291,7 +309,7 @@ export function MatchResultsCeremony({
             onClick={(event) => {
               event.stopPropagation();
               if (phase === 'delay') setPhase('video');
-              else beginResultsScreenRef.current();
+              else beginResultsTransitionRef.current();
             }}
           >
             Skip

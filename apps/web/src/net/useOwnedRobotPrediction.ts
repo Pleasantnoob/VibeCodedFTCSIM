@@ -6,6 +6,7 @@ import {
   DEFAULT_SIM_ROBOT_CONFIG,
   simRobotFootprint,
   simRobotLimits,
+  type SimRobotConfig,
 } from '@ftc-sim/session';
 import type { DriveFrame } from '@ftc-sim/robot';
 import { stepVelocityDrive } from '@ftc-sim/robot';
@@ -15,8 +16,6 @@ const FIELD = getDecodeField();
 const BARRIER_POLYS = getBarrierBodies(FIELD).map((body) =>
   getBodyOutline(body).map((v) => ({ x: v.x, y: v.y })),
 );
-const LIMITS = simRobotLimits(DEFAULT_SIM_ROBOT_CONFIG);
-const FOOTPRINT = simRobotFootprint(DEFAULT_SIM_ROBOT_CONFIG);
 const PHYSICS_DT = 1 / 120;
 
 export type DriveSampleInput = () => {
@@ -33,6 +32,7 @@ export function useOwnedRobotPrediction(options: {
   enabled: boolean;
   robotId: string | null;
   allowsDrive: boolean;
+  robotConfig?: SimRobotConfig;
   sampleInputRef: RefObject<DriveSampleInput | null>;
   driveFrameRef: RefObject<DriveFrame>;
   authoritativePose: Pose | null;
@@ -42,6 +42,7 @@ export function useOwnedRobotPrediction(options: {
     enabled,
     robotId,
     allowsDrive,
+    robotConfig = DEFAULT_SIM_ROBOT_CONFIG,
     sampleInputRef,
     driveFrameRef,
     authoritativePose,
@@ -55,6 +56,8 @@ export function useOwnedRobotPrediction(options: {
     angular: 0,
   });
   const lastSnapshotTickRef = useRef(snapshotTick);
+  const robotConfigRef = useRef(robotConfig);
+  robotConfigRef.current = robotConfig;
 
   useEffect(() => {
     if (lastSnapshotTickRef.current !== snapshotTick) {
@@ -101,6 +104,9 @@ export function useOwnedRobotPrediction(options: {
         return;
       }
 
+      const config = robotConfigRef.current;
+      const limits = simRobotLimits(config);
+      const footprint = simRobotFootprint(config);
       const motion = motionRef.current;
       const stepped = stepVelocityDrive({
         pose: motion.pose,
@@ -108,13 +114,13 @@ export function useOwnedRobotPrediction(options: {
         angular: motion.angular,
         input: sample.input,
         dt,
-        limits: LIMITS,
-        footprint: FOOTPRINT,
+        limits,
+        footprint,
         barriers: BARRIER_POLYS,
         fieldSizeInches: FIELD.fieldSizeInches ?? 144,
         driveFrame: driveFrameRef.current,
-        maxAcceleration: DEFAULT_SIM_ROBOT_CONFIG.maxAcceleration,
-        maxAngularAcceleration: DEFAULT_SIM_ROBOT_CONFIG.maxAngularAcceleration,
+        maxAcceleration: config.maxAcceleration,
+        maxAngularAcceleration: config.maxAngularAcceleration,
       });
 
       motion.pose = stepped.pose;
@@ -127,7 +133,7 @@ export function useOwnedRobotPrediction(options: {
 
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [enabled, robotId, allowsDrive, sampleInputRef, driveFrameRef]);
+  }, [enabled, robotId, allowsDrive, sampleInputRef, driveFrameRef, robotConfig]);
 
   return poseRef;
 }

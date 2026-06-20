@@ -43,7 +43,6 @@ export interface DriveInputSamplerState {
   injectInput: HolonomicInput | null;
   gamepadConnected: boolean;
   prevShoot: boolean;
-  prevGate: boolean;
 }
 
 const ZERO_INPUT: HolonomicInput = { forward: 0, strafe: 0, turn: 0 };
@@ -122,7 +121,6 @@ export function createDriveInputSampler(keybinds: DriveKeybinds = DEFAULT_DRIVE_
     injectInput: null,
     gamepadConnected: false,
     prevShoot: false,
-    prevGate: false,
   };
 }
 
@@ -143,22 +141,18 @@ function sampleMechanism(
   const intakeFromKeys = isActionPressed(state.pressedCodes, 'intake', state.keybinds) ? 1 : 0;
   const shootNow =
     isActionPressed(state.pressedCodes, 'shoot', state.keybinds) || shootFromPad > 0;
-  const gateNow =
-    isActionPressed(state.pressedCodes, 'gate', state.keybinds) || Boolean(pad?.buttons[1]?.pressed);
   const shootEdge = shootNow && !state.prevShoot;
-  const gateEdge = gateNow && !state.prevGate;
   state.prevShoot = shootNow;
-  state.prevGate = gateNow;
 
   const intake = intakeFromKeys > 0 ? 1 : intakeFromPad >= INTAKE_THRESHOLD ? intakeFromPad : 0;
   return {
     command: {
       intake,
       shoot: shootEdge,
-      gate: gateNow,
+      gate: false,
     },
     shootEdge,
-    gateEdge,
+    gateEdge: false,
     shootHeld: shootNow,
   };
 }

@@ -1,5 +1,8 @@
 export {
   playerSpawnPose,
+  allianceForSpawnSlot,
+  SOLO_SPAWN_SLOTS,
+  SOLO_SPAWN_LABELS,
   practiceFieldRobots,
   buildFieldRobotCatalog,
   buildFieldRobotRenderStates,
@@ -18,6 +21,7 @@ export {
   ROBOT_SLOT_LABELS,
   isClaimableRobotId,
   type ClaimableRobotId,
+  type SoloSpawnSlot,
   type NpcMotionState,
   type MatchAlliance,
   type PracticeTeamNumbers,

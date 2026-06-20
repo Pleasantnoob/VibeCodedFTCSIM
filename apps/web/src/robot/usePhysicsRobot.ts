@@ -50,10 +50,10 @@ export interface PhysicsRobotHud {
 export interface PhysicsRobotOptions {
   allowsDriveRef: RefObject<boolean>;
   matchActiveRef: RefObject<boolean>;
+  driveBlockedRef?: RefObject<boolean>;
   getMatchSnapshotRef: RefObject<() => MatchSnapshot>;
   followerRef: RefObject<AutoSequenceRunner | null>;
   robotConfigRef: RefObject<SimRobotConfig>;
-  onPhysicsStepRef: RefObject<(dt: number) => void>;
   onSimHudTick?: () => void;
   alliance: Alliance;
   artifactStaging: StagedArtifactLayout[];
@@ -62,6 +62,7 @@ export interface PhysicsRobotOptions {
   practiceRobotsRef?: RefObject<MatchRobotLayout[]>;
   playerTeamNumber?: string;
   teleopDriveFrameRef?: RefObject<DriveFrame>;
+  robotPreloadRef?: RefObject<boolean>;
 }
 
 export function usePhysicsRobot(
@@ -102,14 +103,15 @@ export function usePhysicsRobot(
   const artifactWorldRef = useRef<ArtifactWorld | null>(null);
   const liveArtifactsRef = useRef<SimArtifactState[]>([]);
   const prevMatchPhaseRef = useRef<MatchPhase>('setup');
+  const lastFootprintRef = useRef({ width: 18, length: 18 });
   const barriersSyncedRef = useRef(false);
 
   const allowsDriveRef = simOptions?.allowsDriveRef;
   const matchActiveRef = simOptions?.matchActiveRef;
+  const driveBlockedRef = simOptions?.driveBlockedRef;
   const getMatchSnapshotRef = simOptions?.getMatchSnapshotRef;
   const followerRef = simOptions?.followerRef;
   const robotConfigRef = simOptions?.robotConfigRef;
-  const onPhysicsStepRef = simOptions?.onPhysicsStepRef;
   const onSimHudTick = simOptions?.onSimHudTick;
   const alliance = simOptions?.alliance ?? 'blue';
   const artifactStaging = simOptions?.artifactStaging ?? [];
@@ -117,6 +119,12 @@ export function usePhysicsRobot(
   const getMatchStateRef = simOptions?.getMatchStateRef;
   const practiceRobotsRef = simOptions?.practiceRobotsRef;
   const playerTeamNumber = simOptions?.playerTeamNumber ?? '-4';
+  const robotPreloadRef = simOptions?.robotPreloadRef;
+
+  const layoutOptions = useCallback(
+    () => ({ preload: robotPreloadRef?.current ?? false }),
+    [robotPreloadRef],
+  );
 
   const refreshFieldRobotsRef = useCallback(() => {
     const robotConfig = robotConfigRef?.current ?? DEFAULT_SIM_ROBOT_CONFIG;
@@ -203,7 +211,7 @@ export function usePhysicsRobot(
       setHud({ speed: 0, angularSpeed: 0 });
       accRef.current = createGameLoopAccumulator();
       telemetryRef.current = [];
-      artifactWorldRef.current?.reset(artifactStaging, spawn, buildNpcSync());
+      artifactWorldRef.current?.reset(artifactStaging, spawn, buildNpcSync(), undefined, layoutOptions());
       artifactWorldRef.current?.setArtifactFriction(artifactFrictionRef?.current ?? DEFAULT_ARTIFACT_FRICTION);
       if (artifactWorldRef.current) {
         const artifacts = artifactWorldRef.current.getRenderArtifacts();
@@ -214,7 +222,7 @@ export function usePhysicsRobot(
       }
       prevMatchPhaseRef.current = 'setup';
     },
-    [startPose, artifactStaging, artifactFrictionRef, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef],
+    [startPose, artifactStaging, artifactFrictionRef, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, layoutOptions],
   );
 
   useEffect(() => {
@@ -234,7 +242,7 @@ export function usePhysicsRobot(
     npcMotionRef.current = createNpcMotionStates(npcLayouts);
     initFieldRobotCatalog();
 
-    void world.init(artifactStaging, initialBarriers, spawnPose, footprint, buildNpcSync())
+    void world.init(artifactStaging, initialBarriers, spawnPose, footprint, buildNpcSync(), layoutOptions())
       .then(() => {
         if (cancelled) return;
         poseRef.current = spawnPose;
@@ -264,7 +272,7 @@ export function usePhysicsRobot(
       artifactWorldRef.current = null;
       setReady(false);
     };
-  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld]);
+  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld, layoutOptions, startPose]);
 
   useEffect(() => {
     if (!ready) {
@@ -288,6 +296,7 @@ export function usePhysicsRobot(
       if (prevPhase === phaseNow) return;
 
       if (prevPhase === 'auto' && phaseNow === 'transition') {
+        followerRef?.current?.cancelPath();
         const robots = buildMatchRobots();
         artifactWorldRef.current.evaluateEndOfAuto(robots);
       }
@@ -338,7 +347,9 @@ export function usePhysicsRobot(
           } satisfies ReturnType<typeof sampleDriveInput>);
 
         const injected = samplerRef.current?.injectInput;
-        const allowsDrive = allowsDriveRef?.current ?? true;
+        const allowsDrive =
+          (matchSnapNow?.allowsDrive ?? allowsDriveRef?.current ?? false) &&
+          !(driveBlockedRef?.current ?? false);
         const controlSource = matchSnapNow?.controlSource ?? 'none';
         const follower = followerRef?.current ?? null;
         const robotConfig = robotConfigRef?.current;
@@ -347,13 +358,12 @@ export function usePhysicsRobot(
 
         for (let i = 0; i < steps; i++) {
           if (matchActive) {
-            onPhysicsStepRef?.current?.(dt);
             applyMatchPhaseTransitions();
           }
           const { input: driveInput, driveFrame } = resolveDriveInput(
             {
               input: sample.input,
-              driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'robot',
+              driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'field',
               mechanism: sample.mechanism,
             },
             injected,
@@ -396,6 +406,15 @@ export function usePhysicsRobot(
             angular: npc.angular,
           }));
 
+          if (
+            footprint.width !== lastFootprintRef.current.width ||
+            footprint.length !== lastFootprintRef.current.length
+          ) {
+            lastFootprintRef.current = { width: footprint.width, length: footprint.length };
+            artifactWorldRef.current?.syncRobotFootprint(footprint);
+            initFieldRobotCatalog();
+          }
+
           refreshFieldRobotsRef();
 
           if (artifactFrictionRef) {
@@ -403,11 +422,17 @@ export function usePhysicsRobot(
           }
 
           const autoMechanisms = phase === 'auto' || phase === 'transition';
+          const mechanismsAllowed =
+            phase === 'auto' || phase === 'transition' || phase === 'teleop';
           let mechanismCommand = sample.mechanism.command;
           let shootEdge = sample.mechanism.shootEdge;
           let shootHeld = sample.mechanism.shootHeld;
 
-          if (autoMechanisms) {
+          if (!mechanismsAllowed) {
+            mechanismCommand = {};
+            shootEdge = false;
+            shootHeld = false;
+          } else if (autoMechanisms) {
             mechanismCommand = { ...mechanismCommand, intake: 1 };
             if (follower?.shouldAutoShoot()) {
               shootHeld = true;
@@ -494,10 +519,11 @@ export function usePhysicsRobot(
     getMatchSnapshotRef,
     followerRef,
     robotConfigRef,
-    onPhysicsStepRef,
+    onSimHudTick,
     buildMatchRobots,
     buildNpcSync,
     refreshFieldRobotsRef,
+    initFieldRobotCatalog,
   ]);
 
   const randomizeMotif = useCallback(() => {

@@ -11,6 +11,9 @@ import {
   getZoneByType,
   heldArtifactOffset,
   humanPlayerRespawnPose,
+  humanPlayerAllDepotPositions,
+  humanPlayerReservePositions,
+  humanPlayerStationPositions,
   isOutOfFieldBounds,
   localToWorld,
   OVERFLOW_SOUTH_VELOCITY,
@@ -35,6 +38,11 @@ import type {
 import { DEFAULT_PLAYER_ROBOT_ID, INTAKE_ACTIVE_THRESHOLD, MAX_STORAGE, SHOOT_HOLD_INTERVAL_S } from './types.js';
 import { MechanismLogger } from './mechanism-log.js';
 
+/** Off-field park pose for reserve balls before teleop. */
+const HIDDEN_ARTIFACT_POSE: Pose = { x: -96, y: -96, heading: 0 };
+
+export type ArtifactMatchPhase = 'setup' | 'init' | 'auto' | 'transition' | 'teleop' | 'post';
+
 export interface PhysicsAdapter {
   getArtifactPose(bodyId: string): Pose;
   setArtifactPose(bodyId: string, pose: Pose): void;
@@ -42,6 +50,7 @@ export interface PhysicsAdapter {
   setArtifactEnabled(bodyId: string, enabled: boolean): void;
   parkArtifactBody(bodyId: string, pose: Pose): void;
   activateArtifactBody(bodyId: string, pose: Pose, vx: number, vy: number): void;
+  activateStationArtifactBody(bodyId: string, pose: Pose, vx: number, vy: number): void;
   syncRobotCollider(pose: Pose, vx: number, vy: number): void;
   step(): void;
 }
@@ -99,6 +108,8 @@ export class ArtifactSimulation {
   private lastShotEligible = true;
   private simTime = 0;
   private logger = new MechanismLogger();
+  private reserveVisible = false;
+  private stationSimActive = false;
 
   constructor(
     private field: FieldDefinition,
@@ -116,18 +127,66 @@ export class ArtifactSimulation {
     this.gateInside = { blue: false, red: false };
     this.pendingSpawns = [];
     this.simTime = 0;
+    this.reserveVisible = false;
+    this.stationSimActive = false;
     this.logger.clear();
     this.rules.reset();
 
     for (const spawn of staging) {
+      let phase: SimArtifactState['phase'] = 'onField';
+      if (spawn.source.endsWith('_human_player_station')) {
+        phase = 'humanPlayerStation';
+      } else if (spawn.source.endsWith('_human_player_reserve')) {
+        phase = 'humanPlayerReserve';
+      }
       this.artifacts.set(spawn.id, {
         id: spawn.id,
         color: spawn.color,
-        phase: 'onField',
+        phase,
         bodyId: `artifact_${spawn.id}`,
         pose: { ...spawn.pose, heading: 0 },
-        opacity: 1,
+        opacity: phase === 'humanPlayerReserve' ? 0 : 1,
+        source: spawn.source,
       });
+    }
+  }
+
+  /** Reserve balls (outside the field) stay hidden until teleop. */
+  syncHumanPlayerReserve(matchPhase: ArtifactMatchPhase, physics: PhysicsAdapter): void {
+    const visible = matchPhase === 'teleop';
+    if (visible === this.reserveVisible) return;
+    this.reserveVisible = visible;
+
+    for (const artifact of this.artifacts.values()) {
+      if (artifact.phase !== 'humanPlayerReserve') continue;
+      if (visible) {
+        artifact.opacity = 1;
+        physics.activateArtifactBody(artifact.bodyId, artifact.pose, 0, 0);
+      } else {
+        artifact.opacity = 0;
+        physics.parkArtifactBody(artifact.bodyId, HIDDEN_ARTIFACT_POSE);
+        physics.setArtifactEnabled(artifact.bodyId, false);
+      }
+    }
+  }
+
+  /** Loading-zone station balls: dynamic from INIT through teleop, parked in setup. */
+  syncHumanPlayerStation(matchPhase: ArtifactMatchPhase, physics: PhysicsAdapter): void {
+    const active =
+      matchPhase === 'init' ||
+      matchPhase === 'auto' ||
+      matchPhase === 'transition' ||
+      matchPhase === 'teleop';
+    if (active === this.stationSimActive) return;
+    this.stationSimActive = active;
+
+    for (const artifact of this.artifacts.values()) {
+      if (artifact.phase !== 'humanPlayerStation') continue;
+      if (active) {
+        physics.activateStationArtifactBody(artifact.bodyId, artifact.pose, 0, 0);
+      } else {
+        physics.parkArtifactBody(artifact.bodyId, artifact.pose);
+      }
     }
   }
 
@@ -135,6 +194,58 @@ export class ArtifactSimulation {
   resetRobotMechanismStates(): void {
     this.robotStates.clear();
     this.robotStates.set(DEFAULT_PLAYER_ROBOT_ID, emptyRobotMechanismState());
+  }
+
+  /** Preload 2 purple + 1 green from the alliance reserve (outside field), not loading-zone station. */
+  applyPlayerPreload(
+    robotId: string,
+    robotAlliance: Alliance,
+    robotPose: Pose,
+    footprint: RobotFootprint,
+    physics: PhysicsAdapter,
+    rng: () => number = Math.random,
+  ): void {
+    const colors: ArtifactColor[] = ['purple', 'purple', 'green'];
+    for (let i = colors.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [colors[i], colors[j]] = [colors[j]!, colors[i]!];
+    }
+
+    const state = this.getRobotState(robotId);
+    state.stored = [];
+    const used = new Set<string>();
+    const humanSource = `${robotAlliance}_human_player_reserve`;
+
+    for (let slot = 0; slot < colors.length; slot++) {
+      const color = colors[slot]!;
+      const artifact = [...this.artifacts.values()].find(
+        (entry) =>
+          !used.has(entry.id) &&
+          entry.source === humanSource &&
+          entry.phase === 'humanPlayerReserve' &&
+          entry.color === color,
+      );
+      if (!artifact) continue;
+
+      used.add(artifact.id);
+      state.stored.push({
+        id: artifact.id,
+        color: artifact.color,
+        slot: slot as 0 | 1 | 2,
+      });
+      artifact.phase = 'held';
+      artifact.opacity = 1;
+      const local = heldArtifactOffset(slot as 0 | 1 | 2, footprint);
+      const world = localToWorld(local, robotPose);
+      artifact.pose = { x: world.x, y: world.y, heading: 0 };
+      physics.parkArtifactBody(artifact.bodyId, artifact.pose);
+    }
+
+    this.log('intake', `Preloaded ${state.stored.length} from ${humanSource} onto ${robotId}`, {
+      robotId,
+      alliance: robotAlliance,
+      order: state.stored.map((entry) => entry.color),
+    });
   }
 
   getSnapshot(): MechanismSnapshot {
@@ -171,7 +282,7 @@ export class ArtifactSimulation {
   }
 
   getRenderArtifacts(): SimArtifactState[] {
-    return [...this.artifacts.values()];
+    return [...this.artifacts.values()].filter((artifact) => artifact.opacity > 0);
   }
 
   getStoredCount(robotId: string = DEFAULT_PLAYER_ROBOT_ID): number {
@@ -219,14 +330,13 @@ export class ArtifactSimulation {
     }
   }
 
-  /** True during AUTO, or while intake is on and storage has room (drive through balls to pick up a line). */
+  /** True while intake is on and storage has room (drive through balls to pick up a line). */
   shouldBypassRobotArtifactCollision(
     robotId: string,
     _robotPose: Pose,
     _footprint: RobotFootprint,
-    scoringPhase: 'auto' | 'teleop' = 'teleop',
+    _scoringPhase: 'auto' | 'teleop' = 'teleop',
   ): boolean {
-    if (scoringPhase === 'auto') return true;
     const state = this.getRobotState(robotId);
     return state.intakeActive && state.stored.length < MAX_STORAGE;
   }
@@ -305,19 +415,29 @@ export class ArtifactSimulation {
     robots: RobotMechanismTick[],
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
-    matchPhase: 'auto' | 'teleop' = 'teleop',
+    matchPhase: ArtifactMatchPhase = 'teleop',
     matchRobots?: MatchRobotSnapshot[],
     teleopTimeRemainingSec?: number,
   ): void {
+    this.syncHumanPlayerStation(matchPhase, physics);
+    this.syncHumanPlayerReserve(matchPhase, physics);
     this.simTime += dt;
-    const rulesPhase = matchPhase === 'auto' ? 'auto' : 'teleop';
+    const rulesPhase = matchPhase === 'auto' || matchPhase === 'transition' ? 'auto' : 'teleop';
     this.rules.syncPhase(rulesPhase, this.simTime);
+    const mechanismsEnabled =
+      matchPhase === 'auto' || matchPhase === 'transition' || matchPhase === 'teleop';
 
     for (const robot of robots) {
       this.getRobotState(robot.robotId);
       const state = this.getRobotState(robot.robotId);
+      if (!mechanismsEnabled) {
+        state.intakeActive = false;
+        state.shootPressed = false;
+        state.shootHoldWanted = false;
+        continue;
+      }
       if (state.intakeActive) {
-        this.tryIntake(robot.robotId, robot.pose, footprint, physics);
+        this.tryIntake(robot.robotId, robot.pose, footprint, physics, rulesPhase);
       }
       if (state.shootPressed) {
         state.shootPressed = false;
@@ -355,7 +475,14 @@ export class ArtifactSimulation {
 
   private syncOnFieldFromPhysics(physics: PhysicsAdapter): void {
     for (const artifact of this.artifacts.values()) {
-      if (artifact.phase === 'onField' || artifact.phase === 'overflow') {
+      if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) continue;
+      if (artifact.phase === 'humanPlayerStation' && !this.stationSimActive) continue;
+      if (
+        artifact.phase === 'onField' ||
+        artifact.phase === 'overflow' ||
+        artifact.phase === 'humanPlayerStation' ||
+        artifact.phase === 'humanPlayerReserve'
+      ) {
         artifact.pose = physics.getArtifactPose(artifact.bodyId);
         artifact.opacity = 1;
       }
@@ -387,6 +514,11 @@ export class ArtifactSimulation {
     for (const spawn of this.pendingSpawns) {
       const artifact = this.artifacts.get(spawn.artifactId);
       if (!artifact) continue;
+      if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) {
+        physics.parkArtifactBody(artifact.bodyId, HIDDEN_ARTIFACT_POSE);
+        physics.setArtifactEnabled(artifact.bodyId, false);
+        continue;
+      }
       physics.activateArtifactBody(artifact.bodyId, spawn.pose, spawn.vx, spawn.vy);
     }
     this.pendingSpawns = [];
@@ -397,6 +529,7 @@ export class ArtifactSimulation {
     robotPose: Pose,
     footprint: RobotFootprint,
     physics: PhysicsAdapter,
+    scoringPhase: 'auto' | 'teleop',
   ): void {
     const state = this.getRobotState(robotId);
     if (state.stored.length >= MAX_STORAGE) return;
@@ -404,7 +537,13 @@ export class ArtifactSimulation {
     const heldIds = this.allHeldArtifactIds();
 
     for (const artifact of this.artifacts.values()) {
-      if (artifact.phase !== 'onField' && artifact.phase !== 'overflow') continue;
+      if (artifact.phase === 'humanPlayerReserve') {
+        if (scoringPhase !== 'teleop') continue;
+      } else if (artifact.phase === 'humanPlayerStation') {
+        // Station balls are intake-eligible during auto and teleop.
+      } else if (artifact.phase !== 'onField' && artifact.phase !== 'overflow') {
+        continue;
+      }
       if (heldIds.has(artifact.id)) continue;
 
       const center = { x: artifact.pose.x, y: artifact.pose.y };
@@ -631,12 +770,44 @@ export class ArtifactSimulation {
   private respawnToHumanPlayer(artifactId: string, alliance: Alliance): void {
     const artifact = this.artifacts.get(artifactId);
     if (!artifact) return;
-    const slot = Number.parseInt(artifactId.replace('artifact_', ''), 10) % 3;
-    const pose = humanPlayerRespawnPose(alliance, slot);
-    artifact.phase = 'onField';
-    artifact.opacity = 1;
-    artifact.pose = { ...pose };
-    this.queueBodySpawn(artifactId, pose, 0, 0);
+
+    const slots = humanPlayerAllDepotPositions(alliance);
+    const occupied = new Set<string>();
+    for (const other of this.artifacts.values()) {
+      if (other.id === artifactId) continue;
+      if (other.phase !== 'humanPlayerStation' && other.phase !== 'humanPlayerReserve') continue;
+      if (!other.source?.includes('_human_player_')) continue;
+      if (!other.source.startsWith(alliance)) continue;
+      for (const slot of slots) {
+        if (Math.hypot(other.pose.x - slot.x, other.pose.y - slot.y) < 1.5) {
+          occupied.add(`${slot.x},${slot.y}`);
+        }
+      }
+    }
+
+    let pose = slots[0]!;
+    for (const slot of slots) {
+      if (!occupied.has(`${slot.x},${slot.y}`)) {
+        pose = slot;
+        break;
+      }
+    }
+
+    const reserveSlot = humanPlayerReservePositions(alliance).find(
+      (slot) => Math.hypot(pose.x - slot.x, pose.y - slot.y) < 1.5,
+    );
+    artifact.phase = reserveSlot ? 'humanPlayerReserve' : 'humanPlayerStation';
+    artifact.source = reserveSlot
+      ? `${alliance}_human_player_reserve`
+      : `${alliance}_human_player_station`;
+    artifact.pose = { ...pose, heading: 0 };
+    if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) {
+      artifact.opacity = 0;
+      this.queueBodySpawn(artifactId, HIDDEN_ARTIFACT_POSE, 0, 0);
+    } else {
+      artifact.opacity = 1;
+      this.queueBodySpawn(artifactId, artifact.pose, 0, 0);
+    }
     this.rules.getState().events.push({
       t: this.simTime,
       type: 'respawn',

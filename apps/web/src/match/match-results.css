@@ -77,6 +77,39 @@
   background: #000;
 }
 
+.match-results-ceremony video.matchResultVideo--fade-out {
+  animation: match-results-video-fade-out 2s ease forwards;
+  pointer-events: none;
+}
+
+.match-results-ceremony__results-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+}
+
+.match-results-ceremony__results-layer--fade-in {
+  animation: match-results-overlay-fade-in 2s ease forwards;
+}
+
+@keyframes match-results-video-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes match-results-overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .match-results-ceremony__viewport .resultsComponents span {
   display: flex;
   align-items: center;

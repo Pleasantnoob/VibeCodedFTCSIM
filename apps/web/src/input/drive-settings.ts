@@ -1,29 +1,21 @@
 import type { DriveFrame } from '@ftc-sim/robot';
+import { loadPlayerSettings, patchPlayerSettings, type PlayerSettings } from './player-settings';
 
 export interface DriveSettings {
   driveFrame: DriveFrame;
 }
 
-const STORAGE_KEY = 'ftc-sim.drive-settings.v1';
-
 export const DEFAULT_DRIVE_SETTINGS: DriveSettings = {
-  driveFrame: 'robot',
+  driveFrame: 'field',
 };
 
 export function loadDriveSettings(): DriveSettings {
-  if (typeof localStorage === 'undefined') return { ...DEFAULT_DRIVE_SETTINGS };
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_DRIVE_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<DriveSettings>;
-    const driveFrame = parsed.driveFrame === 'field' ? 'field' : 'robot';
-    return { driveFrame };
-  } catch {
-    return { ...DEFAULT_DRIVE_SETTINGS };
-  }
+  const { driveFrame } = loadPlayerSettings();
+  return { driveFrame };
 }
 
 export function saveDriveSettings(settings: DriveSettings): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  patchPlayerSettings({ driveFrame: settings.driveFrame });
 }
+
+export type { PlayerSettings };

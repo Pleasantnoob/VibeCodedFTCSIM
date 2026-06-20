@@ -1,5 +1,6 @@
 export {
   DEFAULT_SIM_ROBOT_CONFIG,
+  simRobotConfigFromNet,
   simRobotFootprint,
   simRobotLimits,
   type SimRobotConfig,

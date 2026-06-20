@@ -12,10 +12,15 @@ export const MATCH_AUDIO: Record<MatchAudioCue, string> = {
   whistle: '/ftc-live/audio/factwhistle.wav',
 };
 
+/** Plays during the user-gesture window to satisfy browser autoplay policy. */
+const UNMUTE_AUDIO = '/ftc-live/audio/unmute.wav';
+
 export type { MatchAudioCue };
 export { matchAudioCues };
 
 export const DEFAULT_MATCH_AUDIO_VOLUME = 0.5;
+
+const CUE_DEDUPE_MS = 1500;
 
 export interface MatchAudioOptions {
   enabled?: boolean;
@@ -30,10 +35,23 @@ function audioDebugEnabled(): boolean {
 }
 
 let autoplayUnlocked = false;
+const sharedCache = new Map<MatchAudioCue, HTMLAudioElement>();
+const lastCueAt = new Map<MatchAudioCue, number>();
 
-export function unlockMatchAudio(cache: Map<MatchAudioCue, HTMLAudioElement>): void {
+export function getMatchAudioCache(): Map<MatchAudioCue, HTMLAudioElement> {
+  return sharedCache;
+}
+
+/** Call synchronously from a click/key handler before playing match sounds. */
+export function unlockMatchAudio(cache: Map<MatchAudioCue, HTMLAudioElement> = sharedCache): void {
   if (autoplayUnlocked) return;
   autoplayUnlocked = true;
+
+  const unmute = new Audio(UNMUTE_AUDIO);
+  unmute.volume = 0.001;
+  unmute.preload = 'auto';
+  void unmute.play().catch(() => {});
+
   for (const src of Object.values(MATCH_AUDIO)) {
     const clip = new Audio(src);
     clip.volume = 0;
@@ -43,6 +61,7 @@ export function unlockMatchAudio(cache: Map<MatchAudioCue, HTMLAudioElement>): v
       clip.currentTime = 0;
     }).catch(() => {});
   }
+
   for (const [cue, src] of Object.entries(MATCH_AUDIO) as [MatchAudioCue, string][]) {
     if (!cache.has(cue)) {
       const clip = new Audio(src);
@@ -57,6 +76,13 @@ function playClip(
   cache: Map<MatchAudioCue, HTMLAudioElement>,
   volume: number,
 ): void {
+  const now = performance.now();
+  const lastAt = lastCueAt.get(cue);
+  if (lastAt != null && now - lastAt < CUE_DEDUPE_MS) {
+    return;
+  }
+  lastCueAt.set(cue, now);
+
   const src = MATCH_AUDIO[cue];
   let clip = cache.get(cue);
   if (!clip) {
@@ -75,11 +101,23 @@ function playClip(
 
 export function playMatchAudioCue(
   cue: MatchAudioCue,
-  cache: Map<MatchAudioCue, HTMLAudioElement>,
-  volume: number,
+  cache: Map<MatchAudioCue, HTMLAudioElement> = sharedCache,
+  volume: number = DEFAULT_MATCH_AUDIO_VOLUME,
 ): void {
   if (!autoplayUnlocked) unlockMatchAudio(cache);
   playClip(cue, cache, volume);
+}
+
+/** Play cues between two snapshots (safe to call during a user-gesture handler). */
+export function emitMatchAudioCues(
+  prev: MatchSnapshot | null,
+  next: MatchSnapshot,
+  volume: number,
+  cache: Map<MatchAudioCue, HTMLAudioElement> = sharedCache,
+): void {
+  for (const cue of matchAudioCues(prev, next)) {
+    playMatchAudioCue(cue, cache, volume);
+  }
 }
 
 export function useMatchAudio(
@@ -90,11 +128,10 @@ export function useMatchAudio(
     typeof options === 'boolean' ? { enabled: options } : options;
 
   const prevRef = useRef<MatchSnapshot | null>(null);
-  const cacheRef = useRef(new Map<MatchAudioCue, HTMLAudioElement>());
   const volumeRef = useRef(volume);
 
   useEffect(() => {
-    const unlock = () => unlockMatchAudio(cacheRef.current);
+    const unlock = () => unlockMatchAudio(sharedCache);
     window.addEventListener('pointerdown', unlock, { once: true });
     window.addEventListener('keydown', unlock, { once: true });
     return () => {
@@ -105,7 +142,7 @@ export function useMatchAudio(
 
   useEffect(() => {
     volumeRef.current = volume;
-    for (const clip of cacheRef.current.values()) {
+    for (const clip of sharedCache.values()) {
       clip.volume = volume;
     }
   }, [volume]);
@@ -120,8 +157,6 @@ export function useMatchAudio(
     prevRef.current = snapshot;
     if (!prev) return;
 
-    for (const cue of matchAudioCues(prev, snapshot)) {
-      playMatchAudioCue(cue, cacheRef.current, volumeRef.current);
-    }
+    emitMatchAudioCues(prev, snapshot, volumeRef.current, sharedCache);
   }, [enabled, snapshot]);
 }

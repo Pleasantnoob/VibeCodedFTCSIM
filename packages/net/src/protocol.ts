@@ -51,6 +51,26 @@ export interface RobotSnapshotEntry {
   linear: { x: number; y: number };
   angular: number;
   teamNumber?: string;
+  width?: number;
+  length?: number;
+}
+
+export interface NetRobotConfig {
+  presetId?: string;
+  maxVelocity: number;
+  maxAngularVelocity: number;
+  maxAcceleration: number;
+  maxAngularAcceleration: number;
+  mass: number;
+  footprintWidth: number;
+  footprintLength: number;
+}
+
+export interface HostRoomSettings {
+  robotPreload: boolean;
+  robot: NetRobotConfig;
+  /** Host robot team label shown on field overlay (player slot). */
+  teamLabel?: string;
 }
 
 export interface StateSnapshot {
@@ -85,10 +105,19 @@ export interface RoomConfig {
   alliance: 'blue' | 'red';
   barrierHash: string;
   artifactFriction: number;
+  robotPreload?: boolean;
+  robot?: NetRobotConfig;
 }
 
 export type ClientMessage =
-  | { type: 'hello'; protocol: number; appVersion: string; displayName: string; intent: 'host' | 'join' }
+  | {
+      type: 'hello';
+      protocol: number;
+      appVersion: string;
+      displayName: string;
+      intent: 'host' | 'join';
+      hostRoom?: HostRoomSettings;
+    }
   | { type: 'input'; frame: InputFrame }
   | { type: 'host_cmd'; cmd: HostCommand }
   | { type: 'set_auto_path'; pathText: string }

@@ -15,6 +15,7 @@ export {
   frontEdgeCenter,
   frontEdgeSegment,
   humanPlayerRespawnPose,
+  humanPlayerSlotPositions,
   isOutOfFieldBounds,
   planShot,
   rampOutwardSpawnPose,

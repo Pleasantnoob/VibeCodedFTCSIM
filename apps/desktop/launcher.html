@@ -3,237 +3,459 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FTC Sim</title>
+    <title>FTCSIM Launcher</title>
     <style>
       :root {
         color-scheme: dark;
-        font-family: 'Segoe UI', system-ui, sans-serif;
-        background: #0f1419;
-        color: #e8eef5;
+        --bg-dark: #0b0d0d;
+        --bg-medium: #212222;
+        --bg-light: #363737;
+        --text: #ffffff;
+        --text-muted: rgba(255, 255, 255, 0.62);
+        --padding: 1rem;
+        --radius: 1rem;
+        --primary-blue: #005bac;
+        --primary: var(--primary-blue);
+        --border: var(--bg-light);
+        --success: #7dffaa;
+        --error: #fca5a5;
+        --warn: #fcd34d;
       }
-      * {
+
+      *,
+      *::before,
+      *::after {
         box-sizing: border-box;
       }
+
+      html,
       body {
         margin: 0;
-        padding: 24px;
-        min-height: 100vh;
+        height: 100%;
+      }
+
+      body {
+        background: var(--bg-dark);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+          sans-serif;
+        font-weight: 300;
+        overflow: hidden;
+      }
+
+      body.alliance-blue {
+        --primary: var(--primary-blue);
+      }
+
+      .launcher-shell {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        height: 100vh;
+        padding: 0.5rem;
+        gap: 0.5rem;
       }
-      h1 {
-        margin: 0;
-        font-size: 1.35rem;
-        font-weight: 600;
-      }
-      p {
-        margin: 0;
-        color: #9fb0c3;
-        font-size: 0.92rem;
-        line-height: 1.45;
-      }
-      .actions {
+
+      .launcher-nav {
+        position: relative;
         display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-top: 4px;
+        align-items: center;
+        justify-content: center;
+        min-height: 56px;
+        padding: 0 0.85rem;
+        background: var(--bg-medium);
+        border-radius: var(--radius);
+        flex-shrink: 0;
       }
-      button {
-        border: none;
-        border-radius: 10px;
-        padding: 14px 16px;
+
+      .launcher-nav__title {
+        margin: 0;
         font-size: 1rem;
-        font-weight: 600;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .launcher-nav__actions {
+        position: absolute;
+        right: 0.85rem;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: 55%;
+      }
+
+      .launcher-nav__version {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .launcher-main {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding-right: 2px;
+      }
+
+      .launcher-main::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .launcher-main::-webkit-scrollbar-thumb {
+        background: var(--bg-light);
+        border-radius: 6px;
+      }
+
+      .launcher-card {
+        background: var(--bg-medium);
+        border-radius: var(--radius);
+        padding: var(--padding);
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        flex-shrink: 0;
+      }
+
+      .launcher-card__heading {
+        margin: 0;
+        font-size: 0.72rem;
+        font-weight: 400;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .hint {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        line-height: 1.45;
+        margin: 0;
+      }
+
+      .panels-btn {
+        background: transparent;
+        color: inherit;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.45rem 0.85rem;
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 400;
         cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, filter 0.15s ease;
+      }
+
+      .panels-btn:hover:not(:disabled) {
+        background: var(--bg-light);
+      }
+
+      .panels-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .panels-btn--primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+
+      .panels-btn--primary:hover:not(:disabled) {
+        filter: brightness(1.08);
+        background: var(--primary);
+      }
+
+      .panels-btn--compact {
+        padding: 0.3rem 0.65rem;
+        font-size: 0.72rem;
+      }
+
+      .panels-btn--block {
+        width: 100%;
+        border-radius: calc(var(--radius) / 1.5);
+        padding: 0.65rem 0.85rem;
         text-align: left;
       }
-      button.primary {
-        background: #2d6cdf;
-        color: white;
-      }
-      button.secondary {
-        background: #1c2430;
-        color: #e8eef5;
-        border: 1px solid #334155;
-      }
-      button:hover {
-        filter: brightness(1.08);
-      }
-      button small {
+
+      .launcher-action__title {
         display: block;
-        font-weight: 400;
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+
+      .launcher-action__sub {
+        display: block;
+        margin-top: 0.2rem;
+        font-size: 0.75rem;
         opacity: 0.85;
-        margin-top: 4px;
+        font-weight: 300;
+      }
+
+      .panel-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+
+      .panel-field__hint {
+        font-size: 0.74rem;
+        line-height: 1.45;
+        color: var(--text-muted);
+        font-weight: 300;
+      }
+
+      .panel-field__hint code {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 0.85em;
+        color: var(--text);
+        background: var(--bg-dark);
+        padding: 0.05em 0.3em;
+        border-radius: 4px;
+      }
+
+      .panel-input {
+        width: 100%;
+        padding: 0.5rem 0.65rem;
+        border-radius: 6px;
+        border: 1px solid var(--bg-light);
+        background: var(--bg-dark);
+        color: var(--text);
+        font: inherit;
+        font-size: 0.88rem;
+      }
+
+      .panel-input:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 1px;
+      }
+
+      .panel-input--mono {
+        font-family: ui-monospace, Consolas, monospace;
         font-size: 0.82rem;
       }
-      .join-panel {
-        background: #151c24;
-        border: 1px solid #243041;
-        border-radius: 12px;
-        padding: 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .addr-input {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid #334155;
-        background: #0f1419;
-        color: #7dd3fc;
-        font-family: Consolas, 'Courier New', monospace;
-        font-size: 0.9rem;
-      }
-      .status {
-        font-size: 0.85rem;
-        color: #86efac;
-        min-height: 1.2em;
-      }
-      .error {
-        color: #fca5a5;
-        font-size: 0.85rem;
-        min-height: 1.2em;
-      }
-      details {
-        background: #151c24;
-        border: 1px solid #243041;
-        border-radius: 12px;
-        padding: 12px 14px;
-      }
-      summary {
-        cursor: pointer;
-        font-weight: 600;
-        color: #c5d4ef;
-      }
-      .advanced {
-        margin-top: 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-      .addr {
-        font-family: Consolas, 'Courier New', monospace;
-        font-size: 0.9rem;
-        color: #7dd3fc;
-      }
+
       .row {
         display: flex;
-        gap: 8px;
+        gap: 0.35rem;
         flex-wrap: wrap;
       }
-      .row button {
+
+      .row .panels-btn {
         flex: 1;
-        min-width: 90px;
+        min-width: 5rem;
         text-align: center;
-        padding: 10px;
-        font-size: 0.85rem;
       }
-      .hint {
-        color: #9fb0c3;
+
+      .addr-readout {
+        font-family: ui-monospace, Consolas, monospace;
         font-size: 0.82rem;
+        color: var(--text);
+        background: var(--bg-dark);
+        border-radius: calc(var(--radius) / 2);
+        padding: 0.45rem 0.65rem;
       }
+
+      .server-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.68rem;
+        color: var(--success);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+
+      .server-pill__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 6px var(--success);
+        flex-shrink: 0;
+      }
+
       .update-banner {
         display: none;
-        background: #1e3a5f;
-        border: 1px solid #3b82f6;
-        border-radius: 10px;
-        padding: 10px 12px;
-        font-size: 0.85rem;
+        background: #152238;
+        border: 1px solid #2563eb;
+        border-radius: calc(var(--radius) / 1.5);
+        padding: 0.75rem 0.85rem;
+        font-size: 0.82rem;
+        flex-shrink: 0;
       }
+
       .update-banner.visible {
         display: block;
       }
-      .update-banner button {
-        margin-top: 8px;
+
+      .update-banner .panels-btn {
+        margin-top: 0.55rem;
         width: 100%;
-        padding: 8px;
-        font-size: 0.85rem;
+        text-align: center;
       }
+
       .update-progress {
-        margin-top: 6px;
-        height: 6px;
-        background: #0f1419;
+        margin-top: 0.45rem;
+        height: 5px;
+        background: var(--bg-dark);
         border-radius: 4px;
         overflow: hidden;
       }
+
       .update-progress__bar {
         height: 100%;
         width: 0%;
-        background: #3b82f6;
+        background: var(--primary);
         transition: width 0.15s ease;
+      }
+
+      .launcher-footer {
+        flex-shrink: 0;
+        background: var(--bg-medium);
+        border-radius: var(--radius);
+        padding: 0.55rem var(--padding);
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+
+      .status {
+        font-size: 0.78rem;
+        color: var(--success);
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .error {
+        font-size: 0.78rem;
+        color: var(--error);
+        margin: 0;
+      }
+
+      .status--muted {
+        color: var(--text-muted);
+      }
+
+      .status--warn {
+        color: var(--warn);
       }
     </style>
   </head>
-  <body>
-    <div>
-      <h1>FTC Sim</h1>
-      <p>Host a match, join a friend, pick your robot, and drive.</p>
-    </div>
-
-    <div class="update-banner" id="update-banner">
-      <span id="update-text"></span>
-      <div class="update-progress" id="update-progress" hidden>
-        <div class="update-progress__bar" id="update-progress-bar"></div>
-      </div>
-      <button class="secondary" id="btn-update" type="button">Download update</button>
-    </div>
-
-    <div class="actions">
-      <button class="primary" id="btn-host">
-        Host Match
-        <small>Starts server · copies LAN address · pick robot · Start driving</small>
-      </button>
-
-      <div class="join-panel">
-        <p><strong>Join Match</strong></p>
-        <input
-          class="addr-input"
-          id="join-addr"
-          placeholder="127.0.0.1:5191 for same-PC tests"
-          autocomplete="off"
-        />
-        <button class="primary" id="btn-join-local">
-          Join on this PC
-          <small>Extra window on the same computer — use 127.0.0.1, not LAN IP</small>
-        </button>
-        <button class="secondary" id="btn-join">
-          Join Match (LAN / internet)
-          <small>Friends on another device — paste their host address</small>
-        </button>
-      </div>
-
-      <button class="secondary" id="btn-solo">
-        Play Solo
-        <small>Practice alone on this PC</small>
-      </button>
-    </div>
-
-    <p class="error" id="error"></p>
-    <p class="status" id="status"></p>
-
-    <details>
-      <summary>Advanced — internet &amp; LAN tools</summary>
-      <div class="advanced">
-        <p class="hint">LAN address (same: <span class="addr" id="lan-addr">…</span>)</p>
-        <div class="row">
-          <button class="secondary" id="btn-copy-lan">Copy LAN</button>
-          <button class="secondary" id="btn-stop">Stop server</button>
+  <body class="alliance-blue">
+    <div class="launcher-shell">
+      <header class="launcher-nav">
+        <h1 class="launcher-nav__title">FTCSIM Launcher</h1>
+        <div class="launcher-nav__actions">
+          <span class="server-pill" id="server-pill" hidden>
+            <span class="server-pill__dot" aria-hidden="true"></span>
+            Server running
+          </span>
+          <button class="panels-btn panels-btn--compact" id="btn-check-updates" type="button">
+            Check updates
+          </button>
+          <span class="launcher-nav__version" id="app-version">v…</span>
         </div>
-        <button class="secondary" id="btn-host-online">
-          Host Online
-          <small style="display: inline; margin: 0">Firewall + router · copies public invite</small>
-        </button>
-        <input class="addr-input" id="internet-addr" placeholder="Public IP:5191 for friends" />
-        <div class="row">
-          <button class="secondary" id="btn-detect-ip">Detect IP</button>
-          <button class="secondary" id="btn-save-internet">Save</button>
-          <button class="secondary" id="btn-copy-internet">Copy</button>
-          <button class="secondary" id="btn-internet-guide">Guide</button>
+      </header>
+
+      <div class="update-banner" id="update-banner">
+        <span id="update-text"></span>
+        <div class="update-progress" id="update-progress" hidden>
+          <div class="update-progress__bar" id="update-progress-bar"></div>
         </div>
+        <button class="panels-btn panels-btn--primary" id="btn-update" type="button">Download update</button>
       </div>
-    </details>
+
+      <main class="launcher-main">
+        <section class="launcher-card">
+          <p class="hint">
+            <strong>Hosting?</strong> Use Host Match (same Wi‑Fi) or Host Online (internet). Share the copied
+            address with friends.<br />
+            <strong>Joining?</strong> Paste the host&apos;s address below, then Join Match.
+          </p>
+
+          <button class="panels-btn panels-btn--primary panels-btn--block launcher-action" id="btn-host" type="button">
+            <span class="launcher-action__title">Host Match</span>
+            <span class="launcher-action__sub">Same Wi‑Fi · starts server · copies LAN address · opens host</span>
+          </button>
+
+          <button class="panels-btn panels-btn--block launcher-action" id="btn-host-online" type="button">
+            <span class="launcher-action__title">Host Online</span>
+            <span class="launcher-action__sub">Internet friends · firewall &amp; router setup · copies public invite</span>
+          </button>
+
+          <label class="panel-field">
+            Join address
+            <span class="panel-field__hint">
+              Paste the address the host sent you. Same Wi‑Fi: <code>192.168.x.x:5191</code>. Over internet:
+              their public IP, e.g. <code>99.121.225.92:5191</code>. Same PC (browser dev): use
+              <code>127.0.0.1:5191</code>.
+            </span>
+            <input
+              class="panel-input panel-input--mono"
+              id="join-addr"
+              placeholder="127.0.0.1:5191 or 99.121.225.92:5191"
+              autocomplete="off"
+            />
+          </label>
+
+          <button class="panels-btn panels-btn--block launcher-action" id="btn-join" type="button">
+            <span class="launcher-action__title">Join Match</span>
+            <span class="launcher-action__sub">Connect to a host · pick robot or spectate</span>
+          </button>
+
+          <button class="panels-btn panels-btn--block launcher-action" id="btn-solo" type="button">
+            <span class="launcher-action__title">Play Solo</span>
+            <span class="launcher-action__sub">Practice alone on this PC</span>
+          </button>
+        </section>
+
+        <section class="launcher-card">
+          <h2 class="launcher-card__heading">Internet &amp; LAN</h2>
+
+          <p class="hint">LAN (same Wi‑Fi)</p>
+          <div class="addr-readout" id="lan-addr">…</div>
+          <div class="row">
+            <button class="panels-btn" id="btn-copy-lan" type="button">Copy LAN</button>
+            <button class="panels-btn" id="btn-stop" type="button">Stop server</button>
+          </div>
+
+          <p class="hint">When you host online, friends paste this into Join address above.</p>
+          <label class="panel-field">
+            Your public invite (when hosting)
+            <input
+              class="panel-input panel-input--mono"
+              id="internet-addr"
+              placeholder="Public IP:5191"
+              autocomplete="off"
+            />
+          </label>
+          <div class="row">
+            <button class="panels-btn" id="btn-detect-ip" type="button">Detect IP</button>
+            <button class="panels-btn" id="btn-save-internet" type="button">Save</button>
+            <button class="panels-btn" id="btn-copy-internet" type="button">Copy</button>
+            <button class="panels-btn" id="btn-internet-guide" type="button">Guide</button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="launcher-footer">
+        <p class="error" id="error"></p>
+        <p class="status status--muted" id="status">Ready</p>
+      </footer>
+    </div>
 
     <script>
       const lanEl = document.getElementById('lan-addr');
@@ -241,10 +463,42 @@
       const internetInput = document.getElementById('internet-addr');
       const statusEl = document.getElementById('status');
       const errorEl = document.getElementById('error');
+      const serverPill = document.getElementById('server-pill');
+      const versionEl = document.getElementById('app-version');
       const api = window.ftcLauncher;
+      const JOIN_ADDR_KEY = 'ftc-sim.launcher-join-addr';
+
+      function loadSavedJoinAddress() {
+        try {
+          const saved = localStorage.getItem(JOIN_ADDR_KEY);
+          if (saved && !joinInput.value) {
+            joinInput.value = saved;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      function saveJoinAddress(addr) {
+        try {
+          localStorage.setItem(JOIN_ADDR_KEY, addr);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      loadSavedJoinAddress();
+
+      function formatVersion(raw) {
+        if (!raw) return '…';
+        return 'v' + String(raw).replace(/-dev$/i, '');
+      }
 
       function applyState(state) {
         lanEl.textContent = state.lanAddress;
+        if (state.appVersion) {
+          versionEl.textContent = formatVersion(state.appVersion);
+        }
         if (internetInput && document.activeElement !== internetInput) {
           if (state.internetAddress) {
             internetInput.value = state.internetAddress;
@@ -252,55 +506,98 @@
             internetInput.value = state.suggestedInternetAddress;
           }
         }
-        statusEl.textContent = state.matchServerRunning
-          ? 'Match server running on port ' + state.matchPort
-          : '';
+        serverPill.hidden = !state.matchServerRunning;
+        if (state.matchServerRunning && !statusEl.dataset.busy) {
+          statusEl.textContent = 'Match server on port ' + state.matchPort;
+          statusEl.classList.remove('status--muted');
+        } else if (!statusEl.dataset.busy) {
+          statusEl.textContent = 'Ready';
+          statusEl.classList.add('status--muted');
+        }
       }
 
       api.getState().then(applyState);
       api.onState(applyState);
 
+      function setBusy(busy, message) {
+        if (busy) {
+          statusEl.dataset.busy = '1';
+          statusEl.textContent = message || 'Working…';
+          statusEl.classList.remove('status--muted');
+        } else {
+          delete statusEl.dataset.busy;
+        }
+      }
+
       async function run(fn) {
         errorEl.textContent = '';
+        setBusy(true);
         try {
           await fn();
+        } catch (err) {
+          errorEl.textContent = err?.message ?? String(err);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      document.getElementById('btn-solo').onclick = () => run(() => api.openSolo());
+      async function copyToClipboard(resolveAddr) {
+        errorEl.textContent = '';
+        try {
+          const addr = String(await resolveAddr()).trim();
+          if (!addr) {
+            throw new Error('No address to copy — detect or save one first');
+          }
+          await api.writeClipboard(addr);
+          statusEl.textContent = 'Copied ' + addr;
+          statusEl.classList.remove('status--muted', 'status--warn');
         } catch (err) {
           errorEl.textContent = err?.message ?? String(err);
         }
       }
 
-      document.getElementById('btn-solo').onclick = () => run(() => api.openSolo());
+      function hostStatusMessage(prep, copiedLabel) {
+        let msg = copiedLabel + ': ' + (copiedLabel.includes('LAN') ? prep.lanAddress : prep.inviteAddress);
+        if (prep.inviteAddress && prep.lanAddress && prep.inviteAddress !== prep.lanAddress) {
+          msg += ' · LAN: ' + prep.lanAddress + ' · Online: ' + prep.inviteAddress;
+        }
+        if (prep.notes?.length) {
+          msg += ' · ' + prep.notes.join(' · ');
+        }
+        return msg;
+      }
+
       document.getElementById('btn-host').onclick = () =>
         run(async () => {
           const prep = await api.openHost();
-          statusEl.textContent =
-            'Hosting — LAN copied: ' +
-            prep.lanAddress +
-            (prep.notes?.length ? ' · ' + prep.notes.join(' · ') : '');
+          if (prep.inviteAddress) {
+            internetInput.value = prep.inviteAddress;
+          }
+          statusEl.textContent = hostStatusMessage(prep, 'LAN copied');
+          statusEl.classList.remove('status--muted');
         });
-      document.getElementById('btn-join-local').onclick = () =>
+      document.getElementById('btn-host-online').onclick = () =>
         run(async () => {
-          joinInput.value = '127.0.0.1:5191';
-          await api.openJoinLocal();
+          const prep = await api.hostOnline();
+          if (prep.inviteAddress) {
+            internetInput.value = prep.inviteAddress;
+          }
+          statusEl.textContent = hostStatusMessage(prep, 'Invite copied');
+          statusEl.classList.remove('status--muted');
         });
       document.getElementById('btn-join').onclick = () =>
         run(async () => {
           const addr = joinInput.value.trim();
           if (!addr) {
-            throw new Error('Enter the host address first');
+            throw new Error('Paste the host address first (e.g. 99.121.225.92:5191)');
           }
+          saveJoinAddress(addr);
           await api.openJoin(addr);
+          statusEl.textContent = 'Joining ' + addr + '…';
+          statusEl.classList.remove('status--muted');
         });
-      document.getElementById('btn-host-online').onclick = () =>
-        run(async () => {
-          const prep = await api.hostOnline();
-          statusEl.textContent =
-            'Invite copied: ' + prep.inviteAddress + (prep.notes?.length ? ' · ' + prep.notes.join(' · ') : '');
-        });
-      document.getElementById('btn-copy-lan').onclick = async () => {
-        const addr = await api.copyLan();
-        statusEl.textContent = 'Copied LAN ' + addr;
-      };
+      document.getElementById('btn-copy-lan').onclick = () => copyToClipboard(() => api.copyLan());
       document.getElementById('btn-stop').onclick = () => run(() => api.stopServer());
       document.getElementById('btn-detect-ip').onclick = () =>
         run(async () => {
@@ -310,23 +607,18 @@
             statusEl.textContent = 'Detected ' + result.suggestedInternetAddress;
           } else {
             statusEl.textContent = 'Could not detect public IP';
+            statusEl.classList.add('status--warn');
           }
+          statusEl.classList.remove('status--muted');
         });
       document.getElementById('btn-save-internet').onclick = () =>
         run(async () => {
           const saved = await api.saveInternet(internetInput.value);
           statusEl.textContent = saved ? 'Saved internet address' : 'Cleared internet address';
+          statusEl.classList.remove('status--muted');
         });
-      document.getElementById('btn-copy-internet').onclick = async () => {
-        const typed = internetInput.value.trim();
-        const addr = typed || (await api.copyInternet());
-        if (!addr) {
-          statusEl.textContent = 'Save or detect an internet address first';
-          return;
-        }
-        await navigator.clipboard.writeText(addr);
-        statusEl.textContent = 'Copied ' + addr;
-      };
+      document.getElementById('btn-copy-internet').onclick = () =>
+        copyToClipboard(() => api.copyInternet(internetInput.value.trim()));
       document.getElementById('btn-internet-guide').onclick = () => run(() => api.openInternetGuide());
 
       const updateBanner = document.getElementById('update-banner');
@@ -334,6 +626,12 @@
       const updateProgress = document.getElementById('update-progress');
       const updateProgressBar = document.getElementById('update-progress-bar');
       let pendingVersion = null;
+
+      function showUpToDate(current) {
+        statusEl.textContent = 'You have the latest release (' + formatVersion(current) + ')';
+        statusEl.classList.add('status--muted');
+      }
+
       document.getElementById('btn-update').onclick = () =>
         run(async () => {
           if (!pendingVersion) {
@@ -342,6 +640,7 @@
           }
           updateProgress.hidden = false;
           statusEl.textContent = 'Downloading update…';
+          statusEl.classList.remove('status--muted');
           const result = await api.downloadUpdate(pendingVersion);
           updateProgress.hidden = true;
           updateProgressBar.style.width = '0%';
@@ -349,10 +648,41 @@
             ? 'Downloaded to ' + result.path
             : result.error || 'Download failed';
         });
+
+      document.getElementById('btn-check-updates').onclick = () =>
+        run(async () => {
+          const btn = document.getElementById('btn-check-updates');
+          btn.disabled = true;
+          try {
+            statusEl.textContent = 'Checking for updates…';
+            statusEl.classList.remove('status--muted');
+            const result = await api.checkForUpdates();
+            if (result.status === 'available') {
+              pendingVersion = result.version;
+              updateText.textContent =
+                'Update ' +
+                formatVersion(result.version) +
+                ' available (you have ' +
+                formatVersion(result.current) +
+                '). Extract with WinRAR or 7-Zip.';
+              updateBanner.classList.add('visible');
+              statusEl.textContent = 'Update ' + formatVersion(result.version) + ' available';
+            } else if (result.status === 'current' || result.status === 'dev') {
+              showUpToDate(result.current);
+            } else {
+              statusEl.textContent = result.message || 'Could not check for updates';
+              statusEl.classList.add('status--warn');
+            }
+          } finally {
+            btn.disabled = false;
+          }
+        });
+
       api.onUpdateProgress(({ percent }) => {
         updateProgressBar.style.width = percent + '%';
-        updateText.textContent = 'Downloading v' + pendingVersion + '… ' + percent + '%';
+        updateText.textContent = 'Downloading ' + formatVersion(pendingVersion) + '… ' + percent + '%';
       });
+
       api.onUpdateAvailable((info) => {
         if (!info) {
           pendingVersion = null;
@@ -361,9 +691,21 @@
         }
         pendingVersion = info.version;
         updateText.textContent =
-          'Update v' + info.version + ' available (you have v' + info.current + '). Use WinRAR or 7-Zip to extract.';
+          'Update ' +
+          formatVersion(info.version) +
+          ' available (you have ' +
+          formatVersion(info.current) +
+          '). Use WinRAR or 7-Zip to extract.';
         updateBanner.classList.add('visible');
       });
+
+      if (api.onUpdateCheckResult) {
+        api.onUpdateCheckResult((result) => {
+          if (result.status === 'current' || result.status === 'dev') {
+            showUpToDate(result.current);
+          }
+        });
+      }
     </script>
   </body>
 </html>

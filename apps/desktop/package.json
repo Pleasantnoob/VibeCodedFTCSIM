@@ -1,6 +1,6 @@
 {
   "name": "@ftc-sim/desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "FTC Sim desktop launcher — serve UI, spawn match server, open browser",
   "main": "dist/main.js",

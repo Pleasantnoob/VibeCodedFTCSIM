@@ -4,16 +4,15 @@ import {
   DRIVE_ACTION_LABELS,
   DEFAULT_DRIVE_KEYBINDS,
   formatKeyCode,
-  loadDriveKeybinds,
   resetDriveKeybinds,
   saveDriveKeybinds,
   type DriveAction,
   type DriveKeybinds,
 } from './drive-keybinds';
-import { loadDriveSettings, saveDriveSettings, type DriveSettings } from './drive-settings';
+import { loadPlayerSettings, patchPlayerSettings } from './player-settings';
 
 export interface DriveControlsPanelProps {
-  onSettingsChange?: (settings: DriveSettings, keybinds: DriveKeybinds) => void;
+  onSettingsChange?: (settings: { driveFrame: DriveFrame; keybinds: DriveKeybinds }) => void;
 }
 
 const DRIVE_ACTIONS: DriveAction[] = [
@@ -26,24 +25,24 @@ const DRIVE_ACTIONS: DriveAction[] = [
   'brake',
   'intake',
   'shoot',
-  'gate',
 ];
 
 export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps) {
-  const [settings, setSettings] = useState<DriveSettings>(() => loadDriveSettings());
-  const [keybinds, setKeybinds] = useState<DriveKeybinds>(() => loadDriveKeybinds());
+  const initial = loadPlayerSettings();
+  const [driveFrame, setDriveFrameState] = useState<DriveFrame>(initial.driveFrame);
+  const [keybinds, setKeybinds] = useState<DriveKeybinds>(initial.keybinds);
   const [listeningFor, setListeningFor] = useState<DriveAction | null>(null);
 
   const emit = useCallback(
-    (nextSettings: DriveSettings, nextKeybinds: DriveKeybinds) => {
-      onSettingsChange?.(nextSettings, nextKeybinds);
+    (frame: DriveFrame, binds: DriveKeybinds) => {
+      onSettingsChange?.({ driveFrame: frame, keybinds: binds });
     },
     [onSettingsChange],
   );
 
   useEffect(() => {
-    emit(settings, keybinds);
-  }, [settings, keybinds, emit]);
+    emit(driveFrame, keybinds);
+  }, [driveFrame, keybinds, emit]);
 
   useEffect(() => {
     if (!listeningFor) return;
@@ -76,10 +75,9 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [listeningFor]);
 
-  const setDriveFrame = (driveFrame: DriveFrame) => {
-    const next = { driveFrame };
-    setSettings(next);
-    saveDriveSettings(next);
+  const setDriveFrame = (frame: DriveFrame) => {
+    setDriveFrameState(frame);
+    patchPlayerSettings({ driveFrame: frame });
   };
 
   return (
@@ -90,25 +88,25 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
           <input
             type="radio"
             name="drive-frame"
-            checked={settings.driveFrame === 'robot'}
+            checked={driveFrame === 'robot'}
             onChange={() => setDriveFrame('robot')}
           />
-          Robot-centric — W forward, A strafe left relative to robot heading
+          Robot-centric (W = forward)
         </label>
         <label className="drive-controls__radio">
           <input
             type="radio"
             name="drive-frame"
-            checked={settings.driveFrame === 'field'}
+            checked={driveFrame === 'field'}
             onChange={() => setDriveFrame('field')}
           />
-          Field-centric — W north, D east on the field
+          Field-centric (W = north)
         </label>
       </fieldset>
 
       <div className="drive-controls__binds">
         <div className="drive-controls__binds-header">
-          <span>Keyboard binds</span>
+          <span>Keyboard</span>
           <button
             type="button"
             className="drive-controls__reset"
@@ -121,7 +119,9 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
           </button>
         </div>
         {listeningFor && (
-          <p className="drive-controls__listening">Press a key for {DRIVE_ACTION_LABELS[listeningFor]} (Esc cancel)</p>
+          <p className="drive-controls__listening">
+            Press a key for {DRIVE_ACTION_LABELS[listeningFor]} (Esc to cancel)
+          </p>
         )}
         <ul className="drive-controls__bind-list">
           {DRIVE_ACTIONS.map((action) => (
@@ -139,9 +139,8 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
         </ul>
       </div>
 
-      <p className="hint">
-        Gamepad: left stick drive, right stick X turn, LB brake, LT intake, RT shoot, B gate. Settings apply in
-        solo, host, and join when you are driving a robot.
+      <p className="hint hint--compact">
+        Gamepad: left stick move, right stick turn, LB brake, LT intake, RT shoot.
       </p>
     </div>
   );

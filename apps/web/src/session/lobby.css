@@ -16,6 +16,12 @@
   pointer-events: auto;
 }
 
+/* Sit below match nav so host RESET / match buttons stay clickable */
+.shell--match-nav .lobby-fab,
+.shell--match-nav .lobby-panel {
+  top: calc(0.5rem + 64px + 0.75rem);
+}
+
 .lobby-fab--live {
   border-color: #3d8f5a;
   background: #152318;

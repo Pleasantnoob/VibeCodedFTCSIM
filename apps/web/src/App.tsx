@@ -13,15 +13,15 @@ import {
 import type { Vector2 } from '@ftc-sim/field';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import { usePhysicsRobot } from './robot/usePhysicsRobot';
-import { playerSpawnPose, practiceFieldRobots } from './robot/match-robots';
+import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, type SoloSpawnSlot } from './robot/match-robots';
 import { DEFAULT_ARTIFACT_FRICTION } from './artifacts/artifact-world';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
   SIM_ROBOT_PRESETS,
+  simRobotConfigFromNet,
   type SimRobotConfig,
 } from './robot/robot-config';
 import { FieldCanvas } from './field/FieldCanvas';
-import { hasActiveDriveInput } from './input/drive-input-sampler';
 import {
   barriersToExportJson,
   clampSelection as clampBarrierSelection,
@@ -31,7 +31,6 @@ import {
   moveBarrierVertex,
 } from './field/barrier-editor';
 import type { MapVertexSelection } from './field/map-selection';
-import { barrierSelection, zoneSelection } from './field/map-selection';
 import {
   clampZoneSelection,
   deleteZoneVertex,
@@ -41,36 +40,22 @@ import {
 } from './field/zone-editor';
 import { useDriveInput } from './input/useDriveInput';
 import { DriveControlsPanel } from './input/DriveControlsPanel';
-import { loadDriveSettings } from './input/drive-settings';
+import { loadPlayerSettings, patchPlayerSettings } from './input/player-settings';
 import type { DriveFrame } from '@ftc-sim/robot';
 import { useMatchClock } from './match/useMatchClock';
 import type { MatchSnapshot } from '@ftc-sim/match';
 import { MatchFieldOverlay } from './match/MatchFieldOverlay';
 import { MatchResultsCeremony } from './match/MatchResultsCeremony';
-import { useMatchAudio, playMatchAudioCue, type MatchAudioCue } from './match/useMatchAudio';
+import { useMatchAudio, playMatchAudioCue, unlockMatchAudio, emitMatchAudioCues, getMatchAudioCache } from './match/useMatchAudio';
 import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
+import { DevToolsDrawer } from './components/DevToolsDrawer';
 import { installFtcSimDevApi } from './dev/inject-drive';
 import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
+import { buildHostRoomSettings } from './session/host-room';
 import { useSessionClient } from './session/useSessionClient';
 import { useOwnedRobotPrediction } from './net/useOwnedRobotPrediction';
 import { LobbyScreen } from './session/LobbyScreen';
 import './panels.css';
-
-const PHASES = [
-  { id: 0, name: 'Shell', status: 'done' as const },
-  { id: 1, name: 'Field canvas', status: 'done' as const },
-  { id: 2, name: 'Kinematic robot', status: 'done' as const },
-  { id: 3, name: 'Physics core', status: 'done' as const },
-  { id: 4, name: 'Match clock', status: 'done' as const },
-  { id: 5, name: 'Pedro paths', status: 'done' as const },
-  { id: 6, name: 'Path follower', status: 'done' as const },
-  { id: 7, name: 'DECODE field data', status: 'done' as const },
-  { id: 8, name: 'Mechanisms & scoring', status: 'active' as const },
-  { id: 9, name: 'Telemetry & replay', status: 'upcoming' as const },
-  { id: 10, name: 'QA & E2E', status: 'upcoming' as const },
-];
-
-type Alliance = 'blue' | 'red';
 
 /** Placeholder until the first server snapshot arrives — never use solo clock in net mode. */
 const NET_SETUP_SNAPSHOT: MatchSnapshot = {
@@ -87,6 +72,7 @@ const NET_SETUP_SNAPSHOT: MatchSnapshot = {
 const BUILTIN_PATHS = [
   { id: 'decode-pp', label: 'Decode Auto (PP export)', file: '/examples/decode-auto.pp' },
   { id: 'decode-json', label: 'Decode Auto (JSON curve)', file: '/examples/decode-auto.json' },
+  { id: 'really-good', label: 'Really Good Path Test', file: '/examples/really-good-path-test.pp' },
 ] as const;
 
 type BuiltinPathId = (typeof BUILTIN_PATHS)[number]['id'];
@@ -118,8 +104,19 @@ function overlayTeamsFromCatalog(
   };
 }
 
+function initialOverlayTeams(
+  robotTeamName: string,
+  spawn: SoloSpawnSlot,
+): { red: [string, string]; blue: [string, string] } {
+  if (allianceForSpawnSlot(spawn) === 'blue') {
+    return { red: ['-1', '-2'], blue: [robotTeamName, '-4'] };
+  }
+  return { red: [robotTeamName, '-2'], blue: ['-3', '-4'] };
+}
+
 export function App() {
   const field = useMemo(() => getDecodeField(), []);
+  const savedPlayer = useMemo(() => loadPlayerSettings(), []);
   useEffect(() => {
     document.getElementById('boot-msg')?.remove();
   }, []);
@@ -137,10 +134,13 @@ export function App() {
     setSessionMode(urlSession.mode);
     net.connect(
       urlSession.address ?? '127.0.0.1:5191',
-      urlSession.displayName ?? 'Driver',
+      urlSession.displayName ?? savedPlayer.playerName,
       urlSession.mode === 'join' ? 'join' : 'host',
+      urlSession.mode === 'host'
+        ? buildHostRoomSettings(savedPlayer.robot, savedPlayer.robotPreload, savedPlayer.robotTeamName)
+        : undefined,
     );
-  }, [urlSession, net.connect]);
+  }, [urlSession, net.connect, savedPlayer]);
   const netArtifactsRef = useRef<SimArtifactState[]>([]);
   const fieldCenterRef = useRef<HTMLElement>(null);
   const [barriers, setBarriers] = useState(() => initEditableBarriers(field));
@@ -148,7 +148,17 @@ export function App() {
   const [editBarriers, setEditBarriers] = useState(false);
   const [editZones, setEditZones] = useState(false);
   const [selectedVertex, setSelectedVertex] = useState<MapVertexSelection | null>(null);
-  const [alliance, setAlliance] = useState<Alliance>('blue');
+  const [spawnSlot, setSpawnSlot] = useState<SoloSpawnSlot>(savedPlayer.spawnSlot);
+  const alliance = allianceForSpawnSlot(spawnSlot);
+  const [robotPreload, setRobotPreload] = useState(savedPlayer.robotPreload);
+  const robotPreloadRef = useRef(robotPreload);
+  robotPreloadRef.current = robotPreload;
+  const [lobbyPlayerName, setLobbyPlayerName] = useState(savedPlayer.playerName);
+  const [robotTeamName, setRobotTeamName] = useState(savedPlayer.robotTeamName);
+  const initialTeams = useMemo(
+    () => initialOverlayTeams(savedPlayer.robotTeamName, savedPlayer.spawnSlot),
+    [savedPlayer.robotTeamName, savedPlayer.spawnSlot],
+  );
   const [artifactFriction, setArtifactFriction] = useState(DEFAULT_ARTIFACT_FRICTION);
   const artifactFrictionRef = useRef(artifactFriction);
   artifactFrictionRef.current = artifactFriction;
@@ -160,8 +170,8 @@ export function App() {
   const [showMatchOverlay, setShowMatchOverlay] = useState(true);
   const [overlayEventName, setOverlayEventName] = useState('FTC Sim');
   const [overlayMatchName, setOverlayMatchName] = useState('Practice Match');
-  const [overlayRedTeams, setOverlayRedTeams] = useState<[string, string]>(['-1', '-2']);
-  const [overlayBlueTeams, setOverlayBlueTeams] = useState<[string, string]>(['-3', '-4']);
+  const [overlayRedTeams, setOverlayRedTeams] = useState<[string, string]>(initialTeams.red);
+  const [overlayBlueTeams, setOverlayBlueTeams] = useState<[string, string]>(initialTeams.blue);
   const [matchSounds, setMatchSounds] = useState(true);
   const [matchSoundVolume, setMatchSoundVolume] = useState(0.5);
   const [ceremonyActive, setCeremonyActive] = useState(false);
@@ -191,39 +201,20 @@ export function App() {
   autoSequenceRef.current = autoSequence;
   const lastPathTextRef = useRef<string | null>(null);
   const [controlsDrawerOpen, setControlsDrawerOpen] = useState(false);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [driveModeLabel, setDriveModeLabel] = useState<'Robot' | 'Field'>(() =>
-    loadDriveSettings().driveFrame === 'field' ? 'Field' : 'Robot',
+    savedPlayer.driveFrame === 'field' ? 'Field' : 'Robot',
   );
-  const matchAudioCacheRef = useRef(new Map<MatchAudioCue, HTMLAudioElement>());
+  const matchAudioCacheRef = useRef(getMatchAudioCache());
+  const soloMatchAudioPrevRef = useRef<MatchSnapshot | null>(null);
+  const autoPhasePrevRef = useRef<MatchSnapshot['phase']>('setup');
   const followerRef = useRef(new AutoSequenceRunner());
   const resetRobotRef = useRef<(pose?: { x: number; y: number; heading: number }) => void>(() => {});
-  const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(DEFAULT_SIM_ROBOT_CONFIG);
+  const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(savedPlayer.robot);
   const robotConfigRef = useRef(robotConfig);
   robotConfigRef.current = robotConfig;
-  const practiceRobots = useMemo(
-    () =>
-      sessionMode === 'solo'
-        ? []
-        : practiceFieldRobots(
-            {
-              width: robotConfig.footprintWidth,
-              length: robotConfig.footprintLength,
-            },
-            {
-              blueNear: overlayBlueTeams[0],
-              blueFar: overlayBlueTeams[1],
-              redNear: overlayRedTeams[0],
-              redFar: overlayRedTeams[1],
-            },
-          ),
-    [
-      sessionMode,
-      robotConfig.footprintWidth,
-      robotConfig.footprintLength,
-      overlayBlueTeams,
-      overlayRedTeams,
-    ],
-  );
+  // Solo = single robot; net = robots from server snapshots only.
+  const practiceRobots = useMemo(() => [] as ReturnType<typeof practiceFieldRobots>, []);
   const practiceRobotsRef = useRef(practiceRobots);
   practiceRobotsRef.current = practiceRobots;
 
@@ -240,14 +231,52 @@ export function App() {
   }, [robotConfig.mass]);
 
   const patchRobotConfig = useCallback((patch: Partial<SimRobotConfig>) => {
-    setRobotConfig((prev) => ({ ...prev, ...patch }));
+    setRobotConfig((prev) => {
+      const next = { ...prev, ...patch };
+      patchPlayerSettings({ robot: next });
+      return next;
+    });
   }, []);
 
   const applyRobotPreset = useCallback((presetId: string) => {
     if (presetId === 'mecanum-default') {
-      setRobotConfig({ ...DEFAULT_SIM_ROBOT_CONFIG });
+      const next = { ...DEFAULT_SIM_ROBOT_CONFIG };
+      setRobotConfig(next);
+      patchPlayerSettings({ robot: next });
     }
   }, []);
+
+  const applyRobotTeamName = useCallback(
+    (name: string) => {
+      const trimmed = name.trim().slice(0, 12);
+      setRobotTeamName(trimmed);
+      patchPlayerSettings({ robotTeamName: trimmed });
+      if (alliance === 'blue') {
+        setOverlayBlueTeams(([_, second]) => [trimmed, second]);
+      } else {
+        setOverlayRedTeams(([_, second]) => [trimmed, second]);
+      }
+    },
+    [alliance],
+  );
+
+  const applyLobbyPlayerName = useCallback((name: string) => {
+    const trimmed = name.trim().slice(0, 32) || savedPlayer.playerName;
+    setLobbyPlayerName(trimmed);
+    patchPlayerSettings({ playerName: trimmed });
+  }, [savedPlayer.playerName]);
+
+  const applySpawnSlot = useCallback((slot: SoloSpawnSlot) => {
+    setSpawnSlot(slot);
+    patchPlayerSettings({ spawnSlot: slot });
+    const slotAlliance = allianceForSpawnSlot(slot);
+    setOverlayRedTeams((prev) =>
+      slotAlliance === 'red' ? [robotTeamName, prev[1]] : prev,
+    );
+    setOverlayBlueTeams((prev) =>
+      slotAlliance === 'blue' ? [robotTeamName, prev[1]] : prev,
+    );
+  }, [robotTeamName]);
 
   const applyParsedPath = useCallback(
     (parsed: ReturnType<typeof parsePathFileText>, source: LoadedPathId = 'upload', pathText?: string) => {
@@ -281,8 +310,8 @@ export function App() {
     setPathWarnings([]);
     setPathError(null);
     setLoadedPathId(null);
-    resetRobotRef.current(playerSpawnPose());
-  }, [alliance]);
+    resetRobotRef.current(playerSpawnPose(spawnSlot));
+  }, [spawnSlot]);
 
   const startAutoPathRunner = useCallback(() => {
     followerRef.current.setPose(poseRef.current);
@@ -350,8 +379,8 @@ export function App() {
   );
 
   const startPose = useMemo(
-    () => (pathChain ? getPathStartPose(pathChain) : playerSpawnPose()),
-    [pathChain],
+    () => (pathChain ? getPathStartPose(pathChain) : playerSpawnPose(spawnSlot)),
+    [pathChain, spawnSlot],
   );
 
   const effectiveStartPose = startPose;
@@ -370,20 +399,39 @@ export function App() {
     return () => net.setOnAudioCue(null);
   }, [net.setOnAudioCue, matchSounds, matchSoundVolume]);
 
-  const match = useMatchClock();
+  const tapMatchAudio = useCallback(() => {
+    if (!matchSounds) return;
+    unlockMatchAudio(matchAudioCacheRef.current);
+  }, [matchSounds]);
+
+  const match = useMatchClock({ remoteAuthority: isNetActive });
   const { snapshot: matchSnap } = match;
   const displayMatchSnap = isNetActive ? (net.matchSnapshot ?? NET_SETUP_SNAPSHOT) : matchSnap;
+
+  const playSoloMatchAudio = useCallback(
+    (prevSnap: MatchSnapshot, apply: () => void) => {
+      tapMatchAudio();
+      apply();
+      if (!matchSounds || isNetActive) return;
+      const nextSnap = match.clockRef.current!.snapshot();
+      emitMatchAudioCues(prevSnap, nextSnap, matchSoundVolume, matchAudioCacheRef.current);
+      soloMatchAudioPrevRef.current = nextSnap;
+    },
+    [tapMatchAudio, matchSounds, isNetActive, matchSoundVolume, match],
+  );
+
   useMatchAudio(displayMatchSnap, { enabled: matchSounds && !isNetActive, volume: matchSoundVolume });
 
   const allowsDriveRef = useRef(matchSnap.allowsDrive);
   const matchActiveRef = useRef(matchSnap.running && !matchSnap.paused);
   const getMatchSnapshotRef = useRef(() => match.clockRef.current!.snapshot());
   const getMatchStateRef = useRef<() => import('@ftc-sim/game-decode').MatchState | null>(() => null);
-  const onPhysicsStepRef = useRef(match.tick);
-  allowsDriveRef.current = matchSnap.allowsDrive;
+  allowsDriveRef.current = matchSnap.allowsDrive && !editBarriers && !editZones;
   matchActiveRef.current = matchSnap.running && !matchSnap.paused;
   getMatchSnapshotRef.current = () => match.clockRef.current!.snapshot();
-  onPhysicsStepRef.current = match.tick;
+
+  const driveBlockedRef = useRef(editBarriers || editZones);
+  driveBlockedRef.current = editBarriers || editZones;
 
   const getMatchState = useCallback(() => getMatchStateRef.current(), []);
 
@@ -398,7 +446,7 @@ export function App() {
     displayMatchSnap.phase === 'auto' ||
     displayMatchSnap.phase === 'transition' ||
     displayMatchSnap.phase === 'teleop';
-  const teleopDriveFrameRef = useRef<DriveFrame>(loadDriveSettings().driveFrame);
+  const teleopDriveFrameRef = useRef<DriveFrame>(savedPlayer.driveFrame);
   const {
     samplerRef,
     sampleInput,
@@ -419,15 +467,21 @@ export function App() {
   );
 
   const onSimHudTick = useCallback(() => {
-    match.syncUi();
+    if (!isNetActive && matchSounds) {
+      const prevSnap = soloMatchAudioPrevRef.current ?? match.clockRef.current!.snapshot();
+      match.syncUi();
+      const nextSnap = match.clockRef.current!.snapshot();
+      emitMatchAudioCues(prevSnap, nextSnap, matchSoundVolume, matchAudioCacheRef.current);
+      soloMatchAudioPrevRef.current = nextSnap;
+    } else {
+      match.syncUi();
+    }
     const snap = match.clockRef.current?.snapshot();
-    if (
-      snap &&
-      (snap.phase === 'auto' || snap.phase === 'transition') &&
-      hasActiveDriveInput(samplerRef.current)
-    ) {
+    if (autoPhasePrevRef.current === 'auto' && snap?.phase === 'transition') {
       followerRef.current.cancelPath();
-      match.startTeleop();
+    }
+    if (snap) {
+      autoPhasePrevRef.current = snap.phase;
     }
     const follower = followerRef.current;
     if (follower.isRunning()) {
@@ -439,7 +493,7 @@ export function App() {
     } else {
       setFollowerHud(null);
     }
-  }, [match.syncUi, match.startTeleop, match.clockRef, samplerRef]);
+  }, [match.syncUi, match.clockRef, isNetActive, matchSounds, matchSoundVolume]);
 
   const {
     pose,
@@ -465,34 +519,41 @@ export function App() {
     startPose,
     samplerRef,
     sampleInput,
-    !editBarriers && !editZones && !isNetActive,
-    !isNetActive,
+    sessionMode === 'solo',
+    sessionMode === 'solo',
     onHudTick,
     {
       allowsDriveRef,
       matchActiveRef,
+      driveBlockedRef,
       getMatchSnapshotRef,
       followerRef,
       robotConfigRef,
-      onPhysicsStepRef,
       onSimHudTick: onSimHudTick,
       alliance,
       artifactStaging: artifactSpawns,
       artifactFrictionRef,
       getMatchStateRef,
       practiceRobotsRef,
-      playerTeamNumber: overlayBlueTeams[0],
+      playerTeamNumber: robotTeamName,
       teleopDriveFrameRef,
+      robotPreloadRef,
     },
   );
 
   const displayMatchGameState = isNetActive ? net.gameState : matchGameState;
   getMatchStateRef.current = () => displayMatchGameState;
 
+  const netRoomRobotConfig = useMemo(() => {
+    const netRobot = net.roomConfig?.robot;
+    return netRobot ? simRobotConfigFromNet(netRobot) : robotConfig;
+  }, [net.roomConfig, robotConfig]);
+
   const ownedPoseRef = useOwnedRobotPrediction({
     enabled: isNetActive && Boolean(net.robotId),
     robotId: net.robotId,
     allowsDrive: displayMatchSnap.allowsDrive,
+    robotConfig: netRoomRobotConfig,
     sampleInputRef: sampleInput,
     driveFrameRef: teleopDriveFrameRef,
     authoritativePose: isNetActive && net.pose ? net.pose : null,
@@ -536,7 +597,7 @@ export function App() {
     return () => cancelAnimationFrame(frame);
   }, [isNetActive, net.robotId, net.sendInput, sampleInput]);
 
-  const displayFieldReady = isNetActive ? net.connected : physicsReady;
+  const displayFieldReady = isNetSession ? net.connected : physicsReady;
   const displayFieldRobotsRef = isNetActive ? net.fieldRobotsRef : fieldRobotsRef;
   const displayFieldRobotCatalog = isNetActive ? net.fieldRobotCatalog : fieldRobotCatalog;
   const displayLiveArtifacts = isNetActive ? net.liveArtifacts : liveArtifacts;
@@ -563,7 +624,7 @@ export function App() {
   }, [displayMatchSnap.phase, finalizeMatch]);
 
   useEffect(() => {
-    if (!basePathChain || !physicsReady) return;
+    if (!basePathChain || !physicsReady || isNetSession) return;
     const chain = pathChainForAlliance(basePathChain, alliance);
     pathChainRef.current = chain;
     autoSequenceRef.current = baseAutoSequence
@@ -584,7 +645,20 @@ export function App() {
 
     followerRef.current.cancelPath();
     resetRobotRef.current(getPathStartPose(chain));
-  }, [alliance, baseAutoSequence, basePathChain, physicsReady, match.clockRef]);
+  }, [alliance, baseAutoSequence, basePathChain, physicsReady, match.clockRef, isNetSession]);
+
+  useEffect(() => {
+    if (isNetSession || !physicsReady || pathChain) return;
+    const snap = match.clockRef.current?.snapshot();
+    const midMatch =
+      snap &&
+      snap.running &&
+      snap.phase !== 'setup' &&
+      snap.phase !== 'init' &&
+      snap.phase !== 'post';
+    if (midMatch) return;
+    resetRobotRef.current(playerSpawnPose(spawnSlot));
+  }, [spawnSlot, robotPreload, isNetSession, physicsReady, pathChain, match.clockRef]);
 
   useEffect(() => {
     if (!physicsReady) return;
@@ -709,6 +783,26 @@ export function App() {
     }
   };
 
+  const copyMechanismLogs = useCallback(() => {
+    const text = mechanismDebugLogs
+      .map(
+        (entry) =>
+          `[${entry.category}] t=${entry.t.toFixed(2)} ${entry.message}${
+            entry.data ? ` ${JSON.stringify(entry.data)}` : ''
+          }`,
+      )
+      .join('\n');
+    void navigator.clipboard.writeText(text || '(no mechanism logs yet)');
+    setCopyStatus('Mechanism logs copied to clipboard');
+  }, [mechanismDebugLogs]);
+
+  const deleteSelectedZoneVertex = useCallback(() => {
+    if (selectedVertex?.layer !== 'zone') return;
+    setZones((prev) =>
+      deleteZoneVertex(prev, selectedVertex.zoneId, selectedVertex.vertexIndex),
+    );
+  }, [selectedVertex]);
+
   const selectedVertexCoords = (() => {
     if (!selectedVertex) return null;
     if (selectedVertex.layer === 'barrier') {
@@ -724,6 +818,8 @@ export function App() {
       net.sendHostCommand('reset');
       return;
     }
+    soloMatchAudioPrevRef.current = null;
+    autoPhasePrevRef.current = 'setup';
     followerRef.current.cancelPath();
     match.reset();
     resetRobot(effectiveStartPose);
@@ -736,45 +832,57 @@ export function App() {
 
   const handleInit = () => {
     if (isNetActive && net.role === 'host') {
+      tapMatchAudio();
       net.sendHostCommand('init');
       return;
     }
-    randomizeMotif();
-    match.initMatch();
+    const prevSnap = match.clockRef.current!.snapshot();
+    playSoloMatchAudio(prevSnap, () => {
+      randomizeMotif();
+      match.initMatch();
+    });
   };
 
   const handleStartAuto = () => {
     if (isNetActive && net.role === 'host') {
+      tapMatchAudio();
       net.sendHostCommand('start_auto');
       return;
     }
-    if (matchSnap.phase === 'setup') {
-      randomizeMotif();
-    }
-    if (matchSnap.phase === 'setup' || matchSnap.phase === 'init') {
-      match.start();
-    } else {
-      match.startAuto();
-    }
-    if (pathChainRef.current || autoSequenceRef.current) {
-      startAutoPathRunner();
-    }
+    const prevSnap = match.clockRef.current!.snapshot();
+    playSoloMatchAudio(prevSnap, () => {
+      if (matchSnap.phase === 'setup') {
+        randomizeMotif();
+      }
+      if (matchSnap.phase === 'setup' || matchSnap.phase === 'init') {
+        match.start();
+      } else {
+        match.startAuto();
+      }
+      if (pathChainRef.current || autoSequenceRef.current) {
+        startAutoPathRunner();
+      }
+    });
   };
 
   const handleStartTeleop = () => {
     if (isNetActive && net.role === 'host') {
+      tapMatchAudio();
       net.sendHostCommand('teleop');
       return;
     }
-    match.startTeleop();
+    const prevSnap = match.clockRef.current!.snapshot();
+    playSoloMatchAudio(prevSnap, () => match.startTeleop());
   };
 
   const handleInfinitePractice = () => {
     if (isNetActive && net.role === 'host') {
+      tapMatchAudio();
       net.sendHostCommand('infinite');
       return;
     }
-    match.startInfinitePractice();
+    const prevSnap = match.clockRef.current!.snapshot();
+    playSoloMatchAudio(prevSnap, () => match.startInfinitePractice());
   };
 
   const handlePause = () => {
@@ -788,14 +896,18 @@ export function App() {
 
   const handleEndMatch = useCallback(() => {
     if (isNetActive && net.role === 'host') {
+      tapMatchAudio();
       net.sendHostCommand('end_match');
       setCeremonyTrigger((n) => n + 1);
       return;
     }
-    finalizeMatch();
-    match.endMatch();
+    const prevSnap = match.clockRef.current!.snapshot();
+    playSoloMatchAudio(prevSnap, () => {
+      finalizeMatch();
+      match.endMatch();
+    });
     setCeremonyTrigger((n) => n + 1);
-  }, [finalizeMatch, match, isNetActive, net.role, net.sendHostCommand]);
+  }, [finalizeMatch, match, isNetActive, net.role, net.sendHostCommand, tapMatchAudio, playSoloMatchAudio]);
 
   const phaseLabel = displayMatchSnap.infiniteMode ? 'teleop ∞' : displayMatchSnap.phase;
   const clockLabel =
@@ -807,12 +919,12 @@ export function App() {
         ? `${displayMatchSnap.timeRemainingInPhase.toFixed(1)}s`
         : '—';
 
-  const isNetHost = isNetActive && sessionMode === 'host';
+  const isNetHost = isNetActive && net.role === 'host';
   const isNetJoinPlayer = isNetActive && sessionMode === 'join';
   const isNetDriver = isNetActive && Boolean(net.robotId);
   const isNetLobby = isNetActive && !net.robotId;
   const showSidePanels = !isNetJoinPlayer;
-  const showHostNavActions = !isNetActive || isNetHost;
+  const showHostNavActions = !isNetActive || net.role === 'host';
   const showMatchNav = !isNetJoinPlayer || isNetLobby;
   const isNetSpectator = isNetActive && !isNetDriver && net.role !== 'host';
   const matchControlsLocked = isNetSpectator;
@@ -868,12 +980,23 @@ export function App() {
     : followerHud !== null &&
       (displayMatchSnap.phase === 'auto' || displayMatchSnap.phase === 'transition');
 
+  const showPathOnField =
+    showPlannedPath &&
+    plannedPathPoints.length >= 2 &&
+    (displayMatchSnap.phase === 'setup' ||
+      displayMatchSnap.phase === 'init' ||
+      displayMatchSnap.phase === 'auto' ||
+      displayMatchSnap.phase === 'transition');
+
   return (
-    <div className={`shell alliance-${alliance}`}>
+    <div className={`shell alliance-${alliance}${showMatchNav ? ' shell--match-nav' : ''}`}>
       <LobbyScreen
         initialMode={sessionMode}
         initialAddress={urlSession.address ?? '127.0.0.1:5191'}
-        initialName={urlSession.displayName ?? 'Driver'}
+        initialName={lobbyPlayerName}
+        initialTeamLabel={robotTeamName}
+        onPlayerNameChange={applyLobbyPlayerName}
+        onRobotTeamNameChange={applyRobotTeamName}
         connected={net.connected}
         connecting={net.connecting}
         error={net.error}
@@ -892,7 +1015,18 @@ export function App() {
         }}
         onConnect={(mode, address, name) => {
           setSessionMode(mode);
-          net.connect(address, name, mode === 'host' ? 'host' : 'join');
+          net.connect(
+            address,
+            name,
+            mode === 'host' ? 'host' : 'join',
+            mode === 'host'
+              ? buildHostRoomSettings(
+                  robotConfigRef.current,
+                  robotPreloadRef.current,
+                  robotTeamName,
+                )
+              : undefined,
+          );
         }}
         onDisconnect={() => {
           net.disconnect();
@@ -911,18 +1045,72 @@ export function App() {
             </button>
           </div>
           <DriveControlsPanel
-            onSettingsChange={(settings, keybinds) => {
+            onSettingsChange={(settings) => {
               teleopDriveFrameRef.current = settings.driveFrame;
               setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
-              applyKeybinds(keybinds);
+              applyKeybinds(settings.keybinds);
             }}
           />
         </aside>
+      )}
+      {devToolsOpen && showSidePanels && (
+        <DevToolsDrawer
+          onClose={() => setDevToolsOpen(false)}
+          artifactFriction={artifactFriction}
+          onArtifactFrictionChange={setArtifactFriction}
+          showZones={showZones}
+          onShowZonesChange={setShowZones}
+          showGateDetector={showGateDetector}
+          onShowGateDetectorChange={setShowGateDetector}
+          showDebugZones={showDebugZones}
+          onShowDebugZonesChange={setShowDebugZones}
+          showArtifacts={showArtifacts}
+          onShowArtifactsChange={setShowArtifacts}
+          showCenterLine={showCenterLine}
+          onShowCenterLineChange={setShowCenterLine}
+          showBarriers={showBarriers}
+          onShowBarriersChange={setShowBarriers}
+          showMatchOverlay={showMatchOverlay}
+          onShowMatchOverlayChange={setShowMatchOverlay}
+          editZones={editZones}
+          onEditZonesChange={setEditZones}
+          zones={zones}
+          selectedVertex={selectedVertex}
+          selectedVertexCoords={selectedVertexCoords}
+          onSelectVertex={setSelectedVertex}
+          onDeleteZoneVertex={deleteSelectedZoneVertex}
+          onResetZones={resetZones}
+          onCopyZonesJson={() => void copyZonesJson()}
+          editBarriers={editBarriers}
+          onEditBarriersChange={setEditBarriers}
+          barriers={barriers}
+          onResetBarriers={resetBarriers}
+          onCopyBarriersJson={() => void copyBarriersJson()}
+          copyStatus={copyStatus}
+          mechanismDebugLogs={mechanismDebugLogs}
+          onCopyMechanismLogs={copyMechanismLogs}
+          driveDebug={driveDebug}
+          controlSource={controlSource}
+          matchPhase={matchSnap.phase}
+          gamepadConnected={gamepadConnected}
+          poseLabel={`(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`}
+          speed={speed}
+          angularSpeed={angularSpeed}
+        />
       )}
       {showMatchNav && (
       <nav className="panels-nav" aria-label="Simulator controls">
         <div className="panels-nav__brand">
           <PanelsLogo />
+          {showSidePanels && (
+            <PanelsButton
+              variant={devToolsOpen ? 'primary' : 'ghost'}
+              className="panels-nav__dev-btn"
+              onClick={() => setDevToolsOpen((open) => !open)}
+            >
+              Dev
+            </PanelsButton>
+          )}
           <span className="panels-nav__title">DECODE Sim</span>
           {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
           {isNetActive && net.versionWarning && (
@@ -990,6 +1178,7 @@ export function App() {
           <PanelsButton disabled={matchControlsLocked || !canInfinite} onClick={handleInfinitePractice}>
             INF
           </PanelsButton>
+          <span className="panels-nav__actions-sep" aria-hidden />
           <PanelsButton disabled={matchControlsLocked || !canPause} onClick={handlePause}>
             {displayMatchSnap.paused ? 'RESUME' : 'PAUSE'}
           </PanelsButton>
@@ -1008,27 +1197,72 @@ export function App() {
       <div className={`panels-body${isNetJoinPlayer ? ' panels-body--join' : ''}`}>
         {showSidePanels && (
         <div className="panels-column">
-          <PanelSection title="Alliance" badge={alliance === 'blue' ? 'Blue' : 'Red'}>
-            <div className="alliance-toggle">
-              <PanelsButton
-                variant={alliance === 'blue' ? 'primary' : 'default'}
-                onClick={() => setAlliance('blue')}
-              >
-                Blue
-              </PanelsButton>
-              <PanelsButton
-                variant={alliance === 'red' ? 'primary' : 'default'}
-                onClick={() => setAlliance('red')}
-              >
-                Red
-              </PanelsButton>
-            </div>
+          <PanelSection
+            title={isNetSession ? 'Alliance' : 'Start position'}
+            badge={alliance === 'blue' ? 'Blue' : 'Red'}
+          >
+            {isNetSession ? (
+              <p className="hint">
+                Spawn is set when you claim a slot in the lobby. Paths mirror for your alliance.
+              </p>
+            ) : (
+              <>
+                <p className="hint">Pick a launch corner, then INIT.</p>
+                <div className="spawn-grid">
+                  {SOLO_SPAWN_SLOTS.map((slot) => (
+                    <PanelsButton
+                      key={slot}
+                      variant={spawnSlot === slot ? 'primary' : 'default'}
+                      disabled={Boolean(pathChain) || displayMatchSnap.phase === 'post'}
+                      onClick={() => applySpawnSlot(slot)}
+                    >
+                      {SOLO_SPAWN_LABELS[slot]}
+                    </PanelsButton>
+                  ))}
+                </div>
+                {pathChain ? (
+                  <p className="hint">Clear auto path to change spawn.</p>
+                ) : null}
+              </>
+            )}
+          </PanelSection>
+
+          <PanelSection title="Player" badge={lobbyPlayerName}>
+            <label className="panel-field">
+              Your name
+              <input
+                className="panel-select"
+                type="text"
+                value={lobbyPlayerName}
+                maxLength={32}
+                onChange={(e) => applyLobbyPlayerName(e.target.value)}
+              />
+            </label>
+            <label className="panel-field">
+              Team # (on robot)
+              <input
+                className="panel-select"
+                type="text"
+                value={robotTeamName}
+                maxLength={12}
+                onChange={(e) => applyRobotTeamName(e.target.value)}
+              />
+            </label>
           </PanelSection>
 
           <PanelSection title="Robot" badge={`${robotConfig.footprintLength}×${robotConfig.footprintWidth} in`}>
-            <p className="hint">
-              Tune drive limits for teleop and AUTO. Weight affects path follower centripetal correction.
-            </p>
+            <p className="hint">Drive limits for teleop and auto.</p>
+            <label className="panel-check">
+              <input
+                type="checkbox"
+                checked={robotPreload}
+                onChange={(e) => {
+                  setRobotPreload(e.target.checked);
+                  patchPlayerSettings({ robotPreload: e.target.checked });
+                }}
+              />
+              Preload 2 purple + 1 green
+            </label>
             <label className="panel-field">
               Preset
               <select
@@ -1104,8 +1338,8 @@ export function App() {
               Length: <strong>{robotConfig.footprintLength.toFixed(0)} in</strong>
               <input
                 type="range"
-                min={12}
-                max={24}
+                min={10}
+                max={18}
                 step={1}
                 value={robotConfig.footprintLength}
                 onChange={(e) => patchRobotConfig({ footprintLength: Number(e.target.value) })}
@@ -1115,117 +1349,43 @@ export function App() {
               Width: <strong>{robotConfig.footprintWidth.toFixed(0)} in</strong>
               <input
                 type="range"
-                min={12}
-                max={24}
+                min={10}
+                max={18}
                 step={1}
                 value={robotConfig.footprintWidth}
                 onChange={(e) => patchRobotConfig({ footprintWidth: Number(e.target.value) })}
               />
             </label>
-            <ul className="metrics">
-              <li>
-                Speed: <strong>{speed.toFixed(1)} in/s</strong>
-              </li>
-              <li>
-                Turn rate: <strong>{angularSpeed.toFixed(2)} rad/s</strong>
-              </li>
-            </ul>
           </PanelSection>
 
-          <PanelSection title="Artifacts" badge={`μ ${artifactFriction.toFixed(2)}`}>
-            <p className="hint">
-              Tune ball sliding. Low = ice; high = stops quickly. Also updates Rapier contact friction.
-            </p>
-            <label className="panel-label">
-              Surface friction: <strong>{artifactFriction.toFixed(2)}</strong>
-              <input
-                type="range"
-                min={0.1}
-                max={1.5}
-                step={0.05}
-                value={artifactFriction}
-                onChange={(e) => setArtifactFriction(Number(e.target.value))}
-              />
-            </label>
-          </PanelSection>
-
-          <PanelSection title="Teleop" badge={matchSnap.phase}>
+          <PanelSection title="Teleop" badge={driveModeLabel}>
             <DriveControlsPanel
-              onSettingsChange={(settings, keybinds) => {
+              onSettingsChange={(settings) => {
                 teleopDriveFrameRef.current = settings.driveFrame;
                 setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
-                applyKeybinds(keybinds);
+                applyKeybinds(settings.keybinds);
               }}
             />
-            <ul className="metrics">
-              <li>
-                Drive mode: <strong>{driveModeLabel.toLowerCase()}-centric</strong>
-              </li>
-              <li>
-                Match: <strong>{matchSnap.phase}</strong>
-              </li>
-              <li>
-                Control: <strong>{matchSnap.controlSource}</strong>
-              </li>
-              <li>
-                Input: <strong>{controlSource}</strong>
-              </li>
-              <li>
-                Gamepad: <strong>{gamepadConnected ? 'connected' : 'none'}</strong>
-              </li>
-              <li>
-                Pose: ({pose.x.toFixed(1)}, {pose.y.toFixed(1)}, {headingDeg.toFixed(0)}°)
-              </li>
-              {driveDebug && (
-                <>
-                  <li>
-                    Drive: f={driveDebug.forward.toFixed(2)} s={driveDebug.strafe.toFixed(2)} t={
-                      driveDebug.turn.toFixed(2)
-                    }
-                  </li>
-                  <li>
-                    Deadzone: f={driveDebug.rawForward.toFixed(2)} s={driveDebug.rawStrafe.toFixed(2)} t={
-                      driveDebug.rawTurn.toFixed(2)
-                    }
-                  </li>
-                  {driveDebug.source === 'gamepad' && (
-                    <li>
-                      Pad axes: a0={driveDebug.padAxes[0].toFixed(2)} a1={driveDebug.padAxes[1].toFixed(2)} a2={
-                        driveDebug.padAxes[2].toFixed(2)
-                      } a3={driveDebug.padAxes[3].toFixed(2)}
-                    </li>
-                  )}
-                  <li>
-                    Intake: <strong>{driveDebug.intake.toFixed(2)}</strong> · Shoot:{' '}
-                    <strong>{driveDebug.shoot ? 'fire' : '—'}</strong> · Gate:{' '}
-                    <strong>{driveDebug.gate ? 'open' : '—'}</strong>
-                  </li>
-                </>
-              )}
-            </ul>
             {(editBarriers || editZones) && (
-              <p className="hint">Turn off map editing to drive the robot.</p>
-            )}
-            {!matchSnap.allowsDrive && !editBarriers && !editZones && (
-              <p className="hint">Drive enabled in teleop only. INIT → START AUTO → TELEOP, or INF for endless practice.</p>
+              <p className="hint">Turn off map editing to drive.</p>
             )}
           </PanelSection>
 
           <PanelSection
-            key={pathChain ? 'path-loaded' : 'path-empty'}
-            title="Path"
+            key={pathChain ? 'auto-loaded' : 'auto-empty'}
+            title="Autonomous"
             badge={
               pathChain
-                ? `${pathChain.paths.length} seg · ${pathChain.totalLength().toFixed(0)} in`
+                ? loadedPathId === 'upload'
+                  ? 'Custom upload'
+                  : BUILTIN_PATHS.find((path) => path.id === loadedPathId)?.label ??
+                    `${pathChain.paths.length} seg`
                 : 'none'
             }
             defaultOpen={!!pathChain}
           >
-            <p className="hint">
-              Pick a bundled path or upload PedroJSON (.json) / Visualizer export (.pp).
-            </p>
             <label className="panel-field">
-              Path
+              Routine
               <select
                 className="panel-select"
                 value={selectedPathId}
@@ -1240,7 +1400,7 @@ export function App() {
             </label>
             <div className="barrier-actions">
               <PanelsButton onClick={() => void loadBuiltinPath(selectedPathId)}>
-                Add path
+                Add routine
               </PanelsButton>
             </div>
             <label className="panel-check">
@@ -1253,7 +1413,7 @@ export function App() {
                   e.target.value = '';
                 }}
               />
-              Upload path (.json / .pp)
+              Upload routine (.json / .pp)
             </label>
             <label className="panel-check">
               <input
@@ -1262,55 +1422,11 @@ export function App() {
                 disabled={!pathChain}
                 onChange={(e) => setShowPlannedPath(e.target.checked)}
               />
-              Show planned path
+              Show route before AUTO
             </label>
-            <ul className="metrics">
-              <li>
-                Loaded: <strong>{pathChain ? 'yes' : 'no'}</strong>
-              </li>
-              {pathFormat && (
-                <li>
-                  Format: <strong>{pathFormat}</strong>
-                </li>
-              )}
-              {loadedPathId && (
-                <li>
-                  Name:{' '}
-                  <strong>
-                    {loadedPathId === 'upload'
-                      ? 'Custom upload'
-                      : BUILTIN_PATHS.find((path) => path.id === loadedPathId)?.label}
-                  </strong>
-                </li>
-              )}
-              {pathChain && (
-                <>
-                  <li>
-                    Segments: <strong>{pathChain.paths.length}</strong>
-                  </li>
-                  <li>
-                    Length: <strong>{pathChain.totalLength().toFixed(1)} in</strong>
-                  </li>
-                  <li>
-                    Points: <strong>{plannedPathPoints.length}</strong>
-                  </li>
-                  <li>
-                    Start:{' '}
-                    <strong>
-                      ({plannedPathPoints[0]?.x.toFixed(1)}, {plannedPathPoints[0]?.y.toFixed(1)})
-                    </strong>
-                  </li>
-                  <li>
-                    End:{' '}
-                    <strong>
-                      (
-                      {plannedPathPoints[plannedPathPoints.length - 1]?.x.toFixed(1)},{' '}
-                      {plannedPathPoints[plannedPathPoints.length - 1]?.y.toFixed(1)})
-                    </strong>
-                  </li>
-                </>
-              )}
-            </ul>
+            {pathFormat && (
+              <p className="hint hint--compact">Format: {pathFormat}</p>
+            )}
             {pathError && <p className="hint path-error">{pathError}</p>}
             {pathWarnings.map((warning) => (
               <p key={warning} className="hint">
@@ -1335,127 +1451,8 @@ export function App() {
             )}
           </PanelSection>
 
-          <PanelSection
-            title="Overlays & zones"
-            badge={editZones ? 'editing zones' : showZones ? 'grid on' : 'grid off'}
-          >
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showZones}
-                onChange={(e) => setShowZones(e.target.checked)}
-              />
-              Launch zones + tile grid
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showGateDetector}
-                onChange={(e) => setShowGateDetector(e.target.checked)}
-              />
-              Gate debug (teal zone + robot footprint — green when overlapping)
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showDebugZones}
-                onChange={(e) => setShowDebugZones(e.target.checked)}
-              />
-              Scoring zones (basin, ramp, base)
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showArtifacts}
-                onChange={(e) => setShowArtifacts(e.target.checked)}
-              />
-              Game pieces (live artifacts)
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showCenterLine}
-                onChange={(e) => setShowCenterLine(e.target.checked)}
-              />
-              Center line (x=72)
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showBarriers}
-                onChange={(e) => setShowBarriers(e.target.checked)}
-              />
-              Goal barriers
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showMatchOverlay}
-                onChange={(e) => setShowMatchOverlay(e.target.checked)}
-              />
-              FTC match timer overlay
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={editZones}
-                onChange={(e) => setEditZones(e.target.checked)}
-              />
-              Edit launch zones
-            </label>
-            <p className="hint">
-              Map near and far launch areas. Drag handles. Delete removes the selected vertex.
-            </p>
-            {editZones && (
-              <>
-                <ul className="barrier-list">
-                  {zones.map((zone) => (
-                    <li key={zone.id}>
-                      <button
-                        type="button"
-                        className={`barrier-list__item${selectedVertex?.layer === 'zone' && selectedVertex.zoneId === zone.id ? ' barrier-list__item--active' : ''}`}
-                        onClick={() => setSelectedVertex(zoneSelection(zone.id, 0))}
-                      >
-                        {zone.label}
-                        <span>{zone.vertices.length} vertices</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {selectedVertexCoords && selectedVertex?.layer === 'zone' && (
-                  <p className="barrier-selection">
-                    Vertex {selectedVertex.vertexIndex + 1}: ({selectedVertexCoords.x.toFixed(1)},{' '}
-                    {selectedVertexCoords.y.toFixed(1)})
-                  </p>
-                )}
-                <div className="barrier-actions">
-                  <PanelsButton
-                    disabled={selectedVertex?.layer !== 'zone'}
-                    onClick={() => {
-                      if (selectedVertex?.layer !== 'zone') return;
-                      setZones((prev) =>
-                        deleteZoneVertex(
-                          prev,
-                          selectedVertex.zoneId,
-                          selectedVertex.vertexIndex,
-                        ),
-                      );
-                    }}
-                  >
-                    Delete vertex
-                  </PanelsButton>
-                  <PanelsButton onClick={resetZones}>Reset defaults</PanelsButton>
-                  <PanelsButton onClick={copyZonesJson}>Copy JSON</PanelsButton>
-                </div>
-                {copyStatus && <p className="hint">{copyStatus}</p>}
-              </>
-            )}
-          </PanelSection>
-
           <PanelSection title="Broadcast HUD" badge={overlayMatchName}>
-            <p className="hint">
-              Labels shown on the FTC Live scoreboard overlay. Team fields accept any text.
-            </p>
+            <p className="hint">Scoreboard overlay labels only.</p>
             <label className="panel-field">
               Event name
               <input
@@ -1539,50 +1536,6 @@ export function App() {
               />
             </label>
           </PanelSection>
-
-          <PanelSection title="Goals" badge={editBarriers ? 'editing' : undefined}>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={editBarriers}
-                onChange={(e) => setEditBarriers(e.target.checked)}
-              />
-              Edit goal barriers
-            </label>
-            {editBarriers && (
-              <>
-                <ul className="barrier-list">
-                  {barriers.map((barrier) => (
-                    <li key={barrier.id}>
-                      <button
-                        type="button"
-                        className={`barrier-list__item${selectedVertex?.layer === 'barrier' && selectedVertex.barrierId === barrier.id ? ' barrier-list__item--active' : ''}`}
-                        onClick={() => setSelectedVertex(barrierSelection(barrier.id, 0))}
-                      >
-                        {barrier.label}
-                        <span>{barrier.vertices.length} vertices</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="barrier-actions">
-                  <PanelsButton onClick={resetBarriers}>Reset goals</PanelsButton>
-                  <PanelsButton onClick={copyBarriersJson}>Copy goal JSON</PanelsButton>
-                </div>
-              </>
-            )}
-          </PanelSection>
-
-          <PanelSection title="Build Roadmap" badge="Phase 8">
-            <ul className="phase-list">
-              {PHASES.map((phase) => (
-                <li key={phase.id} data-status={phase.status}>
-                  <span>Phase {phase.id}</span>
-                  <span>{phase.name}</span>
-                </li>
-              ))}
-            </ul>
-          </PanelSection>
         </div>
         )}
 
@@ -1617,7 +1570,7 @@ export function App() {
               fieldRobotsRef={displayFieldReady ? displayFieldRobotsRef : undefined}
               fieldRobotCatalog={displayFieldReady ? displayFieldRobotCatalog : []}
               plannedPath={plannedPathPoints}
-              showPlannedPath={showPlannedPath && plannedPathPoints.length >= 2}
+              showPlannedPath={showPathOnField}
               followerTarget={displayFollowerTarget}
               showFollowerOverlay={showAutoFollowerOverlay}
               debugZones={debugZones}
@@ -1664,141 +1617,10 @@ export function App() {
             fieldRobotCatalog={displayFieldRobotCatalog}
           />
         </main>
-
-        {showSidePanels && (
-        <div className="panels-column">
-          <PanelSection title="Corner check">
-            <ul className="metrics">
-              <li>SW (0, 0) — bottom-left</li>
-              <li>SE (144, 0) — bottom-right</li>
-              <li>NW (0, 144) — top-left</li>
-              <li>NE (144, 144) — top-right</li>
-            </ul>
-            <p className="hint">Hover each corner; readout should match within ~0.2 in.</p>
-          </PanelSection>
-
-          <PanelSection title="Start pose">
-            <ul className="metrics">
-              <li>
-                Spawn: ({effectiveStartPose.x.toFixed(0)}, {effectiveStartPose.y.toFixed(0)})
-              </li>
-              <li>
-                Heading: {((effectiveStartPose.heading * 180) / Math.PI).toFixed(0)}°
-                {pathChain ? ' (from path)' : ''}
-              </li>
-            </ul>
-          </PanelSection>
-
-          <PanelSection title="Score" badge={`${displayMatchGameState?.score.total ?? 0} pts`}>
-            <div className="stat-grid">
-              <div>
-                Total
-                <strong>{displayMatchGameState?.score.total ?? 0}</strong>
-              </div>
-              <div>
-                Classified
-                <strong>{displayMatchGameState?.teleopScore.classified ?? 0}</strong>
-              </div>
-              <div>
-                Overflow
-                <strong>{displayMatchGameState?.teleopScore.overflow ?? 0}</strong>
-              </div>
-              <div>
-                Base
-                <strong>{displayMatchGameState?.teleopScore.base ?? 0}</strong>
-              </div>
-              <div>
-                Held
-                <strong>{displayLiveArtifacts.filter((a) => a.phase === 'held').length}</strong>
-              </div>
-            </div>
-            <ul className="metrics score-events">
-              {(displayMatchGameState?.events ?? [])
-                .slice(-8)
-                .reverse()
-                .map((event, index) => (
-                  <li key={`${event.t}-${index}`}>
-                    {event.message}
-                  </li>
-                ))}
-              {(displayMatchGameState?.events.length ?? 0) === 0 && (
-                <li className="hint">Intake → shoot from launch zone → score in basin.</li>
-              )}
-            </ul>
-          </PanelSection>
-
-          <PanelSection title="Mechanism debug" badge={`${mechanismDebugLogs.length} logs`} defaultOpen>
-            <p className="hint">
-              Gate / shoot / intake events. Also printed to browser console (F12). Copy and paste
-              after a test match.
-            </p>
-            <div className="barrier-actions">
-              <PanelsButton
-                onClick={() => {
-                  const text = mechanismDebugLogs
-                    .map(
-                      (entry) =>
-                        `[${entry.category}] t=${entry.t.toFixed(2)} ${entry.message}${
-                          entry.data ? ` ${JSON.stringify(entry.data)}` : ''
-                        }`,
-                    )
-                    .join('\n');
-                  void navigator.clipboard.writeText(text || '(no mechanism logs yet)');
-                  setCopyStatus('Mechanism logs copied to clipboard');
-                }}
-              >
-                Copy logs
-              </PanelsButton>
-            </div>
-            <ul className="metrics score-events mechanism-debug-log">
-              {mechanismDebugLogs
-                .slice(-24)
-                .reverse()
-                .map((entry, index) => (
-                  <li key={`${entry.t}-${entry.category}-${index}`}>
-                    <span className="mechanism-debug-log__cat">[{entry.category}]</span>{' '}
-                    {entry.message}
-                    {entry.data ? (
-                      <span className="mechanism-debug-log__data">
-                        {' '}
-                        {JSON.stringify(entry.data)}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              {mechanismDebugLogs.length === 0 && (
-                <li className="hint">Drive into gate zone to release balls; RT to shoot — logs appear here.</li>
-              )}
-            </ul>
-          </PanelSection>
-
-          <PanelSection title="Match Analytics">
-            <div className="stat-grid">
-              <div>
-                Score
-                <strong>{displayMatchGameState?.score.total ?? 0}</strong>
-              </div>
-              <div>
-                Speed
-                <strong>{speed.toFixed(1)} in/s</strong>
-              </div>
-            </div>
-            <ul className="metrics">
-              <li>
-                Source: <strong>{matchSnap.controlSource}</strong>
-              </li>
-              <li>
-                Omega: <strong>{angularSpeed.toFixed(2)} rad/s</strong>
-              </li>
-            </ul>
-          </PanelSection>
-        </div>
-        )}
       </div>
 
       {showSidePanels && (
       <footer className="panels-footer">
-        <PanelsButton disabled>Export Replay</PanelsButton>
         <div className="event-log" aria-live="polite">
           {(physicsEvents.length
             ? physicsEvents

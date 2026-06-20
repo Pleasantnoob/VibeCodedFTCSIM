@@ -1,5 +1,15 @@
-import { useCallback, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { MatchClock, type MatchSnapshot } from '@ftc-sim/match';
+import {
+  advanceAccumulator,
+  createGameLoopAccumulator,
+  shouldUpdateHud,
+} from '../robot/game-loop';
+
+export interface UseMatchClockOptions {
+  /** When true, clock is driven by remote snapshots (multiplayer) — no local rAF tick. */
+  remoteAuthority?: boolean;
+}
 
 export interface UseMatchClockResult {
   snapshot: MatchSnapshot;
@@ -18,7 +28,8 @@ export interface UseMatchClockResult {
   clockRef: RefObject<MatchClock>;
 }
 
-export function useMatchClock(): UseMatchClockResult {
+export function useMatchClock(options: UseMatchClockOptions = {}): UseMatchClockResult {
+  const remoteAuthority = options.remoteAuthority ?? false;
   const clockRef = useRef<MatchClock>(new MatchClock());
   const [snapshot, setSnapshot] = useState<MatchSnapshot>(() => clockRef.current.snapshot());
 
@@ -74,6 +85,33 @@ export function useMatchClock(): UseMatchClockResult {
   const tick = useCallback((dt: number) => {
     clockRef.current.tick(dt);
   }, []);
+
+  useEffect(() => {
+    if (remoteAuthority) return;
+
+    const acc = createGameLoopAccumulator();
+    let frame = 0;
+
+    const loop = (now: number) => {
+      const snap = clockRef.current.snapshot();
+      if (snap.running && !snap.paused) {
+        const { steps, dt } = advanceAccumulator(acc, now);
+        for (let i = 0; i < steps; i++) {
+          clockRef.current.tick(dt);
+        }
+        if (shouldUpdateHud(acc, now)) {
+          syncUi();
+        }
+      } else {
+        acc.lastTime = now;
+        acc.accumulator = 0;
+      }
+      frame = requestAnimationFrame(loop);
+    };
+
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [remoteAuthority, syncUi]);
 
   return {
     snapshot,

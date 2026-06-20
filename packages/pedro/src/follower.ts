@@ -59,6 +59,9 @@ export const DEFAULT_FOLLOWER_CONSTANTS: FollowerConstants = {
   useCentripetal: true,
 };
 
+/** Baseline feedforward was +0.5 (~60% effective cruise); 0.625 targets ~75%. */
+const AUTO_DRIVE_FEEDFORWARD = 0.625;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -235,7 +238,6 @@ export class PedroFollower {
       x: closestPose.x - this.pose.x,
       y: closestPose.y - this.pose.y,
     };
-    const transMag = Math.sqrt(transError.x ** 2 + transError.y ** 2);
 
     const headingError = normalizeAngle(closestPose.heading - this.pose.heading);
 
@@ -270,11 +272,11 @@ export class PedroFollower {
     const forward = tangent;
 
     const vx =
-      forward.x * (driveCorr + 0.5) +
+      forward.x * (driveCorr + AUTO_DRIVE_FEEDFORWARD) +
       normal.x * transCorr +
       forward.y * centripetal * 0.01;
     const vy =
-      forward.y * (driveCorr + 0.5) +
+      forward.y * (driveCorr + AUTO_DRIVE_FEEDFORWARD) +
       normal.y * transCorr -
       forward.x * centripetal * 0.01;
 
