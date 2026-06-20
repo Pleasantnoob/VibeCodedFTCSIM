@@ -42,8 +42,8 @@ function ensureFtcLiveAssets() {
 }
 
 ensureFtcLiveAssets();
-console.log('[prepare] Building web UI…');
-run('pnpm --filter @ftc-sim/web build');
+console.log('[prepare] Building web UI and workspace dependencies…');
+run('pnpm --filter @ftc-sim/web... build');
 
 console.log('[prepare] Copying web dist…');
 fs.rmSync(webOut, { recursive: true, force: true });

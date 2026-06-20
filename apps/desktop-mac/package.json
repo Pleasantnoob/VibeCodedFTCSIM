@@ -62,9 +62,9 @@
           "target": "zip"
         }
       ],
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
       "artifactName": "FTC-Sim-Player-${version}-mac-${arch}.${ext}"
     },
     "dmg": {

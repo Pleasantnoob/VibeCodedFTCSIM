@@ -41,7 +41,7 @@ jobs:
         run: |
           pnpm prepare:resources
           pnpm build
-          pnpm exec electron-builder --mac zip dmg --${{ matrix.arch }}
+          pnpm exec electron-builder --mac --${{ matrix.arch }}
 
       - name: Write latest-mac.yml
         working-directory: apps/desktop-mac
