@@ -2,19 +2,38 @@
 
 Free FTC DECODE practice simulator for Windows. Drive a holonomic robot, score artifacts, run matches solo or with friends.
 
-**Download:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip** (Windows built-in Extract often fails), open the `FTC Sim` folder, run `FTC Sim.exe`.
-
-**Mac (join only):** [FTC Sim Player for Mac](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — download `FTC-Sim-Player-mac-*.zip`, send to Mac friends; open the `.dmg` and drag to Applications. See [`docs/DESKTOP_MAC.md`](docs/DESKTOP_MAC.md).
-
-**Publish Mac build from Windows:** `pnpm release:desktop-mac` (uses GitHub Actions — no Mac required).
-
-- **Solo** — Play Solo in the launcher.
-- **LAN** — Host shares `192.168.x.x:5191` on the same Wi‑Fi.
-- **Internet** — Host forwards **TCP 5191**, shares `public-ip:5191`.
-
 Repository: [github.com/Pleasantnoob/VibeCodedFTCSIM](https://github.com/Pleasantnoob/VibeCodedFTCSIM)
 
-## Quick start
+## Download and run
+
+**Windows:** [FTC-Sim-win-x64.zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip** (Windows built-in Extract often fails), open the `FTC Sim` folder, run `FTC Sim.exe`.
+
+**Mac (join only):** [FTC Sim Player for Mac](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — open the `.dmg` and drag to Applications. Details: [`docs/DESKTOP_MAC.md`](docs/DESKTOP_MAC.md).
+
+## Features
+
+- **DECODE field** — full-season layout, artifacts, obelisk motif, match scoring and results ceremony
+- **Holonomic drive** — keyboard teleop with field or robot-centric controls; customizable keybinds
+- **Robot tuning** — footprint, mass, velocity limits, and optional preload from player settings
+- **Match flow** — setup → auto → teleop → endgame; infinite teleop practice mode
+- **Pedro paths** — load `.pp` paths and run auto on the field
+- **Mechanisms** — intake, shooter, gate, and human-player station interactions
+- **Multiplayer** — free LAN/internet host; lobby slot pick (blue/red corners); up to 4 drivers
+- **Desktop launcher** — solo, host match, join by address, copy LAN/public invite, auto-updates
+
+## How it works
+
+The desktop app is a launcher plus match server. One player **hosts** the sim on their PC; others **join** over the network.
+
+| Mode | What you do |
+|------|-------------|
+| **Solo** | Launcher → play on your machine only |
+| **LAN** | Host shares `192.168.x.x:5191`; joiners paste that address |
+| **Internet** | Host forwards **TCP 5191** on the router, shares `public-ip:5191` |
+
+Same-PC testing in the browser: use `127.0.0.1:5191` with `pnpm dev:all`. Internet setup: [`docs/INTERNET_PLAY.md`](docs/INTERNET_PLAY.md).
+
+## Quick start (development)
 
 ```bash
 pnpm install
@@ -35,12 +54,11 @@ If match sounds or results video are missing after clone, run once (with [FTC Li
 apps/web/          Vite + React sim UI
 apps/desktop/      Windows Electron launcher (host + join + solo)
 apps/desktop-mac/  Mac Electron launcher (join only)
+apps/match-server/ Authoritative multiplayer sim (WebSocket :5191)
 packages/          Monorepo libraries (field, robot, physics, game-decode, …)
-docs/              Roadmap, multiplayer manifest, research papers
-scripts/           Asset sync and one-off tooling
-vendor/            FTC Live asset cache & third-party bundles (see vendor/README.md)
-archive/           Frozen v1 simulator snapshot (reference only)
-reference/         Local git clones of Pedro, Road Runner, etc. (gitignored)
+docs/              Internet play, Mac desktop notes
+scripts/           Asset sync and tooling
+vendor/            FTC Live asset cache (see vendor/README.md)
 ```
 
 ## Development
@@ -51,11 +69,9 @@ pnpm build       # compile all packages
 pnpm typecheck   # TypeScript check
 ```
 
-## Multiplayer (free LAN self-host)
+### Browser multiplayer (dev)
 
-No subscription or website hosting — run the match server on your PC and share your IP.
-
-**Terminal 1 — match server (authoritative sim):**
+**Terminal 1 — match server:**
 ```bash
 pnpm dev:server    # WebSocket on 0.0.0.0:5191
 ```
@@ -65,17 +81,19 @@ pnpm dev:server    # WebSocket on 0.0.0.0:5191
 pnpm dev           # http://localhost:5190
 ```
 
-In the sim, open **Multiplayer** → **Host** (first player) or **Join** (friends). Default address: `127.0.0.1:5191`. On LAN, share `YOUR_LAN_IP:5191`. For internet friends, forward **TCP 5191** on your router and share `PUBLIC_IP:5191` — see [`docs/INTERNET_PLAY.md`](docs/INTERNET_PLAY.md).
+Or both: `pnpm dev:all`. In the sim, open **Multiplayer** → **Host** or **Join** (default `127.0.0.1:5191`).
 
-Or run both at once: `pnpm dev:all`
+### Desktop launcher (from source)
 
-### Desktop launcher (Phase 4)
+Build a Windows release zip:
 
-**Download:** [Latest release zip](https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest) — unzip with **WinRAR** or **7-Zip**, open the `FTC Sim` folder, run `FTC Sim.exe`. Solo, LAN, or internet (host port-forwards TCP 5191).
+```bash
+pnpm build:desktop
+```
 
-Build from source: `pnpm build:desktop`
+Output: `apps/desktop/release/FTC-Sim-win-x64.zip` and an unzipped `apps/desktop/release/FTC-Sim/` folder.
 
-Dev launcher (uses built `apps/web/dist` + `apps/match-server/dist`):
+Run the launcher in dev (after building web + match-server):
 
 ```bash
 pnpm --filter @ftc-sim/web build
@@ -83,13 +101,7 @@ pnpm --filter @ftc-sim/match-server build
 pnpm dev:desktop
 ```
 
-See [`docs/MULTIPLAYER_MANIFEST.md`](docs/MULTIPLAYER_MANIFEST.md) for the full plan.
-
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phased build plan.
-
-## Prior work
-
-The first integrated simulator lives in [`archive/v1-full-sim-2026-06-18/`](archive/v1-full-sim-2026-06-18/). This repo is a ground-up rebuild focused on incremental, testable layers.
+Mac release builds run on GitHub Actions: `pnpm release:desktop-mac`
 
 ## License
 
