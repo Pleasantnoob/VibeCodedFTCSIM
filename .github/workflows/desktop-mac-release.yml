@@ -45,6 +45,8 @@ jobs:
 
       - name: Write latest-mac.yml
         working-directory: apps/desktop-mac
+        env:
+          FTC_MAC_ARCH: ${{ matrix.arch }}
         run: node scripts/make-release-mac.mjs
 
       - name: Upload artifacts
@@ -54,11 +56,12 @@ jobs:
           path: |
             apps/desktop-mac/release/FTC-Sim-Player-*-mac-${{ matrix.arch }}.dmg
             apps/desktop-mac/release/FTC-Sim-Player-*-mac-${{ matrix.arch }}.zip
-            apps/desktop-mac/release/latest-mac.yml
+            apps/desktop-mac/release/latest-mac-${{ matrix.arch }}.yml
           if-no-files-found: error
 
   publish-release:
     needs: build-macos
+    if: ${{ !cancelled() && contains(needs.build-macos.result, 'success') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
