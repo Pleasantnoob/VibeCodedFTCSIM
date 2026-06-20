@@ -145,6 +145,19 @@ code {
   border: 1px solid #4d8cff;
 }
 
+.panels-nav__net-badge--latency {
+  background: #152238;
+  color: #7dd3fc;
+  border: 1px solid #2563eb;
+  font-variant-numeric: tabular-nums;
+}
+
+.panels-nav__net-badge--latency-high {
+  background: #3a1515;
+  color: #fca5a5;
+  border-color: #dc2626;
+}
+
 .panels-nav__status {
   display: flex;
   align-items: center;

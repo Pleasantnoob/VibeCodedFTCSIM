@@ -194,6 +194,33 @@ export function LobbyScreen({
         </button>
       )}
 
+      {connected && role === 'host' && roomPlayers.length > 0 && (
+        <div className="lobby-latency">
+          <p className="lobby-share__label">Player latency (host view)</p>
+          <ul className="lobby-latency__list">
+            {roomPlayers.map((player) => (
+              <li key={player.id} className="lobby-latency__row">
+                <span className="lobby-latency__name">
+                  {player.name}
+                  {player.id === playerId ? ' (you)' : ''}
+                  {player.role === 'host' ? ' · host' : ''}
+                </span>
+                <span
+                  className={`lobby-latency__ms${
+                    player.rttMs != null && player.rttMs > 120 ? ' lobby-latency__ms--high' : ''
+                  }`}
+                >
+                  {player.rttMs != null ? `${player.rttMs} ms` : '…'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="lobby-panel__hint lobby-latency__hint">
+            Logged on the host PC console as <code>[match-server] latency …</code>
+          </p>
+        </div>
+      )}
+
       {connected && role === 'host' && lanAddress && (
         <div className="lobby-host-share">
           <p className="lobby-share__label">Same Wi‑Fi / LAN</p>
@@ -269,7 +296,12 @@ export function LobbyScreen({
       {connected && lanAddress && !fromLauncher && (
         <p className="lobby-status">LAN: {lanAddress}</p>
       )}
-      {connected && rttMs !== null && <p className="lobby-status">Ping: {rttMs} ms</p>}
+      {connected && rttMs !== null && role !== 'host' && (
+        <p className="lobby-status">Ping: {rttMs} ms</p>
+      )}
+      {connected && rttMs !== null && role === 'host' && (
+        <p className="lobby-status">Your ping: {rttMs} ms</p>
+      )}
 
       <div className="lobby-panel__actions">
         {showFullLobby && mode === 'solo' && !connected ? (

@@ -165,6 +165,57 @@
   padding: 12px;
 }
 
+.lobby-latency {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #2a3a52;
+  border-radius: 8px;
+  background: rgba(8, 12, 20, 0.6);
+}
+
+.lobby-latency__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lobby-latency__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.lobby-latency__name {
+  color: #b8c5d9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-latency__ms {
+  font-family: Consolas, 'Courier New', monospace;
+  color: #7dd3fc;
+  flex-shrink: 0;
+}
+
+.lobby-latency__ms--high {
+  color: #fca5a5;
+}
+
+.lobby-latency__hint {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.lobby-latency__hint code {
+  font-size: 10px;
+  color: #9fb0c3;
+}
+
 .lobby-host-share {
   margin: 10px 0;
   padding: 10px;

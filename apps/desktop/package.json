@@ -1,6 +1,6 @@
 {
   "name": "@ftc-sim/desktop",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "FTC Sim desktop launcher — serve UI, spawn match server, open browser",
   "main": "dist/main.js",
@@ -10,8 +10,8 @@
     "start": "electron .",
     "dev": "tsc && electron .",
     "prepare:resources": "node scripts/prepare-resources.mjs",
-    "pack": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
-    "dist": "pnpm pack && node scripts/make-release-zip.mjs",
+    "pack:dir": "pnpm prepare:resources && pnpm build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --config.directories.output=release/electron",
+    "dist": "pnpm run pack:dir && node scripts/make-release-zip.mjs",
     "release": "node scripts/release.mjs",
     "typecheck": "tsc --noEmit"
   },

@@ -109,7 +109,7 @@ export class ArtifactSimulation {
   init(staging: StagedArtifactLayout[]): void {
     this.artifacts.clear();
     this.robotStates.clear();
-    this.robotStates.set(DEFAULT_PLAYER_ROBOT_ID, emptyRobotMechanismState());
+    this.resetRobotMechanismStates();
     this.rampSlots = { red: Array(9).fill(null), blue: Array(9).fill(null) };
     this.flights = [];
     this.gateQueue = [];
@@ -129,6 +129,12 @@ export class ArtifactSimulation {
         opacity: 1,
       });
     }
+  }
+
+  /** Clear intake/shoot latch state so artifact collision cannot leak across matches. */
+  resetRobotMechanismStates(): void {
+    this.robotStates.clear();
+    this.robotStates.set(DEFAULT_PLAYER_ROBOT_ID, emptyRobotMechanismState());
   }
 
   getSnapshot(): MechanismSnapshot {

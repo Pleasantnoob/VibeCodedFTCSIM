@@ -766,6 +766,15 @@ export function App() {
   const isNetSpectator = isNetActive && !isNetDriver && net.role !== 'host';
   const matchControlsLocked = isNetSpectator;
 
+  const hostLatencyMs = useMemo(() => {
+    if (!isNetHost) return null;
+    const values = net.roomPlayers
+      .map((player) => player.rttMs)
+      .filter((value): value is number => value != null);
+    if (values.length === 0) return net.rttMs;
+    return Math.max(...values);
+  }, [isNetHost, net.roomPlayers, net.rttMs]);
+
   let canInit = displayMatchSnap.phase === 'setup';
   let canStartAuto = displayMatchSnap.phase === 'init';
   let canTeleop = displayMatchSnap.phase !== 'teleop' && displayMatchSnap.phase !== 'post';
@@ -839,6 +848,16 @@ export function App() {
           <PanelsLogo />
           <span className="panels-nav__title">DECODE Sim</span>
           {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
+          {isNetHost && hostLatencyMs != null && (
+            <span
+              className={`panels-nav__net-badge panels-nav__net-badge--latency${
+                hostLatencyMs > 120 ? ' panels-nav__net-badge--latency-high' : ''
+              }`}
+              title="Highest player round-trip latency"
+            >
+              {hostLatencyMs} ms
+            </span>
+          )}
           {isNetLobby && net.role === 'host' && (
             <span className="panels-nav__net-badge panels-nav__net-badge--driver">LOBBY</span>
           )}

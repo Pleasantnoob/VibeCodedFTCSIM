@@ -41,9 +41,24 @@ importers:
       '@ftc-sim/field':
         specifier: workspace:*
         version: link:../../packages/field
+      '@ftc-sim/game-decode':
+        specifier: workspace:*
+        version: link:../../packages/game-decode
+      '@ftc-sim/match':
+        specifier: workspace:*
+        version: link:../../packages/match
+      '@ftc-sim/mechanisms':
+        specifier: workspace:*
+        version: link:../../packages/mechanisms
       '@ftc-sim/net':
         specifier: workspace:*
         version: link:../../packages/net
+      '@ftc-sim/physics':
+        specifier: workspace:*
+        version: link:../../packages/physics
+      '@ftc-sim/robot':
+        specifier: workspace:*
+        version: link:../../packages/robot
       '@ftc-sim/season-decode':
         specifier: workspace:*
         version: link:../../packages/season-decode

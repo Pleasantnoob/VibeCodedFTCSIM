@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Build a zip Windows Explorer can open (Compress-Archive, single "FTC Sim" folder).
- * Also writes latest.yml for electron-updater (generic GitHub feed).
+ * Also writes latest.yml for electron-updater and refreshes release/FTC-Sim/ (local copy).
  */
 import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
@@ -12,7 +12,12 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '..');
 const releaseDir = path.join(desktopRoot, 'release');
-const unpackedDir = path.join(releaseDir, 'win-unpacked');
+const unpackedDir =
+  process.env.FTC_SIM_UNPACKED_DIR ??
+  (fs.existsSync(path.join(releaseDir, 'electron', 'win-unpacked'))
+    ? path.join(releaseDir, 'electron', 'win-unpacked')
+    : path.join(releaseDir, 'win-unpacked'));
+const localDir = path.join(releaseDir, 'FTC-Sim');
 const stagingDir = path.join(releaseDir, 'staging');
 const stagingAppDir = path.join(stagingDir, 'FTC Sim');
 const zipName = 'FTC-Sim-win-x64.zip';
@@ -51,9 +56,14 @@ function writeLatestYml(filePath, size) {
 }
 
 if (!fs.existsSync(unpackedDir)) {
-  console.error('[make-release-zip] Missing', unpackedDir, '— run electron-builder --dir first.');
+  console.error('[make-release-zip] Missing', unpackedDir, '— run pnpm run pack:dir first.');
   process.exit(1);
 }
+
+console.log('[make-release-zip] Refreshing local copy at release/FTC-Sim/…');
+fs.rmSync(localDir, { recursive: true, force: true });
+fs.cpSync(unpackedDir, localDir, { recursive: true, force: true });
+console.log('[make-release-zip] Local exe:', path.join(localDir, 'FTC Sim.exe'));
 
 console.log('[make-release-zip] Copying app into staging/FTC Sim/…');
 fs.rmSync(stagingDir, { recursive: true, force: true });

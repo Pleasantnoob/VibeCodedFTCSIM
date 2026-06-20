@@ -38,7 +38,7 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '0.2.3',
+    v: '0.2.4',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }
@@ -168,6 +168,7 @@ function registerLauncherIpc(): void {
 
   ipcMain.handle('launcher:open-host', async () => {
     try {
+      await startMatchServer();
       const prep = await prepareInternetHost(MATCH_PORT);
       await openGameWindow('host');
       clipboard.writeText(prep.lanAddress);

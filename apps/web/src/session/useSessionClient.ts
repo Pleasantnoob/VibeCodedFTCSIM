@@ -18,6 +18,8 @@ export interface RoomPlayer {
   name: string;
   role: SessionRole;
   robotId?: string;
+  rttMs?: number | null;
+  sendQueueBytes?: number;
 }
 import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 import { DEFAULT_PRACTICE_TEAMS, PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -116,6 +118,8 @@ export function useSessionClient() {
   const robotIdRef = useRef<string | null>(null);
   const connectGenRef = useRef(0);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRttRef = useRef<number | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearConnectTimeout = useCallback(() => {
     if (connectTimeoutRef.current) {
@@ -126,6 +130,11 @@ export function useSessionClient() {
 
   const disconnect = useCallback(() => {
     clearConnectTimeout();
+    if (pingIntervalRef.current) {
+      window.clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    lastRttRef.current = null;
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws) {
@@ -329,7 +338,13 @@ export function useSessionClient() {
         }
 
         if (message.type === 'pong') {
-          setState((prev) => ({ ...prev, rttMs: Date.now() - message.t }));
+          const rttMs = Date.now() - message.t;
+          lastRttRef.current = rttMs;
+          setState((prev) => ({ ...prev, rttMs }));
+          const wsOpen = wsRef.current;
+          if (wsOpen && wsOpen.readyState === WebSocket.OPEN) {
+            wsOpen.send(encodeMessage({ type: 'latency_report', rttMs }));
+          }
           return;
         }
 
@@ -423,6 +438,24 @@ export function useSessionClient() {
   useEffect(() => {
     return () => disconnect();
   }, [disconnect]);
+
+  useEffect(() => {
+    if (!state.connected) {
+      if (pingIntervalRef.current) {
+        window.clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+      return;
+    }
+    ping();
+    pingIntervalRef.current = window.setInterval(() => ping(), 2_000);
+    return () => {
+      if (pingIntervalRef.current) {
+        window.clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+    };
+  }, [state.connected, ping]);
 
   return {
     ...state,

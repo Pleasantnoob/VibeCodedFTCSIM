@@ -56,4 +56,11 @@ export function setupAutoUpdater(getLauncherWindow: () => BrowserWindow | null):
       console.warn('[auto-updater] check failed:', error.message);
     });
   }, 4000);
+
+  const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+  setInterval(() => {
+    void autoUpdater.checkForUpdates().catch((error: Error) => {
+      console.warn('[auto-updater] periodic check failed:', error.message);
+    });
+  }, CHECK_INTERVAL_MS);
 }

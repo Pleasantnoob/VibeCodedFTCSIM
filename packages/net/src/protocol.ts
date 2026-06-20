@@ -5,7 +5,7 @@ export const SIM_NET_PROTOCOL_VERSION = 1;
 export const DEFAULT_MATCH_PORT = 5191;
 export const DEFAULT_UI_PORT = 5190;
 export const SERVER_TICK_HZ = 120;
-export const SNAPSHOT_HZ = 25;
+export const SNAPSHOT_HZ = 40;
 
 export type SessionRole = 'host' | 'player' | 'spectator';
 
@@ -84,7 +84,8 @@ export type ClientMessage =
   | { type: 'input'; frame: InputFrame }
   | { type: 'host_cmd'; cmd: HostCommand }
   | { type: 'claim_slot'; robotId: string; teamLabel?: string }
-  | { type: 'ping'; t: number };
+  | { type: 'ping'; t: number }
+  | { type: 'latency_report'; rttMs: number };
 
 export type ServerMessage =
   | {
@@ -98,7 +99,14 @@ export type ServerMessage =
   | {
       type: 'room_info';
       addresses: { lan: string; tunnel?: string };
-      players: Array<{ id: string; name: string; role: SessionRole; robotId?: string }>;
+      players: Array<{
+        id: string;
+        name: string;
+        role: SessionRole;
+        robotId?: string;
+        rttMs?: number | null;
+        sendQueueBytes?: number;
+      }>;
     }
   | { type: 'server_ready'; motif: '21' | '22' | '23' }
   | { type: 'match_ended'; reason: string }

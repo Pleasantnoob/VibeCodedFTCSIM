@@ -39,6 +39,33 @@ interface ClientRecord {
   role: 'host' | 'player' | 'spectator';
   robotId?: string;
   input: InputBuffer;
+  remoteAddress: string;
+  rttMs: number | null;
+  sendQueueBytes: number;
+  lastLatencyLogAt: number;
+}
+
+function formatLatency(client: ClientRecord): string {
+  const rtt = client.rttMs != null ? `${client.rttMs}ms` : 'unknown';
+  const queue =
+    client.sendQueueBytes > 0 ? ` · send queue ${Math.round(client.sendQueueBytes / 1024)}KB` : '';
+  return `${client.name} (${client.id}) ${rtt}${queue} · ${client.remoteAddress}`;
+}
+
+function logClientLatency(client: ClientRecord, force = false): void {
+  const now = Date.now();
+  if (!force && now - client.lastLatencyLogAt < 5_000) return;
+  client.lastLatencyLogAt = now;
+  console.log(`[match-server] latency ${formatLatency(client)}`);
+}
+
+function logLatencySummary(clients: Map<WebSocket, ClientRecord>): void {
+  if (clients.size === 0) return;
+  const parts = [...clients.values()].map((c) => {
+    const rtt = c.rttMs != null ? `${c.rttMs}ms` : '?';
+    return `${c.name}=${rtt}`;
+  });
+  console.log(`[match-server] latency summary (${clients.size} clients): ${parts.join(', ')}`);
 }
 
 function lanAddress(port: number): string {
@@ -103,6 +130,8 @@ async function main(): Promise<void> {
         name: c.name,
         role: c.role,
         robotId: c.robotId,
+        rttMs: c.rttMs,
+        sendQueueBytes: c.sendQueueBytes,
       })),
     });
   };
@@ -154,8 +183,11 @@ async function main(): Promise<void> {
   });
 
   const wss = new WebSocketServer({ server: httpServer });
+  const peerAddresses = new Map<WebSocket, string>();
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const remoteAddress = req.socket.remoteAddress ?? 'unknown';
+    peerAddresses.set(ws, remoteAddress);
     ws.on('message', (data) => {
       const raw = typeof data === 'string' ? data : data.toString();
       const message = decodeClientMessage(raw);
@@ -176,6 +208,7 @@ async function main(): Promise<void> {
     });
 
     ws.on('close', () => {
+      peerAddresses.delete(ws);
       const client = clients.get(ws);
       if (!client) return;
       const releasedRobot = client.robotId;
@@ -189,6 +222,7 @@ async function main(): Promise<void> {
         hostClient = null;
         broadcast({ type: 'match_ended', reason: 'host_disconnected' });
       }
+      console.log(`[match-server] left ${client.name} (${client.id})`);
       sendRoomInfo();
     });
   });
@@ -240,6 +274,10 @@ async function main(): Promise<void> {
         role,
         robotId,
         input: new InputBuffer(),
+        remoteAddress: peerAddresses.get(ws) ?? 'unknown',
+        rttMs: null,
+        sendQueueBytes: 0,
+        lastLatencyLogAt: 0,
       };
       clients.set(ws, record);
       if (role === 'host') hostClient = record;
@@ -278,6 +316,7 @@ async function main(): Promise<void> {
         ws.send(encodeMessage({ type: 'server_ready', motif }));
         ws.send(encodeMessage(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS)));
         sendRoomInfo();
+        console.log(`[match-server] joined ${record.name} (${record.id}) as ${record.role} from ${record.remoteAddress}`);
       });
       return;
       } catch (error) {
@@ -316,9 +355,21 @@ async function main(): Promise<void> {
     }
 
     if (message.type === 'ping') {
+      client.sendQueueBytes = ws.bufferedAmount;
       ws.send(encodeMessage({ type: 'pong', t: message.t }));
+      return;
+    }
+
+    if (message.type === 'latency_report') {
+      client.rttMs = Math.max(0, Math.round(message.rttMs));
+      client.sendQueueBytes = ws.bufferedAmount;
+      logClientLatency(client);
+      sendRoomInfo();
+      return;
     }
   }
+
+  setInterval(() => logLatencySummary(clients), 10_000);
 
   let tickCounter = 0;
   startFixedTickLoop({
