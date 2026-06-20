@@ -33,7 +33,8 @@ function ensureFtcLiveAssets() {
   console.log('[prepare] Syncing FTC Live audio/fonts (one-time copy from FTC Live install)…');
   run('powershell -NoProfile -ExecutionPolicy Bypass -File scripts/copy-ftc-assets.ps1');
   if (!fs.existsSync(required)) {
-    console.warn('[prepare] Warning: match audio still missing — run FTC Live 2026 once, then copy-ftc-assets.ps1');
+    console.error('[prepare] Missing match audio — launch FTC Live 2026 once, then run scripts/copy-ftc-assets.ps1');
+    process.exit(1);
   }
 }
 

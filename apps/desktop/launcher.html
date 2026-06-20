@@ -151,6 +151,19 @@
         padding: 8px;
         font-size: 0.85rem;
       }
+      .update-progress {
+        margin-top: 6px;
+        height: 6px;
+        background: #0f1419;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .update-progress__bar {
+        height: 100%;
+        width: 0%;
+        background: #3b82f6;
+        transition: width 0.15s ease;
+      }
     </style>
   </head>
   <body>
@@ -161,6 +174,9 @@
 
     <div class="update-banner" id="update-banner">
       <span id="update-text"></span>
+      <div class="update-progress" id="update-progress" hidden>
+        <div class="update-progress__bar" id="update-progress-bar"></div>
+      </div>
       <button class="secondary" id="btn-update" type="button">Download update</button>
     </div>
 
@@ -315,12 +331,35 @@
 
       const updateBanner = document.getElementById('update-banner');
       const updateText = document.getElementById('update-text');
-      document.getElementById('btn-update').onclick = () => run(() => api.openReleasePage());
+      const updateProgress = document.getElementById('update-progress');
+      const updateProgressBar = document.getElementById('update-progress-bar');
+      let pendingVersion = null;
+      document.getElementById('btn-update').onclick = () =>
+        run(async () => {
+          if (!pendingVersion) {
+            await api.openReleasePage();
+            return;
+          }
+          updateProgress.hidden = false;
+          statusEl.textContent = 'Downloading update…';
+          const result = await api.downloadUpdate(pendingVersion);
+          updateProgress.hidden = true;
+          updateProgressBar.style.width = '0%';
+          statusEl.textContent = result.ok
+            ? 'Downloaded to ' + result.path
+            : result.error || 'Download failed';
+        });
+      api.onUpdateProgress(({ percent }) => {
+        updateProgressBar.style.width = percent + '%';
+        updateText.textContent = 'Downloading v' + pendingVersion + '… ' + percent + '%';
+      });
       api.onUpdateAvailable((info) => {
         if (!info) {
+          pendingVersion = null;
           updateBanner.classList.remove('visible');
           return;
         }
+        pendingVersion = info.version;
         updateText.textContent =
           'Update v' + info.version + ' available (you have v' + info.current + '). Use WinRAR or 7-Zip to extract.';
         updateBanner.classList.add('visible');

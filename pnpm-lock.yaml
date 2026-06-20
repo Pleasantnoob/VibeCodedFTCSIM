@@ -290,6 +290,9 @@ importers:
       '@ftc-sim/net':
         specifier: workspace:*
         version: link:../net
+      '@ftc-sim/pedro':
+        specifier: workspace:*
+        version: link:../pedro
       '@ftc-sim/physics':
         specifier: workspace:*
         version: link:../physics

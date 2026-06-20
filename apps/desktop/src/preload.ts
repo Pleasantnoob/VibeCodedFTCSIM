@@ -51,4 +51,14 @@ contextBridge.exposeInMainWorld('ftcLauncher', {
     return () => ipcRenderer.removeListener('launcher:update-available', listener);
   },
   openReleasePage: (): Promise<void> => ipcRenderer.invoke('launcher:open-release-page'),
+  downloadUpdate: (version?: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('launcher:download-update', version),
+  onUpdateProgress: (
+    handler: (info: { version: string; percent: number }) => void,
+  ): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, info: { version: string; percent: number }) =>
+      handler(info);
+    ipcRenderer.on('launcher:update-progress', listener);
+    return () => ipcRenderer.removeListener('launcher:update-progress', listener);
+  },
 });

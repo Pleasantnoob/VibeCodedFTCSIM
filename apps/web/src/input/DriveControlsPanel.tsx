@@ -140,8 +140,8 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
       </div>
 
       <p className="hint">
-        Gamepad: left stick drive, right stick X turn, LB brake, LT intake, RT shoot, B gate. Settings apply in solo,
-        host, join, and spectator when you claim a robot.
+        Gamepad: left stick drive, right stick X turn, LB brake, LT intake, RT shoot, B gate. Settings apply in
+        solo, host, and join when you are driving a robot.
       </p>
     </div>
   );

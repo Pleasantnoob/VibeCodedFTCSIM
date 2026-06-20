@@ -9,7 +9,7 @@ import { prepareInternetHost, unmapUpnpPort } from './internet-host';
 import { fetchPublicIp, suggestedInternetAddress } from './public-ip';
 import { startStaticServer } from './static-server';
 import { resolveJoinAddress } from './join-address';
-import { setupAutoUpdater } from './auto-updater';
+import { setupAutoUpdater, startDownload, getPendingUpdateVersion } from './auto-updater';
 
 const INTERNET_PLAY_DOC =
   'https://github.com/Pleasantnoob/VibeCodedFTCSIM/blob/main/docs/INTERNET_PLAY.md';
@@ -38,7 +38,7 @@ function gameUrl(mode: 'solo' | 'host' | 'join', opts?: { joinAddress?: string; 
     mode,
     addr,
     name: opts?.name ?? 'Driver',
-    v: '0.2.5',
+    v: '0.2.6',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }
@@ -244,6 +244,14 @@ function registerLauncherIpc(): void {
 
   ipcMain.handle('launcher:open-release-page', () => {
     shell.openExternal('https://github.com/Pleasantnoob/VibeCodedFTCSIM/releases/latest');
+  });
+
+  ipcMain.handle('launcher:download-update', async (_event, version?: string) => {
+    const target = version ?? getPendingUpdateVersion();
+    if (!target) {
+      return { ok: false, error: 'No update version available' };
+    }
+    return startDownload(target, () => launcherWindow);
   });
 
   // Legacy IPC names

@@ -5,7 +5,7 @@ export const SIM_NET_PROTOCOL_VERSION = 1;
 export const DEFAULT_MATCH_PORT = 5191;
 export const DEFAULT_UI_PORT = 5190;
 export const SERVER_TICK_HZ = 120;
-export const SNAPSHOT_HZ = 40;
+export const SNAPSHOT_HZ = 30;
 
 export type SessionRole = 'host' | 'player' | 'spectator';
 
@@ -71,8 +71,14 @@ export interface StateSnapshot {
     motif: string;
   };
   motif: '21' | '22' | '23';
-  /** Full scoring state for HUD, overlay, and ceremony. */
-  gameState: MatchState;
+  /** Full scoring state for HUD, overlay, and ceremony. Omitted on pose-only snapshots. */
+  gameState?: MatchState;
+  /** Server-side AUTO follower HUD (host robot). */
+  follower?: {
+    running: boolean;
+    completion: number;
+    target: { x: number; y: number; heading: number };
+  };
 }
 
 export interface RoomConfig {
@@ -85,6 +91,7 @@ export type ClientMessage =
   | { type: 'hello'; protocol: number; appVersion: string; displayName: string; intent: 'host' | 'join' }
   | { type: 'input'; frame: InputFrame }
   | { type: 'host_cmd'; cmd: HostCommand }
+  | { type: 'set_auto_path'; pathText: string }
   | { type: 'claim_slot'; robotId: string; teamLabel?: string }
   | { type: 'ping'; t: number }
   | { type: 'latency_report'; rttMs: number };
@@ -122,4 +129,5 @@ export type ServerMessage =
       teamLabel?: string;
     }
   | { type: 'slot_denied'; robotId: string; reason: string }
-  | { type: 'slot_released'; robotId: string; playerId: string };
+  | { type: 'slot_released'; robotId: string; playerId: string }
+  | { type: 'audio_cue'; cue: 'charge' | 'endAutoWarning' | 'countdown' | 'firebell' | 'whistle' | 'endMatch' };

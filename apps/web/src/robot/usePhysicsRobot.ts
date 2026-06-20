@@ -309,7 +309,7 @@ export function usePhysicsRobot(
 
       const phase = matchSnapNow?.phase ?? 'setup';
 
-      if (enabledRef.current && matchActive && steps > 0) {
+      if (enabledRef.current && steps > 0) {
         const sample =
           sampleInputRef.current?.() ??
           ({
@@ -345,8 +345,10 @@ export function usePhysicsRobot(
         const footprint = robotConfig ? simRobotFootprint(robotConfig) : DEFAULT_KINEMATIC_ROBOT.footprint;
 
         for (let i = 0; i < steps; i++) {
-          onPhysicsStepRef?.current?.(dt);
-          applyMatchPhaseTransitions();
+          if (matchActive) {
+            onPhysicsStepRef?.current?.(dt);
+            applyMatchPhaseTransitions();
+          }
           const { input: driveInput, driveFrame } = resolveDriveInput(
             {
               input: sample.input,

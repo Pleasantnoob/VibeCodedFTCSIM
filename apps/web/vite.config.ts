@@ -7,6 +7,9 @@ import react from '@vitejs/plugin-react';
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify('0.2.6'),
+  },
   plugins: [
     react(),
     {

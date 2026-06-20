@@ -29,6 +29,7 @@ export interface LobbyScreenProps {
   onDisconnect: () => void;
   onClaimSlot: (robotId: ClaimableRobotId, teamLabel: string) => void;
   onHostStartDriving?: () => void;
+  onOpenControls?: () => void;
 }
 
 export function LobbyScreen({
@@ -51,6 +52,7 @@ export function LobbyScreen({
   onDisconnect,
   onClaimSlot,
   onHostStartDriving,
+  onOpenControls,
 }: LobbyScreenProps) {
   const fromLauncher = initialMode === 'host' || initialMode === 'join';
   const [mode, setMode] = useState<'solo' | 'host' | 'join'>(initialMode === 'solo' ? 'solo' : initialMode);
@@ -304,6 +306,11 @@ export function LobbyScreen({
       )}
 
       <div className="lobby-panel__actions">
+        {connected && onOpenControls && role !== 'spectator' && (
+          <button type="button" className="lobby-action lobby-action--secondary" onClick={onOpenControls}>
+            Keyboard &amp; drive mode
+          </button>
+        )}
         {showFullLobby && mode === 'solo' && !connected ? (
           <button type="button" className="lobby-action" onClick={onChooseSolo}>
             Play Solo
@@ -318,7 +325,11 @@ export function LobbyScreen({
               type="button"
               className="lobby-action"
               disabled={connecting}
-              onClick={() => onConnect(fromLauncher ? initialMode : mode, address, name)}
+              onClick={() => {
+                const connectMode = fromLauncher ? initialMode : mode;
+                if (connectMode === 'solo') return;
+                onConnect(connectMode, address, name);
+              }}
             >
               {connecting ? 'Connecting…' : fromLauncher || mode === 'host' ? 'Connect' : 'Join'}
             </button>

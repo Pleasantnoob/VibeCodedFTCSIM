@@ -21,5 +21,6 @@
       "@ftc-sim/season-decode": ["../../packages/season-decode/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }

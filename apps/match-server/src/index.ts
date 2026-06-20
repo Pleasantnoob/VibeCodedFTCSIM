@@ -1,7 +1,12 @@
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { getBarrierBodies, getBodyOutline } from '@ftc-sim/field';
+import { matchAudioCues, type MatchAudioCue } from '@ftc-sim/match';
+import type { MatchSnapshot } from '@ftc-sim/match';
 import {
   decodeClientMessage,
   DEFAULT_MATCH_PORT,
@@ -27,7 +32,7 @@ import {
 
 import { startFixedTickLoop } from './tick-loop.js';
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = readAppVersion();
 const SNAPSHOT_EVERY = Math.round(SERVER_TICK_HZ / SNAPSHOT_HZ);
 const MAX_CLIENTS = 8;
 const MAX_SNAPSHOT_EVENTS = 20;
@@ -66,6 +71,16 @@ function logLatencySummary(clients: Map<WebSocket, ClientRecord>): void {
     return `${c.name}=${rtt}`;
   });
   console.log(`[match-server] latency summary (${clients.size} clients): ${parts.join(', ')}`);
+}
+
+function readAppVersion(): string {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'desktop', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.2.6';
+  } catch {
+    return '0.2.6';
+  }
 }
 
 function lanAddress(port: number): string {
@@ -350,7 +365,23 @@ async function main(): Promise<void> {
     if (message.type === 'host_cmd') {
       if (client.role !== 'host') return;
       session.applyHostCommand(message.cmd);
-      broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
+      broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS, true));
+      return;
+    }
+
+    if (message.type === 'set_auto_path') {
+      if (client.role !== 'host') return;
+      try {
+        session.loadAutoPath(message.pathText);
+      } catch (error) {
+        ws.send(
+          encodeMessage({
+            type: 'error',
+            code: 'bad_path',
+            message: error instanceof Error ? error.message : 'Invalid auto path',
+          }),
+        );
+      }
       return;
     }
 
@@ -372,6 +403,14 @@ async function main(): Promise<void> {
   setInterval(() => logLatencySummary(clients), 10_000);
 
   let tickCounter = 0;
+  let prevMatchSnapshot: MatchSnapshot | null = null;
+
+  const broadcastAudioCues = (prev: MatchSnapshot | null, next: MatchSnapshot) => {
+    for (const cue of matchAudioCues(prev, next)) {
+      broadcast({ type: 'audio_cue', cue: cue as MatchAudioCue });
+    }
+  };
+
   startFixedTickLoop({
     hz: SERVER_TICK_HZ,
     onTick: () => {
@@ -385,6 +424,9 @@ async function main(): Promise<void> {
       }
 
       session.step();
+      const afterSnap = session.clock.snapshot();
+      broadcastAudioCues(prevMatchSnapshot, afterSnap);
+      prevMatchSnapshot = afterSnap;
       tickCounter += 1;
 
       if (tickCounter % SNAPSHOT_EVERY === 0) {

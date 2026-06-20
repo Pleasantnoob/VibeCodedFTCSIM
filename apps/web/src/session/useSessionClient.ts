@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatchSnapshot } from '@ftc-sim/match';
+import type { MatchAudioCue } from '@ftc-sim/match';
 import type { MatchState } from '@ftc-sim/game-decode';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import {
@@ -25,14 +26,18 @@ import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/mat
 import { DEFAULT_PRACTICE_TEAMS, PLAYER_ROBOT_ID } from '../robot/match-robots';
 import { buildWsUrl } from './session-mode';
 
+declare const __APP_VERSION__: string;
+
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.2.6';
+const CONNECT_TIMEOUT_MS = 12_000;
+const HUD_UPDATE_MS = 1000 / 12;
+
 const DEFAULT_TEAM_BY_ROBOT_ID: Record<string, string> = {
   [PLAYER_ROBOT_ID]: DEFAULT_PRACTICE_TEAMS.blueFar,
   'blue-near': DEFAULT_PRACTICE_TEAMS.blueNear,
   'red-far': DEFAULT_PRACTICE_TEAMS.redFar,
   'red-near': DEFAULT_PRACTICE_TEAMS.redNear,
 };
-
-const CONNECT_TIMEOUT_MS = 12_000;
 
 function snapshotRobotToFieldState(robot: RobotSnapshotEntry): FieldRobotRenderState {
   const teamNumber = robot.teamNumber ?? DEFAULT_TEAM_BY_ROBOT_ID[robot.id] ?? '?';
@@ -56,8 +61,6 @@ function snapshotRobotToCatalog(robot: RobotSnapshotEntry): FieldRobotCatalogEnt
   };
 }
 
-const APP_VERSION = '0.2.0';
-
 export interface SessionClientState {
   connected: boolean;
   connecting: boolean;
@@ -76,6 +79,7 @@ export interface SessionClientState {
   pose: { x: number; y: number; heading: number } | null;
   roomPlayers: RoomPlayer[];
   slotError: string | null;
+  netFollower: StateSnapshot['follower'] | null;
 }
 
 const EMPTY: SessionClientState = {
@@ -96,6 +100,7 @@ const EMPTY: SessionClientState = {
   pose: null,
   roomPlayers: [],
   slotError: null,
+  netFollower: null,
 };
 
 function snapshotToArtifacts(snapshot: StateSnapshot): SimArtifactState[] {
@@ -115,11 +120,18 @@ export function useSessionClient() {
   const inputSeqRef = useRef(0);
   const fieldRobotsRef = useRef<FieldRobotRenderState[]>([]);
   const fieldRobotCatalogRef = useRef<FieldRobotCatalogEntry[]>([]);
+  const netRobotMotionRef = useRef<RobotSnapshotEntry[]>([]);
+  const liveArtifactsRef = useRef<SimArtifactState[]>([]);
+  const gameStateRef = useRef<MatchState | null>(null);
   const robotIdRef = useRef<string | null>(null);
   const connectGenRef = useRef(0);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRttRef = useRef<number | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastHudPaintRef = useRef(0);
+  const lastSnapshotAtRef = useRef(0);
+  const lastMatchPhaseRef = useRef<string | null>(null);
+  const onAudioCueRef = useRef<((cue: MatchAudioCue) => void) | null>(null);
 
   const clearConnectTimeout = useCallback(() => {
     if (connectTimeoutRef.current) {
@@ -146,9 +158,53 @@ export function useSessionClient() {
     }
     fieldRobotsRef.current = [];
     fieldRobotCatalogRef.current = [];
+    netRobotMotionRef.current = [];
+    liveArtifactsRef.current = [];
+    gameStateRef.current = null;
     robotIdRef.current = null;
     setState(EMPTY);
   }, [clearConnectTimeout]);
+
+  const applySnapshot = useCallback((message: StateSnapshot, force = false) => {
+    const fieldRobots = message.robots.map(snapshotRobotToFieldState);
+    fieldRobotsRef.current = fieldRobots;
+    fieldRobotCatalogRef.current = message.robots.map(snapshotRobotToCatalog);
+    netRobotMotionRef.current = message.robots;
+    liveArtifactsRef.current = snapshotToArtifacts(message);
+    if (message.gameState) {
+      gameStateRef.current = message.gameState;
+    }
+
+    const ownedId = robotIdRef.current;
+    const owned =
+      (ownedId ? message.robots.find((robot) => robot.id === ownedId) : null) ??
+      message.robots.find((robot) => robot.id === 'player');
+
+    const now = performance.now();
+    lastSnapshotAtRef.current = now;
+    const phaseChanged = lastMatchPhaseRef.current !== message.match.phase;
+    lastMatchPhaseRef.current = message.match.phase;
+    const throttleElapsed = now - lastHudPaintRef.current >= HUD_UPDATE_MS;
+
+    if (!force && !phaseChanged && !throttleElapsed) {
+      return;
+    }
+    lastHudPaintRef.current = now;
+
+    setState((prev) => ({
+      ...prev,
+      connected: true,
+      connecting: false,
+      snapshot: message,
+      matchSnapshot: message.match,
+      gameState: message.gameState ?? gameStateRef.current,
+      fieldRobots,
+      fieldRobotCatalog: fieldRobotCatalogRef.current,
+      liveArtifacts: liveArtifactsRef.current,
+      pose: owned?.pose ?? null,
+      netFollower: message.follower ?? null,
+    }));
+  }, []);
 
   const connect = useCallback(
     (address: string, displayName: string, intent: 'host' | 'join') => {
@@ -168,6 +224,10 @@ export function useSessionClient() {
       robotIdRef.current = null;
       fieldRobotsRef.current = [];
       fieldRobotCatalogRef.current = [];
+      netRobotMotionRef.current = [];
+      liveArtifactsRef.current = [];
+      gameStateRef.current = null;
+      lastMatchPhaseRef.current = null;
       setState({ ...EMPTY, connecting: true, error: null });
 
       let handshakeDone = false;
@@ -262,6 +322,11 @@ export function useSessionClient() {
           return;
         }
 
+        if (message.type === 'audio_cue') {
+          onAudioCueRef.current?.(message.cue);
+          return;
+        }
+
         if (message.type === 'slot_claimed') {
           setState((prev) => {
             const roomPlayers = prev.roomPlayers.map((player) =>
@@ -350,25 +415,7 @@ export function useSessionClient() {
 
         if (message.type === 'snapshot') {
           clearConnectTimeout();
-          const fieldRobots = message.robots.map(snapshotRobotToFieldState);
-          fieldRobotsRef.current = fieldRobots;
-          fieldRobotCatalogRef.current = message.robots.map(snapshotRobotToCatalog);
-          const ownedId = robotIdRef.current;
-          const owned =
-            (ownedId ? message.robots.find((robot) => robot.id === ownedId) : null) ??
-            message.robots.find((robot) => robot.id === 'player');
-          setState((prev) => ({
-            ...prev,
-            connected: true,
-            connecting: false,
-            snapshot: message,
-            matchSnapshot: message.match,
-            gameState: message.gameState,
-            fieldRobots,
-            fieldRobotCatalog: fieldRobotCatalogRef.current,
-            liveArtifacts: snapshotToArtifacts(message),
-            pose: owned?.pose ?? null,
-          }));
+          applySnapshot(message);
         }
       };
 
@@ -401,7 +448,7 @@ export function useSessionClient() {
         }));
       };
     },
-    [clearConnectTimeout],
+    [applySnapshot, clearConnectTimeout],
   );
 
   const sendInput = useCallback((frame: Omit<InputFrame, 'seq'>) => {
@@ -422,6 +469,12 @@ export function useSessionClient() {
     ws.send(encodeMessage({ type: 'host_cmd', cmd }));
   }, []);
 
+  const sendAutoPath = useCallback((pathText: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(encodeMessage({ type: 'set_auto_path', pathText }));
+  }, []);
+
   const claimSlot = useCallback((robotId: string, teamLabel?: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -433,6 +486,10 @@ export function useSessionClient() {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(encodeMessage({ type: 'ping', t: Date.now() }));
+  }, []);
+
+  const setOnAudioCue = useCallback((handler: ((cue: MatchAudioCue) => void) | null) => {
+    onAudioCueRef.current = handler;
   }, []);
 
   useEffect(() => {
@@ -460,11 +517,16 @@ export function useSessionClient() {
   return {
     ...state,
     fieldRobotsRef,
+    liveArtifactsRef,
+    netRobotMotionRef,
+    lastSnapshotAtRef,
     connect,
     disconnect,
     sendInput,
     sendHostCommand,
+    sendAutoPath,
     claimSlot,
     ping,
+    setOnAudioCue,
   };
 }

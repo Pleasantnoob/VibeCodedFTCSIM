@@ -6,7 +6,9 @@ export class InputBuffer {
   }
 
   consume(): import('./protocol.js').InputFrame | null {
-    return this.latest;
+    const frame = this.latest;
+    this.latest = null;
+    return frame;
   }
 
   clear(): void {

@@ -111,7 +111,7 @@ The solo practice sim is the **foundation** net multiplayer will wrap. As of 202
 
 ### Web app (solo)
 
-- WASD + gamepad field-centric teleop; intake (F/LT), shoot hold (Space/RT)
+- Per-player keyboard binds + robot/field drive toggle (`DriveControlsPanel`, `driveFrame` on `InputFrame`); join drivers use nav **Controls** drawer
 - Path upload (`.json` / `.pp`), follower HUD, barrier/zone editor
 - Match controls: INIT, START AUTO, TELEOP, INF, PAUSE, END MATCH, RESET
 - `__ftcSim` dev inject API (`apps/web/src/dev/inject-drive.ts`)

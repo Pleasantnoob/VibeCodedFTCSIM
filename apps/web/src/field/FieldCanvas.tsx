@@ -19,6 +19,8 @@ import { barrierSelection, zoneSelection } from './map-selection';
 import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 import { PLAYER_ROBOT_ID } from '../robot/match-robots';
 import { smoothAlpha, smoothPose, shouldSnapPose } from '../net/smooth-motion';
+import { extrapolateRobotSnapshot } from '../net/extrapolate';
+import type { RobotSnapshotEntry } from '@ftc-sim/net';
 
 export type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 export { PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -95,10 +97,12 @@ export interface FieldCanvasProps {
   liveArtifactsRef?: RefObject<SimArtifactState[] | null>;
   showArtifacts?: boolean;
   showCenterLine?: boolean;
-  /** Interpolate robot motion between net snapshots (40 Hz). Artifacts stay snap-synced. */
+  /** Interpolate robot motion between net snapshots (30 Hz). Artifacts stay snap-synced. */
   smoothNetMotion?: boolean;
   /** Server snapshot tick — when it drops, interpolation caches are cleared (RESET). */
   netSnapshotTick?: number;
+  netRobotMotionRef?: RefObject<RobotSnapshotEntry[]>;
+  netSnapshotAtRef?: RefObject<number>;
 }
 
 const TILE_SIZE = 24;
@@ -179,6 +183,8 @@ export function FieldCanvas({
   showCenterLine = false,
   smoothNetMotion = false,
   netSnapshotTick = 0,
+  netRobotMotionRef,
+  netSnapshotAtRef,
 }: FieldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MapVertexSelection | null>(null);
@@ -243,9 +249,21 @@ export function FieldCanvas({
       robotMotionLastRef.current = now;
 
       const robots = fieldRobotsRef.current ?? [];
-      for (const robot of robots) {
+      for (const robotEntry of robots) {
+        let robot = robotEntry;
         const g = robotElsRef.current.get(robot.id);
         if (!g) continue;
+
+        if (smoothNetMotion && netRobotMotionRef?.current) {
+          const motion = netRobotMotionRef.current.find((entry) => entry.id === robot.id);
+          const snapshotAt = netSnapshotAtRef?.current ?? now;
+          if (motion) {
+            robot = {
+              ...robot,
+              pose: extrapolateRobotSnapshot(motion, (now - snapshotAt) / 1000),
+            };
+          }
+        }
 
         let pose = robot.pose;
         if (smoothNetMotion) {

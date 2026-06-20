@@ -3,6 +3,14 @@ import type { Alliance, MatchPhase } from '@ftc-sim/game-decode';
 import type { HostCommand, InputFrame, StateSnapshot } from '@ftc-sim/net';
 import { MatchClock } from '@ftc-sim/match';
 import type { MechanismLogEntry, SimArtifactState } from '@ftc-sim/mechanisms';
+import {
+  AutoSequenceRunner,
+  autoSequenceForAlliance,
+  pathChainForAlliance,
+  parsePathFileText,
+  type AutoSequence,
+  type PathChain,
+} from '@ftc-sim/pedro';
 import { stepMultiRobotDrive } from '@ftc-sim/robot';
 import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION, type RobotMechanismTickInput } from './artifact-world.js';
 import { barrierPolygons, type SessionBarrier } from './barriers.js';
@@ -82,10 +90,16 @@ export class SimSession {
   private playerTeamNumber: string;
   private practiceLayouts: MatchRobotLayout[];
   private follower: AutoFollowerLike | null = null;
+  private autoFollower = new AutoSequenceRunner();
+  private basePathChain: PathChain | null = null;
+  private baseAutoSequence: AutoSequence | null = null;
   private injectedInput: import('@ftc-sim/robot').HolonomicInput | null = null;
   private robotInputs = new Map<string, DriveSample>();
   private robotTeamLabels = new Map<string, string>();
   private claimedRobotIds = new Set<string>();
+  private lastSnapshotPhase: MatchPhase = 'setup';
+  private lastSnapshotScore = { blue: 0, red: 0 };
+  private snapshotCounter = 0;
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -97,6 +111,46 @@ export class SimSession {
     this.practiceLayouts = config.practiceRobots ?? [];
     this.artifactFriction = config.artifactFriction ?? DEFAULT_ARTIFACT_FRICTION;
     this.world = new ArtifactWorld(config.field, config.alliance);
+    this.autoFollower.updateConstants({ mass: this.robotConfig.mass });
+    this.follower = this.autoFollower;
+  }
+
+  loadAutoPath(pathText: string): void {
+    const parsed = parsePathFileText(pathText);
+    this.basePathChain = parsed.chain;
+    this.baseAutoSequence = parsed.autoSequence ?? null;
+  }
+
+  private alliancePath(): { chain: PathChain | null; sequence: AutoSequence | null } {
+    return {
+      chain: this.basePathChain
+        ? pathChainForAlliance(this.basePathChain, this.config.alliance)
+        : null,
+      sequence: this.baseAutoSequence
+        ? autoSequenceForAlliance(this.baseAutoSequence, this.config.alliance)
+        : null,
+    };
+  }
+
+  startAutoFollower(): void {
+    const { chain, sequence } = this.alliancePath();
+    this.autoFollower.setPose(this.pose);
+    if (sequence && sequence.steps.length > 0) {
+      this.autoFollower.start(sequence.steps);
+      return;
+    }
+    if (chain) {
+      this.autoFollower.followPath(chain);
+    }
+  }
+
+  cancelAutoFollower(): void {
+    this.autoFollower.cancelPath();
+  }
+
+  private hasActiveDriveInput(sample: DriveSample): boolean {
+    const input = sample.input;
+    return Math.abs(input.forward) + Math.abs(input.strafe) + Math.abs(input.turn) > 0.05;
   }
 
   async init(): Promise<void> {
@@ -250,8 +304,10 @@ export class SimSession {
         break;
       case 'start_auto':
         this.clock.startAuto();
+        this.startAutoFollower();
         break;
       case 'teleop':
+        this.cancelAutoFollower();
         this.clock.startTeleop();
         break;
       case 'infinite':
@@ -283,6 +339,7 @@ export class SimSession {
     this.tickIndex = 0;
     this.robotInputs.clear();
     this.injectedInput = null;
+    this.cancelAutoFollower();
     this.world.reset(
       this.config.artifactStaging,
       spawn,
@@ -326,6 +383,16 @@ export class SimSession {
     const phase = matchSnap.phase;
     const limits = simRobotLimits(this.robotConfig);
     const footprint = simRobotFootprint(this.robotConfig);
+
+    if (
+      playerClaimed &&
+      matchActive &&
+      (phase === 'auto' || phase === 'transition') &&
+      this.hasActiveDriveInput(sample)
+    ) {
+      this.cancelAutoFollower();
+      this.clock.startTeleop();
+    }
 
     let driveInput: import('@ftc-sim/robot').HolonomicInput = {
       forward: 0,
@@ -471,13 +538,27 @@ export class SimSession {
     };
   }
 
-  buildNetSnapshot(maxEvents = 20): StateSnapshot {
+  buildNetSnapshot(maxEvents = 20, forceGameState = false): StateSnapshot {
     const state = this.getState();
     const matchState = state.matchGameState!;
     const events =
       matchState.events.length > maxEvents
         ? matchState.events.slice(-maxEvents)
         : matchState.events;
+    const blueScore = matchState.byAlliance.blue.score.total;
+    const redScore = matchState.byAlliance.red.score.total;
+    const phase = state.matchSnapshot.phase;
+    this.snapshotCounter += 1;
+    const includeGameState =
+      forceGameState ||
+      this.snapshotCounter % 4 === 0 ||
+      phase !== this.lastSnapshotPhase ||
+      blueScore !== this.lastSnapshotScore.blue ||
+      redScore !== this.lastSnapshotScore.red;
+    if (includeGameState) {
+      this.lastSnapshotPhase = phase;
+      this.lastSnapshotScore = { blue: blueScore, red: redScore };
+    }
     return {
       type: 'snapshot',
       tick: state.tickIndex,
@@ -504,12 +585,22 @@ export class SimSession {
         opacity: artifact.opacity,
       })),
       score: {
-        blue: matchState.byAlliance.blue.score.total,
-        red: matchState.byAlliance.red.score.total,
+        blue: blueScore,
+        red: redScore,
         motif: matchState.obeliskMotif,
       },
       motif: matchState.obeliskMotif,
-      gameState: { ...matchState, events },
+      gameState: includeGameState ? { ...matchState, events } : undefined,
+      follower: (() => {
+        if (!this.autoFollower.isRunning()) return undefined;
+        const target = this.autoFollower.getTargetPose();
+        if (!target) return undefined;
+        return {
+          running: true,
+          completion: this.autoFollower.getProgress().completion,
+          target,
+        };
+      })(),
     };
   }
 

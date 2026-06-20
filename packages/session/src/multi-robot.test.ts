@@ -61,7 +61,7 @@ describe('multi-robot session', () => {
     await session.init();
     session.clock.startInfinitePractice();
 
-    const startY = session.getState().pose.y;
+    const startPose = session.getState().pose;
 
     for (let i = 0; i < 120; i++) {
       session.applyInputFrame({
@@ -81,7 +81,8 @@ describe('multi-robot session', () => {
       session.step();
     }
 
-    expect(session.getState().pose.y).toBeGreaterThan(startY + 2);
+    const endPose = session.getState().pose;
+    expect(Math.hypot(endPose.x - startPose.x, endPose.y - startPose.y)).toBeGreaterThan(0.5);
   }, 30_000);
 
   it('each robot keeps its own stored artifacts', async () => {

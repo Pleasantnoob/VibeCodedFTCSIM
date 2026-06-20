@@ -412,12 +412,21 @@ export class PhysicsWorld {
     bodyHandle.handle.setLinvel({ x: velocity.x * scale, y: velocity.y * scale }, true);
   }
 
+  private isRobotBodyId(id: string): boolean {
+    return id === 'robot' || id.startsWith('npc_');
+  }
+
   setColliderEnabled(id: string, enabled: boolean): void {
     const bodyHandle = this.bodies.get(id);
     if (!bodyHandle) return;
     bodyHandle.collider.setEnabled(enabled);
     if (enabled) {
-      bodyHandle.collider.setCollisionGroups(ARTIFACT_COLLISION_GROUPS);
+      if (this.isRobotBodyId(id)) {
+        bodyHandle.collider.setCollisionGroups(ROBOT_COLLISION_GROUPS);
+        this.setRobotArtifactCollision(id, true);
+      } else {
+        bodyHandle.collider.setCollisionGroups(ARTIFACT_COLLISION_GROUPS);
+      }
       bodyHandle.handle.wakeUp();
     }
   }

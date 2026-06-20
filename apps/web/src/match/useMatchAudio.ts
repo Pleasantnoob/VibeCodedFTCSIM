@@ -1,17 +1,19 @@
 import { useEffect, useRef } from 'react';
+import { matchAudioCues, type MatchAudioCue } from '@ftc-sim/match';
 import type { MatchSnapshot } from '@ftc-sim/match';
 
 /** FTC Live v7.5.0 match sounds (install FTC Live once to populate public/ftc-live/audio). */
-export const MATCH_AUDIO = {
+export const MATCH_AUDIO: Record<MatchAudioCue, string> = {
   countdown: '/ftc-live/audio/3-2-1.wav',
   endAutoWarning: '/ftc-live/audio/endauto_with_warning.wav',
   endMatch: '/ftc-live/audio/endmatch.wav',
   charge: '/ftc-live/audio/charge.wav',
   firebell: '/ftc-live/audio/firebell.wav',
   whistle: '/ftc-live/audio/factwhistle.wav',
-} as const;
+};
 
-export type MatchAudioCue = keyof typeof MATCH_AUDIO;
+export type { MatchAudioCue };
+export { matchAudioCues };
 
 export const DEFAULT_MATCH_AUDIO_VOLUME = 0.5;
 
@@ -20,50 +22,34 @@ export interface MatchAudioOptions {
   volume?: number;
 }
 
-function crossedBelow(prev: number, next: number, threshold: number): boolean {
-  return prev > threshold && next <= threshold;
+function audioDebugEnabled(): boolean {
+  return (
+    import.meta.env.DEV ||
+    (typeof localStorage !== 'undefined' && localStorage.getItem('ftc-sim.audio-debug') === '1')
+  );
 }
 
-/** Returns sound cues that should fire between two consecutive match snapshots. */
-export function matchAudioCues(prev: MatchSnapshot | null, next: MatchSnapshot): MatchAudioCue[] {
-  if (!prev) return [];
+let autoplayUnlocked = false;
 
-  const cues: MatchAudioCue[] = [];
-  const timed = !next.infiniteMode;
-
-  if (prev.phase !== 'auto' && next.phase === 'auto') {
-    cues.push('charge');
+export function unlockMatchAudio(cache: Map<MatchAudioCue, HTMLAudioElement>): void {
+  if (autoplayUnlocked) return;
+  autoplayUnlocked = true;
+  for (const src of Object.values(MATCH_AUDIO)) {
+    const clip = new Audio(src);
+    clip.volume = 0;
+    clip.preload = 'auto';
+    void clip.play().then(() => {
+      clip.pause();
+      clip.currentTime = 0;
+    }).catch(() => {});
   }
-
-  if (prev.phase === 'auto' && next.phase === 'transition') {
-    cues.push('endAutoWarning');
+  for (const [cue, src] of Object.entries(MATCH_AUDIO) as [MatchAudioCue, string][]) {
+    if (!cache.has(cue)) {
+      const clip = new Audio(src);
+      clip.preload = 'auto';
+      cache.set(cue, clip);
+    }
   }
-
-  if (
-    timed &&
-    next.phase === 'transition' &&
-    crossedBelow(prev.timeRemainingInPhase, next.timeRemainingInPhase, 3)
-  ) {
-    cues.push('countdown');
-  }
-
-  if (timed && prev.phase !== 'teleop' && next.phase === 'teleop') {
-    cues.push('firebell');
-  }
-
-  if (
-    timed &&
-    next.phase === 'teleop' &&
-    crossedBelow(prev.timeRemainingInPhase, next.timeRemainingInPhase, 20)
-  ) {
-    cues.push('whistle');
-  }
-
-  if (prev.phase === 'teleop' && next.phase === 'post') {
-    cues.push('endMatch');
-  }
-
-  return cues;
 }
 
 function playClip(
@@ -80,9 +66,20 @@ function playClip(
   }
   clip.volume = volume;
   clip.currentTime = 0;
-  void clip.play().catch(() => {
-    /* Missing files until FTC Live assets are copied into public/ftc-live/audio */
+  void clip.play().catch((error) => {
+    if (audioDebugEnabled()) {
+      console.warn('[match-audio] play failed', cue, src, error);
+    }
   });
+}
+
+export function playMatchAudioCue(
+  cue: MatchAudioCue,
+  cache: Map<MatchAudioCue, HTMLAudioElement>,
+  volume: number,
+): void {
+  if (!autoplayUnlocked) unlockMatchAudio(cache);
+  playClip(cue, cache, volume);
 }
 
 export function useMatchAudio(
@@ -95,6 +92,16 @@ export function useMatchAudio(
   const prevRef = useRef<MatchSnapshot | null>(null);
   const cacheRef = useRef(new Map<MatchAudioCue, HTMLAudioElement>());
   const volumeRef = useRef(volume);
+
+  useEffect(() => {
+    const unlock = () => unlockMatchAudio(cacheRef.current);
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   useEffect(() => {
     volumeRef.current = volume;
@@ -114,7 +121,7 @@ export function useMatchAudio(
     if (!prev) return;
 
     for (const cue of matchAudioCues(prev, snapshot)) {
-      playClip(cue, cacheRef.current, volumeRef.current);
+      playMatchAudioCue(cue, cacheRef.current, volumeRef.current);
     }
   }, [enabled, snapshot]);
 }

@@ -70,6 +70,7 @@ function cleanupReleaseDir() {
   const staleNames = [
     'win-unpacked',
     'staging',
+    'release2',
     'builder-debug.yml',
     'FTC-Sim-win-x64-fixed.zip',
     'FTC-Sim-win-x64.building.zip',
@@ -77,6 +78,7 @@ function cleanupReleaseDir() {
   for (const name of staleNames) {
     removeStale(path.join(releaseDir, name), name);
   }
+  removeStale(path.join(desktopRoot, 'apps'), 'apps/desktop/apps');
   try {
     for (const entry of fs.readdirSync(releaseDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;

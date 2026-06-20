@@ -183,9 +183,14 @@ export class ArtifactWorld {
     }
 
     this.physics.syncKinematicRobot(ROBOT_BODY_ID, startPose, 0, 0);
+    this.physics.setColliderEnabled(ROBOT_BODY_ID, true);
     this.physics.setRobotArtifactCollision(ROBOT_BODY_ID, true);
     this.pendingNpcSync = npcRobots ?? [];
     this.syncNpcRobots(npcRobots ?? []);
+    for (const bodyId of this.npcBodyIds) {
+      this.physics.setColliderEnabled(bodyId, true);
+      this.physics.setRobotArtifactCollision(bodyId, true);
+    }
     this.sim.settle(this.adapter(), 12);
     this.applyArtifactFriction();
   }

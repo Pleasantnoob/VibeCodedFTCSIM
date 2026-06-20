@@ -47,7 +47,7 @@ import { useMatchClock } from './match/useMatchClock';
 import type { MatchSnapshot } from '@ftc-sim/match';
 import { MatchFieldOverlay } from './match/MatchFieldOverlay';
 import { MatchResultsCeremony } from './match/MatchResultsCeremony';
-import { useMatchAudio } from './match/useMatchAudio';
+import { useMatchAudio, playMatchAudioCue, type MatchAudioCue } from './match/useMatchAudio';
 import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
 import { installFtcSimDevApi } from './dev/inject-drive';
 import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
@@ -188,6 +188,12 @@ export function App() {
   pathChainRef.current = pathChain;
   const autoSequenceRef = useRef<AutoSequence | null>(null);
   autoSequenceRef.current = autoSequence;
+  const lastPathTextRef = useRef<string | null>(null);
+  const [controlsDrawerOpen, setControlsDrawerOpen] = useState(false);
+  const [driveModeLabel, setDriveModeLabel] = useState<'Robot' | 'Field'>(() =>
+    loadDriveSettings().driveFrame === 'field' ? 'Field' : 'Robot',
+  );
+  const matchAudioCacheRef = useRef(new Map<MatchAudioCue, HTMLAudioElement>());
   const followerRef = useRef(new AutoSequenceRunner());
   const resetRobotRef = useRef<(pose?: { x: number; y: number; heading: number }) => void>(() => {});
   const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(DEFAULT_SIM_ROBOT_CONFIG);
@@ -243,7 +249,7 @@ export function App() {
   }, []);
 
   const applyParsedPath = useCallback(
-    (parsed: ReturnType<typeof parsePathFileText>, source: LoadedPathId = 'upload') => {
+    (parsed: ReturnType<typeof parsePathFileText>, source: LoadedPathId = 'upload', pathText?: string) => {
       setBasePathChain(parsed.chain);
       setBaseAutoSequence(parsed.autoSequence ?? null);
       setPathFormat(parsed.format);
@@ -257,8 +263,11 @@ export function App() {
         ? autoSequenceForAlliance(parsed.autoSequence, alliance)
         : null;
       resetRobotRef.current(getPathStartPose(chain));
+      if (pathText && isNetActive && net.role === 'host') {
+        net.sendAutoPath(pathText);
+      }
     },
-    [alliance],
+    [alliance, isNetActive, net.role, net.sendAutoPath],
   );
 
   const clearPath = useCallback(() => {
@@ -291,10 +300,16 @@ export function App() {
       if (text.length > 512 * 1024) {
         throw new Error('Path file too large (max 512 KB)');
       }
-      applyParsedPath(parsePathFileText(text), source);
+      lastPathTextRef.current = text;
+      applyParsedPath(parsePathFileText(text), source, text);
     },
     [applyParsedPath],
   );
+
+  useEffect(() => {
+    if (!isNetActive || net.role !== 'host' || !lastPathTextRef.current) return;
+    net.sendAutoPath(lastPathTextRef.current);
+  }, [alliance, isNetActive, net.role, net.sendAutoPath]);
 
   const loadBuiltinPath = useCallback(
     async (id: BuiltinPathId) => {
@@ -345,6 +360,14 @@ export function App() {
     progress: { completion: number; distanceRemaining: number };
     target: { x: number; y: number; heading: number } | null;
   } | null>(null);
+
+  useEffect(() => {
+    net.setOnAudioCue((cue) => {
+      if (!matchSounds) return;
+      playMatchAudioCue(cue, matchAudioCacheRef.current, matchSoundVolume);
+    });
+    return () => net.setOnAudioCue(null);
+  }, [net.setOnAudioCue, matchSounds, matchSoundVolume]);
 
   const match = useMatchClock();
   const { snapshot: matchSnap } = match;
@@ -441,8 +464,8 @@ export function App() {
     startPose,
     samplerRef,
     sampleInput,
-    !editBarriers && !editZones && !isNetSession,
-    !isNetSession,
+    !editBarriers && !editZones && !isNetActive,
+    !isNetActive,
     onHudTick,
     {
       allowsDriveRef,
@@ -470,6 +493,8 @@ export function App() {
   useEffect(() => {
     netArtifactsRef.current = net.liveArtifacts;
   }, [net.liveArtifacts]);
+
+  const pathLoaded = Boolean(basePathChain || baseAutoSequence);
 
   useEffect(() => {
     if (!isNetActive || !net.robotId) return;
@@ -504,7 +529,7 @@ export function App() {
   const displayFieldRobotsRef = isNetActive ? net.fieldRobotsRef : fieldRobotsRef;
   const displayFieldRobotCatalog = isNetActive ? net.fieldRobotCatalog : fieldRobotCatalog;
   const displayLiveArtifacts = isNetActive ? net.liveArtifacts : liveArtifacts;
-  const displayLiveArtifactsRef = isNetActive ? netArtifactsRef : liveArtifactsRef;
+  const displayLiveArtifactsRef = isNetActive ? net.liveArtifactsRef : liveArtifactsRef;
 
   const displayOverlayTeams = useMemo(
     () =>
@@ -791,7 +816,7 @@ export function App() {
   }, [isNetHost, net.roomPlayers, net.rttMs]);
 
   let canInit = displayMatchSnap.phase === 'setup';
-  let canStartAuto = displayMatchSnap.phase === 'init';
+  let canStartAuto = displayMatchSnap.phase === 'init' && pathLoaded;
   let canTeleop = displayMatchSnap.phase !== 'teleop' && displayMatchSnap.phase !== 'post';
   let canInfinite =
     displayMatchSnap.phase !== 'post' &&
@@ -809,7 +834,7 @@ export function App() {
 
   if (isNetHost) {
     canInit = !ceremonyActive && displayMatchSnap.phase !== 'init';
-    canStartAuto = displayMatchSnap.phase === 'init';
+    canStartAuto = displayMatchSnap.phase === 'init' && pathLoaded;
     canTeleop =
       displayMatchSnap.phase === 'init' ||
       displayMatchSnap.phase === 'auto' ||
@@ -824,6 +849,13 @@ export function App() {
   const coordLabel = hover
     ? `(${hover.x.toFixed(1)}, ${hover.y.toFixed(1)}) in`
     : `Robot (${displayPose.x.toFixed(1)}, ${displayPose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`;
+
+  const netFollowerTarget = isNetActive ? (net.netFollower?.target ?? null) : null;
+  const displayFollowerTarget = netFollowerTarget ?? followerHud?.target ?? null;
+  const showAutoFollowerOverlay = isNetActive
+    ? Boolean(net.netFollower?.running)
+    : followerHud !== null &&
+      (displayMatchSnap.phase === 'auto' || displayMatchSnap.phase === 'transition');
 
   return (
     <div className={`shell alliance-${alliance}`}>
@@ -856,7 +888,25 @@ export function App() {
         }}
         onClaimSlot={(slotId, teamLabel) => net.claimSlot(slotId, teamLabel)}
         onHostStartDriving={() => net.sendHostCommand('infinite')}
+        onOpenControls={() => setControlsDrawerOpen(true)}
       />
+      {controlsDrawerOpen && (isNetJoinPlayer || isNetHost) && (
+        <aside className="controls-drawer" aria-label="Drive controls">
+          <div className="controls-drawer__header">
+            <strong>Keyboard &amp; drive mode</strong>
+            <button type="button" className="controls-drawer__close" onClick={() => setControlsDrawerOpen(false)}>
+              Close
+            </button>
+          </div>
+          <DriveControlsPanel
+            onSettingsChange={(settings, keybinds) => {
+              teleopDriveFrameRef.current = settings.driveFrame;
+              setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
+              applyKeybinds(keybinds);
+            }}
+          />
+        </aside>
+      )}
       {showMatchNav && (
       <nav className="panels-nav" aria-label="Simulator controls">
         <div className="panels-nav__brand">
@@ -882,6 +932,9 @@ export function App() {
           {isNetLobby && net.role !== 'host' && (
             <span className="panels-nav__net-badge panels-nav__net-badge--driver">PICK ROBOT</span>
           )}
+          {isNetDriver && !isNetHost && (
+            <span className="panels-nav__net-badge panels-nav__net-badge--drive-mode">{driveModeLabel}</span>
+          )}
           {isNetSpectator && (
             <span className="panels-nav__net-badge panels-nav__net-badge--spectator">SPECTATING</span>
           )}
@@ -898,6 +951,14 @@ export function App() {
         </div>
 
         <div className="panels-nav__actions">
+          {(isNetJoinPlayer || isNetHost) && !isNetSpectator && (
+            <PanelsButton
+              variant={controlsDrawerOpen ? 'primary' : 'default'}
+              onClick={() => setControlsDrawerOpen((open) => !open)}
+            >
+              Controls
+            </PanelsButton>
+          )}
           {showHostNavActions && (
             <>
           <PanelsButton disabled={matchControlsLocked || !canInit} onClick={handleInit}>
@@ -1075,10 +1136,14 @@ export function App() {
             <DriveControlsPanel
               onSettingsChange={(settings, keybinds) => {
                 teleopDriveFrameRef.current = settings.driveFrame;
+                setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
                 applyKeybinds(keybinds);
               }}
             />
             <ul className="metrics">
+              <li>
+                Drive mode: <strong>{driveModeLabel.toLowerCase()}-centric</strong>
+              </li>
               <li>
                 Match: <strong>{matchSnap.phase}</strong>
               </li>
@@ -1536,11 +1601,8 @@ export function App() {
               fieldRobotCatalog={displayFieldReady ? displayFieldRobotCatalog : []}
               plannedPath={plannedPathPoints}
               showPlannedPath={showPlannedPath && plannedPathPoints.length >= 2}
-              followerTarget={followerHud?.target ?? null}
-              showFollowerOverlay={
-                followerHud !== null &&
-                (matchSnap.phase === 'auto' || matchSnap.phase === 'transition')
-              }
+              followerTarget={displayFollowerTarget}
+              showFollowerOverlay={showAutoFollowerOverlay}
               debugZones={debugZones}
               showDebugZones={showDebugZones}
               showGateDetector={showGateDetector}
@@ -1551,6 +1613,8 @@ export function App() {
               showCenterLine={showCenterLine}
               smoothNetMotion={isNetActive}
               netSnapshotTick={net.snapshot?.tick ?? 0}
+              netRobotMotionRef={net.netRobotMotionRef}
+              netSnapshotAtRef={net.lastSnapshotAtRef}
             />
             <MatchResultsCeremony
               snapshot={displayMatchSnap}
