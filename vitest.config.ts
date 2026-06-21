@@ -19,6 +19,7 @@ export default defineConfig({
       '@ftc-sim/session': path.resolve(root, 'packages/session/src/index.ts'),
       '@ftc-sim/pedro': path.resolve(root, 'packages/pedro/src/index.ts'),
       '@ftc-sim/match': path.resolve(root, 'packages/match/src/index.ts'),
+      '@ftc-sim/net': path.resolve(root, 'packages/net/src/index.ts'),
     },
   },
 });

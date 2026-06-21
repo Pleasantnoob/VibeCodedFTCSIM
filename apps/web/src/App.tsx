@@ -14,6 +14,7 @@ import type { Vector2 } from '@ftc-sim/field';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, type BotAutoPath, type BotRobotId, type BotSlotConfig, type Difficulty } from '@ftc-sim/bot';
 import { netConfigFromBotSlots } from '@ftc-sim/session';
+import { usePhysicsRobot } from './robot/usePhysicsRobot';
 
 const PRACTICE_BOT_IDS: BotRobotId[] = ['blue-near', 'red-far', 'red-near'];
 const PRACTICE_BOT_LABELS: Record<BotRobotId, string> = {
@@ -84,6 +85,8 @@ const BUILTIN_PATHS = [
   { id: 'decode-pp', label: 'Decode Auto (PP export)', file: '/examples/decode-auto.pp' },
   { id: 'decode-json', label: 'Decode Auto (JSON curve)', file: '/examples/decode-auto.json' },
   { id: 'really-good', label: 'Really Good Path Test', file: '/examples/really-good-path-test.pp' },
+  { id: 'super-duo-far12', label: 'Super Duo Far 12', file: '/examples/super-duo-far12.pp' },
+  { id: 'super-duo-near12', label: 'Super Duo Near 12', file: '/examples/super-duo-near12.pp' },
 ] as const;
 
 type BuiltinPathId = (typeof BUILTIN_PATHS)[number]['id'];
@@ -260,7 +263,7 @@ export function App() {
         loadId,
       };
       updateBotSlot(robotId, { autoPath, runAuto: true });
-      botAutoPathTextRef.current.set(robotId, text);
+      botAutoPathTextRef.current.set(robotId, pathText);
     },
     [updateBotSlot],
   );

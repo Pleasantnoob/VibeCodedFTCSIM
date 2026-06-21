@@ -30,7 +30,7 @@ import { buildWsUrl } from './session-mode';
 
 declare const __APP_VERSION__: string;
 
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.0';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.1';
 const CONNECT_TIMEOUT_MS = 12_000;
 const HUD_UPDATE_MS = 1000 / 12;
 const DEFAULT_ROBOT_FOOTPRINT = 18;

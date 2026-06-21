@@ -19,10 +19,14 @@
     "build:desktop-mac": "pnpm --filter @ftc-sim/desktop-mac dist",
     "release:desktop-mac": "node scripts/publish-desktop-mac.mjs",
     "build": "pnpm -r run build",
-    "test": "pnpm -r run test",
+    "test:boot": "pnpm exec vitest run apps/web/src/app-boot.test.ts",
+    "test": "pnpm test:boot && pnpm -r run test",
     "typecheck": "pnpm -r run typecheck"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
   }
 }
