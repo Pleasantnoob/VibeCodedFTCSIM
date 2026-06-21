@@ -536,6 +536,149 @@ code {
   pointer-events: none;
 }
 
+.field-bot-debug-layer {
+  pointer-events: none;
+}
+
+.field-bot-debug-layer--labels {
+  isolation: isolate;
+}
+
+.field-bot-debug-path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 10 6;
+  opacity: 0.75;
+}
+
+.field-bot-debug-path--blue {
+  stroke: #38bdf8;
+}
+
+.field-bot-debug-path--red {
+  stroke: #fb7185;
+}
+
+.field-bot-debug-target {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.field-bot-debug-target--blue {
+  stroke: #38bdf8;
+}
+
+.field-bot-debug-target--red {
+  stroke: #fb7185;
+}
+
+.field-bot-debug-label-bg {
+  rx: 6;
+  ry: 6;
+  opacity: 0.96;
+}
+
+.field-bot-debug-label-bg--blue {
+  fill: rgba(8, 20, 38, 0.96);
+  stroke: #7dd3fc;
+  stroke-width: 1.5;
+}
+
+.field-bot-debug-label-bg--red {
+  fill: rgba(38, 8, 14, 0.96);
+  stroke: #fda4af;
+  stroke-width: 1.5;
+}
+
+.field-bot-debug-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  paint-order: stroke fill;
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.field-bot-debug-label--blue {
+  fill: #f0f9ff;
+}
+
+.field-bot-debug-label--red {
+  fill: #fff1f2;
+}
+
+.bot-debug-filters {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.bot-debug-log__item--warn {
+  border-left: 3px solid #fbbf24;
+  padding-left: 8px;
+}
+
+.bot-debug-log__cat--warn {
+  color: #fbbf24;
+}
+
+.bot-debug-log__cat--plan {
+  color: #a78bfa;
+}
+
+.bot-debug-log__cat--motion {
+  color: #34d399;
+}
+
+.bot-debug-log__data {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.field-bot-debug-pursuit {
+  fill: #fde047;
+  stroke: #ca8a04;
+  stroke-width: 2;
+  opacity: 0.95;
+}
+
+.field-bot-debug-pursuit-line {
+  stroke: #fde047;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.8;
+}
+
+.field-bot-debug-waypoint {
+  fill: #c4b5fd;
+  stroke: #7c3aed;
+  stroke-width: 1.5;
+  opacity: 0.9;
+}
+
+.field-bot-collect-pass {
+  fill: none;
+  stroke: #ffd700;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
 .field-follower-error {
   stroke: #e879f9;
   stroke-width: 2;
@@ -675,6 +818,31 @@ code {
   border: 1px solid var(--bg-light);
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.field-robot__skin-image {
+  mix-blend-mode: lighten;
+  pointer-events: none;
+}
+
+.field-robot__skin-frame {
+  fill: none;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.field-robot--blue .field-robot__skin-frame {
+  stroke: #4da3ff;
+}
+
+.field-robot--red .field-robot__skin-frame {
+  stroke: #ff4d5e;
+}
+
+.field-robot__team--skin {
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 3px;
 }
 
 .field-robot__team {
@@ -858,6 +1026,51 @@ code {
   margin-bottom: 0.65rem;
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.bot-slot-config {
+  margin: 0.75rem 0 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.bot-slot-config__title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.bot-slot-config__path {
+  margin-top: 0.45rem;
+}
+
+.bot-slot-config__path-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.bot-slot-config__path-meta {
+  display: block;
+  font-weight: 400;
+  font-size: 0.72rem;
+  margin-top: 0.15rem;
+  color: var(--text-faint, rgba(255, 255, 255, 0.55));
+}
+
+.bot-slot-config__upload {
+  margin-top: 0.35rem;
+}
+
+.bot-slot-config__clear {
+  margin-top: 0.35rem;
+  width: 100%;
 }
 
 .panel-select {

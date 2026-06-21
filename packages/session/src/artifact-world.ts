@@ -134,6 +134,8 @@ export class ArtifactWorld {
     const footprint = this.footprint;
     if (!footprint) return;
 
+    this.ensureNpcBodies(footprint, npcRobots);
+
     for (const bodyId of this.artifactBodyIds) {
       this.physics.parkArtifactBody(bodyId, { x: 0, y: 0, heading: 0 });
     }
@@ -189,14 +191,26 @@ export class ArtifactWorld {
     this.applyArtifactFriction();
   }
 
-  private installNpcBodies(footprint: RobotFootprint, npcRobots: NpcRobotSync[]): void {
-    this.npcBodyIds = [];
+  private ensureNpcBodies(footprint: RobotFootprint, npcRobots: NpcRobotSync[]): void {
+    const activeIds = new Set(npcRobots.map((npc) => npc.id));
+    for (const bodyId of [...this.npcBodyIds]) {
+      const npcId = bodyId.replace(/^npc_/, '');
+      if (activeIds.has(npcId)) continue;
+      this.physics.removeBody(bodyId);
+      this.npcBodyIds = this.npcBodyIds.filter((id) => id !== bodyId);
+    }
     for (const npc of npcRobots) {
       const bodyId = `npc_${npc.id}`;
-      this.npcBodyIds.push(bodyId);
+      if (this.npcBodyIds.includes(bodyId)) continue;
       this.physics.createKinematicRobotBody(bodyId, npc.pose, footprint.width, footprint.length, 0.8);
+      this.npcBodyIds.push(bodyId);
       this.physics.setRobotArtifactCollision(bodyId, true);
     }
+  }
+
+  private installNpcBodies(footprint: RobotFootprint, npcRobots: NpcRobotSync[]): void {
+    this.npcBodyIds = [];
+    this.ensureNpcBodies(footprint, npcRobots);
   }
 
   syncBarriers(barriers: SessionBarrier[]): void {
@@ -492,6 +506,8 @@ export class ArtifactWorld {
       setArtifactVelocity: (bodyId, vx, vy) =>
         this.physics.setLinearVelocityInches(bodyId, vx, vy),
       setArtifactEnabled: (bodyId, enabled) => this.physics.setColliderEnabled(bodyId, enabled),
+      isArtifactColliderEnabled: (bodyId) => this.physics.isColliderEnabled(bodyId),
+      getArtifactVelocity: (bodyId) => this.physics.getBodyVelocity(bodyId).linear,
       parkArtifactBody: (bodyId, pose) => this.physics.parkArtifactBody(bodyId, pose),
       activateArtifactBody: (bodyId, pose, vx, vy) =>
         this.physics.activateArtifactBody(bodyId, pose, vx, vy),

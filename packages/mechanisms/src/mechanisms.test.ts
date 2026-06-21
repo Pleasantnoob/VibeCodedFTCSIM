@@ -18,9 +18,11 @@ import { DEFAULT_KINEMATIC_ROBOT } from '@ftc-sim/robot';
 function mockPhysics(): PhysicsAdapter {
   return {
     getArtifactPose: () => ({ x: 0, y: 0, heading: 0 }),
+    getArtifactVelocity: () => ({ x: 0, y: 0 }),
     setArtifactPose: () => {},
     setArtifactVelocity: () => {},
     setArtifactEnabled: () => {},
+    isArtifactColliderEnabled: () => true,
     parkArtifactBody: () => {},
     activateArtifactBody: () => {},
     activateStationArtifactBody: () => {},

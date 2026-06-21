@@ -1,5 +1,7 @@
+import { useMemo, useState } from 'react';
 import type { Vector2 } from '@ftc-sim/field';
 import type { MechanismLogEntry } from '@ftc-sim/mechanisms';
+import type { BotDebugLogCategory, BotDebugLogEntry, Difficulty } from '@ftc-sim/bot';
 import type { MapVertexSelection } from '../field/map-selection';
 import type { DriveInputDebug } from '../input/drive-input-sampler';
 import { barrierSelection, zoneSelection } from '../field/map-selection';
@@ -42,6 +44,8 @@ export interface DevToolsDrawerProps {
   copyStatus: string | null;
   mechanismDebugLogs: MechanismLogEntry[];
   onCopyMechanismLogs: () => void;
+  botDebugLogs?: BotDebugLogEntry[];
+  onCopyBotLogs?: () => void;
   driveDebug?: DriveInputDebug | null;
   controlSource?: string;
   matchPhase?: string;
@@ -49,6 +53,29 @@ export interface DevToolsDrawerProps {
   poseLabel?: string;
   speed?: number;
   angularSpeed?: number;
+  botsEnabled?: boolean;
+  onBotsEnabledChange?: (value: boolean) => void;
+  botDifficulty?: Difficulty;
+  onBotDifficultyChange?: (value: Difficulty) => void;
+}
+
+const BOT_LOG_CATEGORIES: Array<BotDebugLogCategory | 'all'> = [
+  'all',
+  'warn',
+  'plan',
+  'motion',
+  'drive',
+  'task',
+  'state',
+  'avoid',
+  'stuck',
+];
+
+function botLogCategoryClass(category: BotDebugLogCategory): string {
+  if (category === 'warn') return 'bot-debug-log__cat--warn';
+  if (category === 'plan') return 'bot-debug-log__cat--plan';
+  if (category === 'motion') return 'bot-debug-log__cat--motion';
+  return '';
 }
 
 export function DevToolsDrawer({
@@ -86,6 +113,8 @@ export function DevToolsDrawer({
   copyStatus,
   mechanismDebugLogs,
   onCopyMechanismLogs,
+  botDebugLogs = [],
+  onCopyBotLogs,
   driveDebug,
   controlSource,
   matchPhase,
@@ -93,7 +122,30 @@ export function DevToolsDrawer({
   poseLabel,
   speed,
   angularSpeed,
+  botsEnabled = false,
+  onBotsEnabledChange,
+  botDifficulty = 'normal',
+  onBotDifficultyChange,
 }: DevToolsDrawerProps) {
+  const [botLogCategory, setBotLogCategory] = useState<BotDebugLogCategory | 'all'>('all');
+  const [botLogRobot, setBotLogRobot] = useState<string>('all');
+  const [botLogWarningsOnly, setBotLogWarningsOnly] = useState(false);
+
+  const botRobotIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of botDebugLogs) ids.add(entry.robotId);
+    return [...ids].sort();
+  }, [botDebugLogs]);
+
+  const filteredBotLogs = useMemo(() => {
+    return botDebugLogs.filter((entry) => {
+      if (botLogWarningsOnly && entry.level !== 'warn' && entry.category !== 'warn') return false;
+      if (botLogCategory !== 'all' && entry.category !== botLogCategory) return false;
+      if (botLogRobot !== 'all' && entry.robotId !== botLogRobot) return false;
+      return true;
+    });
+  }, [botDebugLogs, botLogCategory, botLogRobot, botLogWarningsOnly]);
+
   return (
     <aside className="dev-tools-drawer" aria-label="Developer tools">
       <div className="dev-tools-drawer__header">
@@ -102,6 +154,34 @@ export function DevToolsDrawer({
           Close
         </button>
       </div>
+
+      {onBotsEnabledChange && (
+        <PanelSection title="Practice bots" defaultOpen>
+          <label className="panel-check">
+            <input
+              type="checkbox"
+              checked={botsEnabled}
+              onChange={(event) => onBotsEnabledChange(event.target.checked)}
+            />
+            Fill NPCs with bots
+          </label>
+          {onBotDifficultyChange && (
+            <label className="panel-field">
+              Difficulty
+              <select
+                className="panel-select"
+                value={botDifficulty}
+                disabled={!botsEnabled}
+                onChange={(event) => onBotDifficultyChange(event.target.value as Difficulty)}
+              >
+                <option value="easy">Easy</option>
+                <option value="normal">Normal</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+          )}
+        </PanelSection>
+      )}
 
       <PanelSection title="Drive debug" badge={controlSource ?? 'none'} defaultOpen={false}>
         <ul className="metrics">
@@ -169,6 +249,75 @@ export function DevToolsDrawer({
             ))}
           {mechanismDebugLogs.length === 0 && (
             <li className="hint">Run a match — mechanism events appear here.</li>
+          )}
+        </ul>
+      </PanelSection>
+
+      <PanelSection title="Bot AI debug" badge={`${filteredBotLogs.length}/${botDebugLogs.length}`} defaultOpen>
+        <p className="hint">
+          One-line bot logs: TARGET / LAUNCH / SHOOT / STORED / EMPTY. Enable practice bots and run teleop.
+        </p>
+        <div className="bot-debug-filters">
+          <label className="panel-field">
+            Category
+            <select
+              className="panel-select"
+              value={botLogCategory}
+              onChange={(event) => setBotLogCategory(event.target.value as BotDebugLogCategory | 'all')}
+            >
+              {BOT_LOG_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="panel-field">
+            Robot
+            <select
+              className="panel-select"
+              value={botLogRobot}
+              onChange={(event) => setBotLogRobot(event.target.value)}
+            >
+              <option value="all">all</option>
+              {botRobotIds.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="panel-check">
+            <input
+              type="checkbox"
+              checked={botLogWarningsOnly}
+              onChange={(event) => setBotLogWarningsOnly(event.target.checked)}
+            />
+            Warnings / flags only
+          </label>
+        </div>
+        {onCopyBotLogs ? (
+          <div className="barrier-actions">
+            <PanelsButton onClick={onCopyBotLogs}>Copy bot logs</PanelsButton>
+          </div>
+        ) : null}
+        <ul className="metrics score-events mechanism-debug-log bot-debug-log">
+          {filteredBotLogs
+            .slice(-80)
+            .reverse()
+            .map((entry, index) => (
+              <li
+                key={`${entry.tick}-${entry.robotId}-${entry.category}-${index}`}
+                className={entry.level === 'warn' ? 'bot-debug-log__item--warn' : undefined}
+              >
+                <span className={`mechanism-debug-log__cat ${botLogCategoryClass(entry.category)}`}>
+                  [{entry.category}]
+                </span>{' '}
+                <strong>{entry.robotId}</strong> — {entry.message}
+              </li>
+            ))}
+          {filteredBotLogs.length === 0 && (
+            <li className="hint">Enable practice bots and run teleop — collector logs appear here.</li>
           )}
         </ul>
       </PanelSection>

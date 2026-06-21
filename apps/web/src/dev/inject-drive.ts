@@ -3,6 +3,7 @@ import type { PathChain, PedroJsonFile } from '@ftc-sim/pedro';
 import { pathChainToPoints } from '@ftc-sim/pedro';
 import type { AutoSequenceRunner } from '@ftc-sim/pedro';
 import type { HolonomicInput, Pose } from '@ftc-sim/robot';
+import type { BotDebugState } from '@ftc-sim/bot';
 
 export interface DriveTelemetryFrame {
   input: HolonomicInput;
@@ -58,6 +59,34 @@ export interface FtcSimFollowerSnapshot {
   targetPose: Pose | null;
 }
 
+export interface BotSmokeBotReport {
+  startPose: Pose;
+  endPose: Pose;
+  distanceMoved: number;
+  replanDelta: number;
+  maxStored: number;
+  tasksSeen: string[];
+  badFlags: string[];
+  sustainedBadFlags: boolean;
+  inLaunchZone: boolean;
+}
+
+export interface BotSmokeReport {
+  durationSec: number;
+  bots: Record<string, BotSmokeBotReport>;
+  pass: boolean;
+  failures: string[];
+}
+
+export interface BotSmokeTestOptions {
+  durationSec?: number;
+  mode?: 'inf' | 'teleop' | 'current';
+  minDistanceMoved?: number;
+  maxReplanDelta?: number;
+  minMaxStored?: number;
+  forbidFlags?: string[];
+}
+
 export interface FtcSimDevApi {
   injectInput: (input: HolonomicInput) => void;
   clearInput: () => void;
@@ -72,6 +101,9 @@ export interface FtcSimDevApi {
   clearPath: () => void;
   getFollowerSnapshot: () => FtcSimFollowerSnapshot | null;
   startAuto: () => void;
+  getBotDebug: () => BotDebugState[];
+  getNpcPoses: () => Array<{ id: string; pose: Pose; linear: { x: number; y: number } }>;
+  runBotSmokeTest: (opts?: BotSmokeTestOptions) => Promise<BotSmokeReport>;
 }
 
 declare global {
@@ -202,6 +234,139 @@ function summarizeGoalCollision(telemetry: DriveTelemetryFrame[]): GoalCollision
   };
 }
 
+const BOT_NPC_IDS = ['blue-near', 'red-far', 'red-near'] as const;
+const DEFAULT_BAD_FLAGS = ['stuck_backoff', 'stuck_rotate', 'idle_drive_far_from_target', 'no_path'];
+
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+const SIM_HZ = 120;
+
+async function waitForBotHarnessReady(hooks: {
+  getNpcPoses: () => Array<{ id: string }>;
+  getMatchSnapshot: () => MatchSnapshot;
+  stepSimulation?: (steps: number) => void;
+  startInfinitePractice?: () => void;
+  startTimedAuto?: () => void;
+  mode: 'inf' | 'teleop' | 'current';
+}): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (hooks.getNpcPoses().length >= BOT_NPC_IDS.length) break;
+    await sleepMs(100);
+  }
+
+  if (hooks.mode === 'inf') {
+    hooks.startInfinitePractice?.();
+  } else if (hooks.mode === 'teleop') {
+    hooks.startTimedAuto?.();
+  }
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const snap = hooks.getMatchSnapshot();
+    if (snap.running && !snap.paused && (snap.allowsDrive || snap.phase === 'auto')) {
+      break;
+    }
+    await sleepMs(50);
+  }
+}
+
+function collectBadFlags(debug: BotDebugState): string[] {
+  return debug.nav?.flags ?? [];
+}
+
+function evaluateBotSmoke(
+  samples: Array<{ debug: BotDebugState[]; npcs: ReturnType<FtcSimDevApi['getNpcPoses']> }>,
+  durationSec: number,
+  opts: BotSmokeTestOptions,
+  startPoses?: Record<string, Pose>,
+): BotSmokeReport {
+  const failures: string[] = [];
+  const bots: Record<string, BotSmokeBotReport> = {};
+  const minDistance = opts.minDistanceMoved ?? 5;
+  const maxReplan = opts.maxReplanDelta ?? 15;
+  const minStored = opts.minMaxStored ?? 0;
+  const forbidFlags = opts.forbidFlags ?? DEFAULT_BAD_FLAGS;
+
+  for (const id of BOT_NPC_IDS) {
+    const startNpc = samples[0]?.npcs.find((npc) => npc.id === id);
+    const endNpc = samples[samples.length - 1]?.npcs.find((npc) => npc.id === id);
+    const startPose = startPoses?.[id] ?? startNpc?.pose ?? { x: 0, y: 0, heading: 0 };
+    const endPose = endNpc?.pose ?? startPose;
+    let distanceMoved = Math.hypot(endPose.x - startPose.x, endPose.y - startPose.y);
+
+    let startReplans = 0;
+    let endReplans = 0;
+    let maxStored = 0;
+    const tasksSeen = new Set<string>();
+    const flagCounts = new Map<string, number>();
+    let inLaunchZone = false;
+
+    for (const sample of samples) {
+      const debug = sample.debug.find((entry) => entry.robotId === id);
+      if (!debug) continue;
+      tasksSeen.add(debug.task);
+      maxStored = Math.max(maxStored, debug.storedCount);
+      if (debug.inLaunchZone) inLaunchZone = true;
+      for (const flag of collectBadFlags(debug)) {
+        flagCounts.set(flag, (flagCounts.get(flag) ?? 0) + 1);
+      }
+      const npc = sample.npcs.find((entry) => entry.id === id);
+      if (npc) {
+        distanceMoved = Math.max(
+          distanceMoved,
+          Math.hypot(npc.pose.x - startPose.x, npc.pose.y - startPose.y),
+        );
+      }
+    }
+
+    const firstDebug = samples[0]?.debug.find((entry) => entry.robotId === id);
+    const lastDebug = samples[samples.length - 1]?.debug.find((entry) => entry.robotId === id);
+    startReplans = firstDebug?.replanCount ?? 0;
+    endReplans = lastDebug?.replanCount ?? 0;
+    const replanDelta = Math.max(0, endReplans - startReplans);
+
+    const badFlags = [...flagCounts.keys()].filter((flag) => forbidFlags.includes(flag));
+    const sustainedBadFlags =
+      samples.length > 0 &&
+      forbidFlags.some((flag) => (flagCounts.get(flag) ?? 0) / samples.length > 0.5);
+
+    bots[id] = {
+      startPose,
+      endPose,
+      distanceMoved,
+      replanDelta,
+      maxStored,
+      tasksSeen: [...tasksSeen],
+      badFlags,
+      sustainedBadFlags,
+      inLaunchZone,
+    };
+
+    if (distanceMoved < minDistance) {
+      failures.push(`${id}: moved ${distanceMoved.toFixed(1)}in (need ${minDistance}in)`);
+    }
+    if (replanDelta > maxReplan) {
+      failures.push(`${id}: replans +${replanDelta} (max ${maxReplan})`);
+    }
+    if (sustainedBadFlags) {
+      failures.push(`${id}: sustained bad flags ${badFlags.join(', ')}`);
+    }
+  }
+
+  const anyStored = Object.values(bots).some((bot) => bot.maxStored >= minStored);
+  if (minStored > 0 && !anyStored) {
+    failures.push(`no bot reached stored >= ${minStored}`);
+  }
+
+  return {
+    durationSec,
+    bots,
+    pass: failures.length === 0,
+    failures,
+  };
+}
+
 export function installFtcSimDevApi(hooks: {
   setInjectInput: (input: HolonomicInput | null) => void;
   getTelemetry: () => DriveTelemetryFrame[];
@@ -216,6 +381,13 @@ export function installFtcSimDevApi(hooks: {
   clearPath: () => void;
   getFollower: () => AutoSequenceRunner;
   startAuto: () => void;
+  getBotDebug: () => BotDebugState[];
+  getNpcPoses: () => Array<{ id: string; pose: Pose; linear: { x: number; y: number } }>;
+  stepSimulation?: (steps: number) => void;
+  ensureBotsEnabled?: () => void;
+  startInfinitePractice?: () => void;
+  startTimedAuto?: () => void;
+  resetMatch?: () => void;
 }): () => void {
   let scenarioTimer: number | null = null;
 
@@ -274,6 +446,46 @@ export function installFtcSimDevApi(hooks: {
       };
     },
     startAuto: () => hooks.startAuto(),
+    getBotDebug: () => hooks.getBotDebug(),
+    getNpcPoses: () => hooks.getNpcPoses(),
+    runBotSmokeTest: async (opts: BotSmokeTestOptions = {}) => {
+      const durationSec = opts.durationSec ?? 30;
+      const mode = opts.mode ?? 'inf';
+
+      hooks.resetMatch?.();
+      hooks.ensureBotsEnabled?.();
+      await waitForBotHarnessReady({
+        getNpcPoses: () => hooks.getNpcPoses(),
+        getMatchSnapshot: () => hooks.getMatchSnapshot(),
+        stepSimulation: hooks.stepSimulation,
+        startInfinitePractice: hooks.startInfinitePractice,
+        startTimedAuto: hooks.startTimedAuto,
+        mode,
+      });
+
+      const samples: Array<{
+        debug: BotDebugState[];
+        npcs: ReturnType<FtcSimDevApi['getNpcPoses']>;
+      }> = [];
+      const sampleEverySteps = Math.round(0.5 * SIM_HZ);
+      const totalSteps = durationSec * SIM_HZ;
+      const startPoses = Object.fromEntries(
+        hooks.getNpcPoses().map((npc) => [npc.id, { ...npc.pose }]),
+      );
+
+      for (let stepped = 0; stepped < totalSteps; stepped += sampleEverySteps) {
+        const batch = Math.min(sampleEverySteps, totalSteps - stepped);
+        hooks.stepSimulation?.(batch);
+        samples.push({
+          debug: hooks.getBotDebug(),
+          npcs: hooks.getNpcPoses(),
+        });
+      }
+
+      const report = evaluateBotSmoke(samples, durationSec, opts, startPoses);
+      console.info('[ftc-sim] bot smoke test', report);
+      return report;
+    },
     runScenario: async (name) => {
       const scenario = SCENARIOS[name];
       if (!scenario) throw new Error(`Unknown scenario: ${name}`);

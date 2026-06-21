@@ -1,6 +1,6 @@
 {
   "name": "@ftc-sim/web",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ftc-sim/bot": "workspace:*",
     "@ftc-sim/game-decode": "workspace:*",
     "@ftc-sim/match": "workspace:*",
     "@ftc-sim/mechanisms": "workspace:*",

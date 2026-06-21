@@ -12,15 +12,26 @@ import {
 } from '@ftc-sim/pedro';
 import type { Vector2 } from '@ftc-sim/field';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
-import { usePhysicsRobot } from './robot/usePhysicsRobot';
+import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, type BotAutoPath, type BotRobotId, type BotSlotConfig, type Difficulty } from '@ftc-sim/bot';
+import { netConfigFromBotSlots } from '@ftc-sim/session';
+
+const PRACTICE_BOT_IDS: BotRobotId[] = ['blue-near', 'red-far', 'red-near'];
+const PRACTICE_BOT_LABELS: Record<BotRobotId, string> = {
+  player: 'Player',
+  'blue-near': 'Blue near',
+  'red-far': 'Red far',
+  'red-near': 'Red near',
+};
 import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, type SoloSpawnSlot } from './robot/match-robots';
 import { DEFAULT_ARTIFACT_FRICTION } from './artifacts/artifact-world';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
   SIM_ROBOT_PRESETS,
   simRobotConfigFromNet,
+  simRobotFootprint,
   type SimRobotConfig,
 } from './robot/robot-config';
+import { ROBOT_SKIN_OPTIONS, type RobotSkinId } from './robot/robot-skins';
 import { FieldCanvas } from './field/FieldCanvas';
 import {
   barriersToExportJson,
@@ -213,8 +224,97 @@ export function App() {
   const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(savedPlayer.robot);
   const robotConfigRef = useRef(robotConfig);
   robotConfigRef.current = robotConfig;
-  // Solo = single robot; net = robots from server snapshots only.
-  const practiceRobots = useMemo(() => [] as ReturnType<typeof practiceFieldRobots>, []);
+  const [robotSkinId, setRobotSkinId] = useState<RobotSkinId>(savedPlayer.robotSkinId);
+  const [botsEnabled, setBotsEnabled] = useState(false);
+  const [botDifficulty, setBotDifficulty] = useState<Difficulty>('normal');
+  const [botSlotConfigs, setBotSlotConfigs] = useState<BotSlotConfig[]>(() =>
+    defaultPracticeBotSlots('normal'),
+  );
+  const [showBotFieldDebug, setShowBotFieldDebug] = useState(true);
+  const botsEnabledRef = useRef(false);
+  const botDifficultyRef = useRef<Difficulty>('normal');
+  const botSlotConfigsRef = useRef(botSlotConfigs);
+  const botManagerRef = useRef(new BotManager());
+  const botPathLoadIdRef = useRef(1);
+  const botAutoPathTextRef = useRef(new Map<string, string>());
+  botsEnabledRef.current = botsEnabled;
+  botDifficultyRef.current = botDifficulty;
+  botSlotConfigsRef.current = botSlotConfigs;
+
+  const updateBotSlot = useCallback(
+    (robotId: BotRobotId, patch: Partial<BotSlotConfig>) => {
+      setBotSlotConfigs((prev) =>
+        prev.map((slot) => (slot.robotId === robotId ? { ...slot, ...patch } : slot)),
+      );
+    },
+    [],
+  );
+
+  const applyBotAutoPath = useCallback(
+    (robotId: BotRobotId, parsed: ReturnType<typeof parsePathFileText>, label: string, pathText: string) => {
+      const loadId = botPathLoadIdRef.current++;
+      const autoPath: BotAutoPath = {
+        basePathChain: parsed.chain,
+        baseAutoSequence: parsed.autoSequence ?? null,
+        label,
+        loadId,
+      };
+      updateBotSlot(robotId, { autoPath, runAuto: true });
+      botAutoPathTextRef.current.set(robotId, text);
+    },
+    [updateBotSlot],
+  );
+
+  const loadBotAutoPathFromText = useCallback(
+    (robotId: BotRobotId, text: string, label: string) => {
+      if (text.length > 512 * 1024) {
+        throw new Error('Path file too large (max 512 KB)');
+      }
+      applyBotAutoPath(robotId, parsePathFileText(text), label, text);
+    },
+    [applyBotAutoPath],
+  );
+
+  const loadBotBuiltinAutoPath = useCallback(
+    async (robotId: BotRobotId, id: BuiltinPathId) => {
+      const entry = BUILTIN_PATHS.find((path) => path.id === id);
+      if (!entry) return;
+      const res = await fetch(entry.file);
+      if (!res.ok) throw new Error(`Failed to load ${entry.label}`);
+      loadBotAutoPathFromText(robotId, await res.text(), entry.label);
+    },
+    [loadBotAutoPathFromText],
+  );
+
+  const clearBotAutoPath = useCallback(
+    (robotId: BotRobotId) => {
+      botAutoPathTextRef.current.delete(robotId);
+      updateBotSlot(robotId, { autoPath: null, runAuto: false });
+    },
+    [updateBotSlot],
+  );
+
+  const isHostSession = isNetActive && net.role === 'host';
+  const showPracticeBots = !isNetSession || isHostSession;
+
+  useEffect(() => {
+    if (!isHostSession) return;
+    setBotsEnabled(true);
+  }, [isHostSession]);
+
+  useEffect(() => {
+    if (!isHostSession || !botsEnabled) return;
+    net.sendBotSlots(netConfigFromBotSlots(botSlotConfigs, botAutoPathTextRef.current));
+  }, [isHostSession, botsEnabled, botSlotConfigs, net.sendBotSlots]);
+
+  useEffect(() => {
+    if (!botsEnabled) return;
+    botManagerRef.current.setSlots(botSlotConfigs);
+  }, [botsEnabled, botSlotConfigs]);
+  const practiceRobots = useMemo(() => {
+    if (!botsEnabled) return [] as ReturnType<typeof practiceFieldRobots>;
+    return practiceFieldRobots(simRobotFootprint(robotConfig));
+  }, [botsEnabled, robotConfig]);
   const practiceRobotsRef = useRef(practiceRobots);
   practiceRobotsRef.current = practiceRobots;
 
@@ -508,9 +608,12 @@ export function App() {
     liveArtifactsRef,
     matchGameState,
     mechanismDebugLogs,
+    botDebugLogs,
+    botDebugRef,
     setArtifactFriction: applyArtifactFriction,
     randomizeMotif,
     finalizeMatch,
+    advanceSimulation,
     fieldRobotsRef,
     fieldRobotCatalog,
   } = usePhysicsRobot(
@@ -538,8 +641,17 @@ export function App() {
       playerTeamNumber: robotTeamName,
       teleopDriveFrameRef,
       robotPreloadRef,
+      botManagerRef,
+      botsEnabledRef,
+      botSlotConfigsRef,
+      botsEnabled,
     },
   );
+
+  useEffect(() => {
+    if (sessionMode !== 'solo' || !botsEnabled) return;
+    resetRobot();
+  }, [botsEnabled, sessionMode, resetRobot]);
 
   const displayMatchGameState = isNetActive ? net.gameState : matchGameState;
   getMatchStateRef.current = () => displayMatchGameState;
@@ -685,6 +797,44 @@ export function App() {
         match.start();
         startAutoPathRunner();
       },
+      getBotDebug: () => {
+        const live = botDebugRef.current;
+        if (live.length > 0) return live;
+        return botManagerRef.current?.getDebugStates() ?? [];
+      },
+      getNpcPoses: () =>
+        (fieldRobotsRef.current ?? [])
+          .filter((robot) => robot.id !== 'player')
+          .map((robot) => ({
+            id: robot.id,
+            pose: { ...robot.pose },
+            linear: { x: 0, y: 0 },
+          })),
+      ensureBotsEnabled: () => {
+        if (botsEnabledRef.current) return;
+        botsEnabledRef.current = true;
+        setBotsEnabled(true);
+      },
+      startInfinitePractice: () => {
+        match.initMatch();
+        match.startInfinitePractice();
+      },
+      startTimedAuto: () => {
+        match.initMatch();
+        match.start();
+      },
+      resetMatch: () => {
+        match.reset();
+        resetRobot(playerSpawnPose(spawnSlot));
+        botManagerRef.current?.reset();
+      },
+      stepSimulation: (steps: number) => {
+        const dt = 1 / 120;
+        for (let i = 0; i < steps; i++) {
+          match.tick(dt);
+          advanceSimulation(1);
+        }
+      },
     });
   }, [
     physicsReady,
@@ -695,6 +845,9 @@ export function App() {
     match.clockRef,
     match.initMatch,
     match.start,
+    match.reset,
+    match.startInfinitePractice,
+    match.tick,
     matchSnap,
     poseRef,
     speed,
@@ -702,6 +855,13 @@ export function App() {
     loadPathFromText,
     clearPath,
     startAutoPathRunner,
+    botManagerRef,
+    botDebugRef,
+    advanceSimulation,
+    fieldRobotsRef,
+    botsEnabledRef,
+    setBotsEnabled,
+    spawnSlot,
   ]);
 
   useEffect(() => {
@@ -795,6 +955,12 @@ export function App() {
     void navigator.clipboard.writeText(text || '(no mechanism logs yet)');
     setCopyStatus('Mechanism logs copied to clipboard');
   }, [mechanismDebugLogs]);
+
+  const copyBotLogs = useCallback(() => {
+    const text = botDebugLogs.map(formatBotDebugLogEntry).join('\n');
+    void navigator.clipboard.writeText(text || '(no bot logs yet)');
+    setCopyStatus('Bot logs copied to clipboard');
+  }, [botDebugLogs]);
 
   const deleteSelectedZoneVertex = useCallback(() => {
     if (selectedVertex?.layer !== 'zone') return;
@@ -1089,6 +1255,8 @@ export function App() {
           copyStatus={copyStatus}
           mechanismDebugLogs={mechanismDebugLogs}
           onCopyMechanismLogs={copyMechanismLogs}
+          botDebugLogs={botDebugLogs}
+          onCopyBotLogs={copyBotLogs}
           driveDebug={driveDebug}
           controlSource={controlSource}
           matchPhase={matchSnap.phase}
@@ -1096,6 +1264,10 @@ export function App() {
           poseLabel={`(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`}
           speed={speed}
           angularSpeed={angularSpeed}
+          botsEnabled={botsEnabled}
+          onBotsEnabledChange={setBotsEnabled}
+          botDifficulty={botDifficulty}
+          onBotDifficultyChange={setBotDifficulty}
         />
       )}
       {showMatchNav && (
@@ -1227,6 +1399,148 @@ export function App() {
             )}
           </PanelSection>
 
+          {showPracticeBots && (
+            <PanelSection
+              title="Practice bots"
+              badge={botsEnabled ? `${botDifficulty} · collect` : 'off'}
+              defaultOpen
+            >
+              <p className="hint">
+                Simple collectors: preload 3 balls, collect until full, score at nearest launch, repeat.
+                {isHostSession ? ' Unclaimed robot slots are filled on the match server.' : ''}
+              </p>
+              <label className="panel-check">
+                <input
+                  type="checkbox"
+                  checked={botsEnabled}
+                  onChange={(e) => setBotsEnabled(e.target.checked)}
+                />
+                Fill NPCs with bots
+              </label>
+              <label className="panel-field">
+                Difficulty
+                <select
+                  className="panel-select"
+                  value={botDifficulty}
+                  disabled={!botsEnabled}
+                  onChange={(e) => {
+                    const difficulty = e.target.value as Difficulty;
+                    setBotDifficulty(difficulty);
+                    setBotSlotConfigs((prev) => prev.map((slot) => ({ ...slot, difficulty })));
+                  }}
+                >
+                  <option value="easy">Easy</option>
+                  <option value="normal">Normal</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+              {PRACTICE_BOT_IDS.map((robotId) => {
+                const slot =
+                  botSlotConfigs.find((entry) => entry.robotId === robotId) ??
+                  defaultPracticeBotSlots(botDifficulty).find((entry) => entry.robotId === robotId)!;
+                const autoPath = slot.autoPath;
+                return (
+                  <div key={robotId} className="bot-slot-config">
+                    <div className="bot-slot-config__title">{PRACTICE_BOT_LABELS[robotId]}</div>
+                    <label className="panel-check">
+                      <input
+                        type="checkbox"
+                        checked={slot.enabled}
+                        disabled={!botsEnabled}
+                        onChange={(e) => updateBotSlot(robotId, { enabled: e.target.checked })}
+                      />
+                      Bot enabled
+                    </label>
+                    <label className="panel-check">
+                      <input
+                        type="checkbox"
+                        checked={slot.runAuto}
+                        disabled={!botsEnabled || !slot.enabled || !autoPath}
+                        onChange={(e) => updateBotSlot(robotId, { runAuto: e.target.checked })}
+                      />
+                      Run AUTO
+                    </label>
+                    <div className="bot-slot-config__path">
+                      <div className="bot-slot-config__path-label">
+                        AUTO path
+                        {autoPath ? (
+                          <span className="bot-slot-config__path-meta">
+                            {autoPath.label}
+                            {autoPath.basePathChain.paths.length > 0
+                              ? ` · ${autoPath.basePathChain.paths.length} seg`
+                              : ''}
+                          </span>
+                        ) : (
+                          <span className="bot-slot-config__path-meta">None loaded</span>
+                        )}
+                      </div>
+                      <label className="panel-field">
+                        Example
+                        <select
+                          className="panel-select"
+                          value=""
+                          disabled={!botsEnabled || !slot.enabled}
+                          onChange={(e) => {
+                            const id = e.target.value as BuiltinPathId;
+                            if (!id) return;
+                            void loadBotBuiltinAutoPath(robotId, id).catch((err) => {
+                              console.error(err);
+                            });
+                            e.target.value = '';
+                          }}
+                        >
+                          <option value="">Load example…</option>
+                          {BUILTIN_PATHS.map((path) => (
+                            <option key={path.id} value={path.id}>
+                              {path.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="panel-btn panel-btn--secondary bot-slot-config__upload">
+                        <input
+                          type="file"
+                          accept=".json,.pp"
+                          hidden
+                          disabled={!botsEnabled || !slot.enabled}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!file) return;
+                            void file.text().then(
+                              (text) => loadBotAutoPathFromText(robotId, text, file.name),
+                              (err) => console.error(err),
+                            );
+                          }}
+                        />
+                        Upload .json / .pp
+                      </label>
+                      {autoPath ? (
+                        <button
+                          type="button"
+                          className="panel-btn panel-btn--ghost bot-slot-config__clear"
+                          disabled={!botsEnabled || !slot.enabled}
+                          onClick={() => clearBotAutoPath(robotId)}
+                        >
+                          Clear path
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+              <label className="panel-check">
+                <input
+                  type="checkbox"
+                  checked={showBotFieldDebug}
+                  disabled={!botsEnabled}
+                  onChange={(e) => setShowBotFieldDebug(e.target.checked)}
+                />
+                Show bot task + path overlay
+              </label>
+            </PanelSection>
+          )}
+
           <PanelSection title="Player" badge={lobbyPlayerName}>
             <label className="panel-field">
               Your name
@@ -1273,6 +1587,24 @@ export function App() {
                 {SIM_ROBOT_PRESETS.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="panel-field">
+              Skin
+              <select
+                className="panel-select"
+                value={robotSkinId}
+                onChange={(e) => {
+                  const next = e.target.value as RobotSkinId;
+                  setRobotSkinId(next);
+                  patchPlayerSettings({ robotSkinId: next });
+                }}
+              >
+                {ROBOT_SKIN_OPTIONS.map((skin) => (
+                  <option key={skin.id} value={skin.id}>
+                    {skin.label}
                   </option>
                 ))}
               </select>
@@ -1587,6 +1919,9 @@ export function App() {
               netSnapshotAtRef={net.lastSnapshotAtRef}
               ownedRobotId={isNetActive ? net.robotId : null}
               ownedPoseRef={ownedPoseRef}
+              showBotDebug={!isNetSession && botsEnabled && showBotFieldDebug}
+              botDebugRef={!isNetSession && botsEnabled ? botDebugRef : undefined}
+              robotSkinId={robotSkinId}
             />
             <MatchResultsCeremony
               snapshot={displayMatchSnap}

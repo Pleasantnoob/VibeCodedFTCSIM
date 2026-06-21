@@ -77,6 +77,7 @@ export class MatchClock {
   private finishMatch(): void {
     this.phase = 'post';
     this.timeRemainingInPhase = 0;
+    this.running = false;
     this.controlSource = 'none';
   }
 

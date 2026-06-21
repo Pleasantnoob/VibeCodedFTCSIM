@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ftc-sim/bot": "workspace:*",
     "@ftc-sim/field": "workspace:*",
     "@ftc-sim/game-decode": "workspace:*",
     "@ftc-sim/match": "workspace:*",

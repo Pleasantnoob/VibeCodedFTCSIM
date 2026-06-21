@@ -8,6 +8,8 @@ import {
   detectArtifactStuckInStructure,
   findBasinAtPoint,
   gateReleaseVelocity,
+  GATE_RELEASE_INTERVAL_S,
+  GATE_RELEASE_SOUTH_VELOCITY,
   getZoneByType,
   heldArtifactOffset,
   humanPlayerRespawnPose,
@@ -21,6 +23,7 @@ import {
   planShot,
   rampSlotPositions,
   rampSouthExitPose,
+  RAMP_ROLL_DURATION_S,
   robotInGateZone,
   robotInLaunchZone,
   sampleTrajectoryAt,
@@ -31,6 +34,7 @@ import type {
   GateReleaseItem,
   MechanismCommand,
   MechanismSnapshot,
+  RampRollAnimation,
   RobotMechanismTick,
   SimArtifactState,
   StoredArtifact,
@@ -48,6 +52,8 @@ export interface PhysicsAdapter {
   setArtifactPose(bodyId: string, pose: Pose): void;
   setArtifactVelocity(bodyId: string, vx: number, vy: number): void;
   setArtifactEnabled(bodyId: string, enabled: boolean): void;
+  isArtifactColliderEnabled(bodyId: string): boolean;
+  getArtifactVelocity(bodyId: string): Vector2;
   parkArtifactBody(bodyId: string, pose: Pose): void;
   activateArtifactBody(bodyId: string, pose: Pose, vx: number, vy: number): void;
   activateStationArtifactBody(bodyId: string, pose: Pose, vx: number, vy: number): void;
@@ -103,6 +109,7 @@ export class ArtifactSimulation {
   };
   private flights: ActiveFlight[] = [];
   private gateQueue: GateReleaseItem[] = [];
+  private rampRolls: RampRollAnimation[] = [];
   private gateInside: Record<Alliance, boolean> = { blue: false, red: false };
   private pendingSpawns: PendingBodySpawn[] = [];
   private lastShotEligible = true;
@@ -124,6 +131,7 @@ export class ArtifactSimulation {
     this.rampSlots = { red: Array(9).fill(null), blue: Array(9).fill(null) };
     this.flights = [];
     this.gateQueue = [];
+    this.rampRolls = [];
     this.gateInside = { blue: false, red: false };
     this.pendingSpawns = [];
     this.simTime = 0;
@@ -153,12 +161,20 @@ export class ArtifactSimulation {
 
   /** Reserve balls (outside the field) stay hidden until teleop. */
   syncHumanPlayerReserve(matchPhase: ArtifactMatchPhase, physics: PhysicsAdapter): void {
-    const visible = matchPhase === 'teleop';
+    const visible = matchPhase === 'teleop' || matchPhase === 'post';
     if (visible === this.reserveVisible) return;
     this.reserveVisible = visible;
 
+    const heldIds = new Set<string>();
+    for (const robotState of this.robotStates.values()) {
+      for (const held of robotState.stored) {
+        heldIds.add(held.id);
+      }
+    }
+
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase !== 'humanPlayerReserve') continue;
+      if (heldIds.has(artifact.id)) continue;
       if (visible) {
         artifact.opacity = 1;
         physics.activateArtifactBody(artifact.bodyId, artifact.pose, 0, 0);
@@ -176,7 +192,8 @@ export class ArtifactSimulation {
       matchPhase === 'init' ||
       matchPhase === 'auto' ||
       matchPhase === 'transition' ||
-      matchPhase === 'teleop';
+      matchPhase === 'teleop' ||
+      matchPhase === 'post';
     if (active === this.stationSimActive) return;
     this.stationSimActive = active;
 
@@ -205,13 +222,15 @@ export class ArtifactSimulation {
     physics: PhysicsAdapter,
     rng: () => number = Math.random,
   ): void {
+    const state = this.getRobotState(robotId);
+    if (state.stored.length >= 3) return;
+
     const colors: ArtifactColor[] = ['purple', 'purple', 'green'];
     for (let i = colors.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
       [colors[i], colors[j]] = [colors[j]!, colors[i]!];
     }
 
-    const state = this.getRobotState(robotId);
     state.stored = [];
     const used = new Set<string>();
     const humanSource = `${robotAlliance}_human_player_reserve`;
@@ -239,6 +258,7 @@ export class ArtifactSimulation {
       const world = localToWorld(local, robotPose);
       artifact.pose = { x: world.x, y: world.y, heading: 0 };
       physics.parkArtifactBody(artifact.bodyId, artifact.pose);
+      physics.setArtifactEnabled(artifact.bodyId, false);
     }
 
     this.log('intake', `Preloaded ${state.stored.length} from ${humanSource} onto ${robotId}`, {
@@ -456,11 +476,18 @@ export class ArtifactSimulation {
 
     this.checkAutoGates(robots, footprint);
     if (matchRobots && teleopTimeRemainingSec !== undefined) {
+      if (
+        matchPhase === 'teleop' &&
+        teleopTimeRemainingSec <= this.rules.getRules().endgameSec
+      ) {
+        this.rules.trackMatchParkingProgress(matchRobots);
+      }
       this.rules.tickContactRules(matchRobots, teleopTimeRemainingSec);
     }
     this.updateFlights(dt, physics);
     this.applyPendingSpawns(physics);
     this.updateGateQueue(physics);
+    this.updateRampRolls(physics);
     physics.step();
     this.syncOnFieldFromPhysics(physics);
     this.recoverStuckArtifacts(physics);
@@ -477,15 +504,28 @@ export class ArtifactSimulation {
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) continue;
       if (artifact.phase === 'humanPlayerStation' && !this.stationSimActive) continue;
-      if (
+      const simulatesInPhysics =
         artifact.phase === 'onField' ||
         artifact.phase === 'overflow' ||
         artifact.phase === 'humanPlayerStation' ||
-        artifact.phase === 'humanPlayerReserve'
-      ) {
-        artifact.pose = physics.getArtifactPose(artifact.bodyId);
-        artifact.opacity = 1;
-      }
+        artifact.phase === 'humanPlayerReserve';
+      if (!simulatesInPhysics) continue;
+      if (!physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
+      artifact.pose = physics.getArtifactPose(artifact.bodyId);
+      artifact.opacity = 1;
+    }
+    this.reconcileFieldArtifactColliders(physics);
+  }
+
+  /** Re-enable colliders for field artifacts left disabled after ramp roll / respawn. */
+  private reconcileFieldArtifactColliders(physics: PhysicsAdapter): void {
+    for (const artifact of this.artifacts.values()) {
+      if (artifact.phase !== 'onField' && artifact.phase !== 'overflow') continue;
+      if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
+      const vx = physics.getArtifactVelocity(artifact.bodyId).x;
+      const vy = physics.getArtifactVelocity(artifact.bodyId).y;
+      physics.activateArtifactBody(artifact.bodyId, artifact.pose, vx, vy);
+      this.log('physics', `Restored collider for ${artifact.id}`, { phase: artifact.phase });
     }
   }
 
@@ -720,7 +760,7 @@ export class ArtifactSimulation {
       if (isOutOfFieldBounds(artifact.pose, 1)) {
         this.respawnToHumanPlayer(flight.artifactId, flight.shooterAlliance);
       } else {
-        this.landArtifact(flight.artifactId, artifact.pose);
+        this.landArtifact(flight.artifactId, artifact.pose, physics);
       }
       return false;
     }
@@ -736,6 +776,12 @@ export class ArtifactSimulation {
   ): void {
     const artifact = this.artifacts.get(artifactId);
     if (!artifact) return;
+
+    if (this.isGateReleaseActive(basinAlliance)) {
+      this.rules.classifyArtifact(basinAlliance, color, true);
+      this.enqueueGateReleaseDuringRoll(basinAlliance, artifactId, color, physics);
+      return;
+    }
 
     const slotIndex = this.rampSlots[basinAlliance].findIndex((id) => id === null);
     if (slotIndex >= 0) {
@@ -765,6 +811,82 @@ export class ArtifactSimulation {
       spawn: overflowPose,
       velocity: { x: 0, y: -OVERFLOW_SOUTH_VELOCITY },
     });
+  }
+
+  private isGateReleaseActive(alliance: Alliance): boolean {
+    if (this.rules.getState().gateOpen[alliance]) return true;
+    if (this.gateQueue.some((item) => item.targetAlliance === alliance)) return true;
+    if (this.rampRolls.some((roll) => roll.targetAlliance === alliance)) return true;
+    return false;
+  }
+
+  private nextGateReleaseTime(alliance: Alliance): number {
+    let latest = this.simTime;
+    for (const item of this.gateQueue) {
+      if (item.targetAlliance !== alliance) continue;
+      latest = Math.max(latest, item.releaseAt);
+    }
+    for (const roll of this.rampRolls) {
+      if (roll.targetAlliance !== alliance) continue;
+      latest = Math.max(latest, roll.startTime + roll.duration);
+    }
+    return latest;
+  }
+
+  /** Ramp full while gate is rolling — append to the release queue instead of overflow. */
+  private enqueueGateReleaseDuringRoll(
+    alliance: Alliance,
+    artifactId: string,
+    color: ArtifactColor,
+    physics: PhysicsAdapter,
+  ): void {
+    const artifact = this.artifacts.get(artifactId);
+    if (!artifact) return;
+
+    const slotIndex = this.findNewlyClassifiedRampSlot(alliance);
+    const positions = rampSlotPositions(alliance);
+    const startPose =
+      slotIndex >= 0
+        ? positions[slotIndex]!
+        : positions[positions.length - 1] ?? rampSouthExitPose(alliance);
+    const releaseAt = this.nextGateReleaseTime(alliance) + GATE_RELEASE_INTERVAL_S;
+
+    if (slotIndex >= 0) {
+      this.rampSlots[alliance][slotIndex] = artifactId;
+    }
+
+    this.gateQueue.push({
+      artifactId,
+      color,
+      targetAlliance: alliance,
+      openedByAlliance: alliance,
+      slotIndex,
+      releaseAt,
+      velocity: gateReleaseVelocity(),
+      spawnPose: rampSouthExitPose(alliance),
+      startPose: { ...startPose, heading: 0 },
+    });
+
+    artifact.phase = 'onRamp';
+    artifact.opacity = 1;
+    artifact.pose = { ...startPose, heading: 0 };
+    physics.parkArtifactBody(artifact.bodyId, artifact.pose);
+    this.log('gate', `Queued ${artifactId} behind active ${alliance} release`, {
+      releaseAt,
+      startPose,
+      slotIndex,
+    });
+  }
+
+  /** Rules ramp has a color but sim slot is empty — new classification during gate release. */
+  private findNewlyClassifiedRampSlot(alliance: Alliance): number {
+    const colors = this.rules.getState().rampOccupancy[alliance];
+    for (let i = 0; i < colors.length; i++) {
+      if (colors[i] !== null && this.rampSlots[alliance][i] === null) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   private respawnToHumanPlayer(artifactId: string, alliance: Alliance): void {
@@ -815,13 +937,13 @@ export class ArtifactSimulation {
     });
   }
 
-  private landArtifact(artifactId: string, pose: Pose): void {
+  private landArtifact(artifactId: string, pose: Pose, physics: PhysicsAdapter): void {
     const artifact = this.artifacts.get(artifactId);
     if (!artifact) return;
     artifact.phase = 'onField';
     artifact.opacity = 1;
     artifact.pose = { ...pose };
-    this.queueBodySpawn(artifactId, pose, 0, 0);
+    physics.activateArtifactBody(artifactId, pose, 0, 0);
   }
 
   private checkAutoGates(robots: RobotMechanismTick[], footprint: RobotFootprint): void {
@@ -896,6 +1018,7 @@ export class ArtifactSimulation {
         releaseAt: this.simTime + delayIndex * 0.15,
         velocity,
         spawnPose,
+        startPose: { ...artifact.pose },
       });
       this.log('gate', `Queued ${artifactId} from slot ${i}`, {
         spawnPose,
@@ -918,35 +1041,111 @@ export class ArtifactSimulation {
       const artifact = this.artifacts.get(item.artifactId);
       if (!artifact) continue;
 
-      this.rampSlots[item.targetAlliance][item.slotIndex] = null;
-      this.rules.removeFromRamp(item.targetAlliance, item.slotIndex);
-
-      if (item.openedByAlliance !== item.targetAlliance) {
-        this.rules.recordOpponentRampArtifactReleased(
-          item.openedByAlliance,
-          item.targetAlliance,
-          item.artifactId,
-        );
+      if (item.slotIndex >= 0) {
+        this.rampSlots[item.targetAlliance][item.slotIndex] = null;
+        this.rules.removeFromRamp(item.targetAlliance, item.slotIndex);
       }
 
-      artifact.phase = 'onField';
-      artifact.opacity = 1;
-      artifact.pose = { ...item.spawnPose };
-      physics.activateArtifactBody(
-        artifact.bodyId,
-        item.spawnPose,
-        item.velocity.x,
-        item.velocity.y,
+      const rollDistance = Math.hypot(
+        item.spawnPose.x - item.startPose.x,
+        item.spawnPose.y - item.startPose.y,
       );
-      this.log('gate', `Released ${item.artifactId} from ${item.targetAlliance} ramp`, {
-        spawn: item.spawnPose,
+      const duration = Math.max(
+        0.55,
+        Math.min(RAMP_ROLL_DURATION_S, rollDistance / GATE_RELEASE_SOUTH_VELOCITY),
+      );
+
+      this.rampRolls.push({
+        artifactId: item.artifactId,
+        targetAlliance: item.targetAlliance,
+        openedByAlliance: item.openedByAlliance,
+        slotIndex: item.slotIndex,
+        start: { ...item.startPose },
+        end: { ...item.spawnPose },
+        startTime: this.simTime,
+        duration,
         velocity: item.velocity,
+      });
+
+      artifact.phase = 'onRamp';
+      artifact.opacity = 1;
+      this.log('gate', `Rolling ${item.artifactId} down ${item.targetAlliance} ramp`, {
+        from: item.startPose,
+        to: item.spawnPose,
+        duration,
       });
     }
 
     const alliancesReleased = new Set(ready.map((r) => r.targetAlliance));
     for (const alliance of alliancesReleased) {
-      if (!this.gateQueue.some((q) => q.targetAlliance === alliance)) {
+      if (
+        !this.gateQueue.some((q) => q.targetAlliance === alliance) &&
+        !this.rampRolls.some((r) => r.targetAlliance === alliance)
+      ) {
+        this.rules.setGateOpen(alliance, false);
+      }
+    }
+  }
+
+  private updateRampRolls(physics: PhysicsAdapter): void {
+    if (this.rampRolls.length === 0) return;
+
+    const finished: RampRollAnimation[] = [];
+
+    for (const roll of this.rampRolls) {
+      const artifact = this.artifacts.get(roll.artifactId);
+      if (!artifact) {
+        finished.push(roll);
+        continue;
+      }
+
+      const t = Math.min(1, (this.simTime - roll.startTime) / roll.duration);
+      const ease = t * t * (3 - 2 * t);
+      artifact.pose = {
+        x: roll.start.x + (roll.end.x - roll.start.x) * ease,
+        y: roll.start.y + (roll.end.y - roll.start.y) * ease,
+        heading: 0,
+      };
+      physics.setArtifactPose(artifact.bodyId, artifact.pose);
+
+      if (t < 1) continue;
+
+      finished.push(roll);
+
+      if (roll.openedByAlliance !== roll.targetAlliance) {
+        this.rules.recordOpponentRampArtifactReleased(
+          roll.openedByAlliance,
+          roll.targetAlliance,
+          roll.artifactId,
+        );
+      }
+
+      artifact.phase = 'onField';
+      artifact.opacity = 1;
+      artifact.pose = { ...roll.end };
+      physics.activateArtifactBody(
+        artifact.bodyId,
+        roll.end,
+        roll.velocity.x,
+        roll.velocity.y,
+      );
+      this.log('gate', `Released ${roll.artifactId} from ${roll.targetAlliance} ramp`, {
+        spawn: roll.end,
+        velocity: roll.velocity,
+      });
+    }
+
+    if (finished.length === 0) return;
+
+    const finishedIds = new Set(finished.map((roll) => roll.artifactId));
+    this.rampRolls = this.rampRolls.filter((roll) => !finishedIds.has(roll.artifactId));
+
+    const alliancesDone = new Set(finished.map((r) => r.targetAlliance));
+    for (const alliance of alliancesDone) {
+      if (
+        !this.gateQueue.some((q) => q.targetAlliance === alliance) &&
+        !this.rampRolls.some((r) => r.targetAlliance === alliance)
+      ) {
         this.rules.setGateOpen(alliance, false);
       }
     }

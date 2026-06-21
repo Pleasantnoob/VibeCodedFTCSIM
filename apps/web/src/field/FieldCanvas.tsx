@@ -18,9 +18,11 @@ import type { MapVertexSelection } from './map-selection';
 import { barrierSelection, zoneSelection } from './map-selection';
 import type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 import { PLAYER_ROBOT_ID } from '../robot/match-robots';
+import { robotSkinById, type RobotSkinId } from '../robot/robot-skins';
 import { smoothAlpha, smoothPose, shouldSnapPose } from '../net/smooth-motion';
 import { extrapolateRobotSnapshot } from '../net/extrapolate';
 import type { RobotSnapshotEntry } from '@ftc-sim/net';
+import type { BotDebugState } from '@ftc-sim/bot';
 
 export type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 export { PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -40,14 +42,55 @@ function formatTeamLabel(teamNumber: string): string {
 function FieldRobotShape({
   entry,
   viewport,
+  robotSkinId,
 }: {
   entry: FieldRobotCatalogEntry;
   viewport: ReturnType<typeof createSquareFieldViewport>;
+  robotSkinId: RobotSkinId;
 }) {
   const scale = viewport.scalePxPerInch * VISUAL_SCALE;
   const lengthPx = entry.length * scale;
   const widthPx = entry.width * scale;
   const labelSize = Math.max(10, Math.min(14, widthPx * 0.38));
+  const skin = robotSkinById(robotSkinId);
+  const clipId = `field-robot-clip-${entry.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+  if (skin.imageUrl) {
+    return (
+      <>
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={-lengthPx / 2} y={-widthPx / 2} width={lengthPx} height={widthPx} rx={3} />
+          </clipPath>
+        </defs>
+        <g clipPath={`url(#${clipId})`}>
+          <g transform="rotate(90)">
+            <image
+              className="field-robot__skin-image"
+              href={skin.imageUrl}
+              x={-widthPx / 2}
+              y={-lengthPx / 2}
+              width={widthPx}
+              height={lengthPx}
+              preserveAspectRatio="xMidYMid slice"
+            />
+          </g>
+        </g>
+        <rect
+          className="field-robot__skin-frame"
+          x={-lengthPx / 2}
+          y={-widthPx / 2}
+          width={lengthPx}
+          height={widthPx}
+          rx={3}
+        />
+        <text className="field-robot__team field-robot__team--skin" fontSize={labelSize} x={0} y={0} transform="rotate(90)">
+          {formatTeamLabel(entry.teamNumber)}
+        </text>
+      </>
+    );
+  }
+
   return (
     <>
       <rect
@@ -106,6 +149,9 @@ export interface FieldCanvasProps {
   /** Client-side prediction pose for the locally driven robot. */
   ownedRobotId?: string | null;
   ownedPoseRef?: RefObject<Pose | null>;
+  showBotDebug?: boolean;
+  botDebugRef?: RefObject<BotDebugState[] | null>;
+  robotSkinId?: RobotSkinId;
 }
 
 const TILE_SIZE = 24;
@@ -156,6 +202,83 @@ function artifactSprite(color: ArtifactColor): string {
   return BUNDLED_ARTIFACT_SPRITES[color];
 }
 
+function botPathSignature(entry: BotDebugState): string {
+  const points = entry.path.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join('|');
+  return `${entry.task}:${points}`;
+}
+
+function botTargetSignature(entry: BotDebugState): string {
+  const target = entry.target ? `${Math.round(entry.target.x)},${Math.round(entry.target.y)}` : '-';
+  return `${entry.task}|${entry.artifactId ?? ''}:${target}`;
+}
+
+function botLabelLines(entry: BotDebugState): string[] {
+  if (entry.aiVersion === 'collect') {
+    if (entry.task === 'park') {
+      return [`PARK · stored ${entry.storedCount}`, entry.atGoal ? 'in base' : 'driving'];
+    }
+    if (entry.task === 'gate') {
+      return [`GATE · ramp full`, entry.atGoal ? 'tap done' : '→ gate'];
+    }
+    if (entry.task === 'score') {
+      const lines = [
+        `SCORE · stored ${entry.storedCount}`,
+        entry.inLaunchZone
+          ? entry.aligned
+            ? 'shooting'
+            : 'align goal'
+          : `→ launch · ${entry.nav?.distTask.toFixed(0) ?? '?'}in`,
+      ];
+      if (entry.nav?.flags.length) {
+        lines.push(`⚠ ${entry.nav.flags.join(', ')}`);
+      }
+      return lines;
+    }
+    const lines = [
+      `COLLECT · stored ${entry.storedCount}/3`,
+      entry.artifactId
+        ? `→ ${entry.artifactId} · ${entry.nav?.distTask.toFixed(0) ?? '?'}in`
+        : 'no target',
+    ];
+    if (entry.nav?.flags.length) {
+      lines.push(`⚠ ${entry.nav.flags.join(', ')}`);
+    }
+    return lines;
+  }
+  const version = entry.aiVersion ?? 'v1';
+  const drive = entry.driveFrame ?? 'robot';
+  const nav = entry.nav;
+  const lines = [
+    `${version.toUpperCase()} · ${entry.task.toUpperCase()} · stored ${entry.storedCount}`,
+    `drive ${drive} · replans ${entry.replanCount ?? 0} · wp ${nav?.waypointIndex ?? 0}/${nav?.pathLength ?? entry.pathLength}`,
+  ];
+  if (nav) {
+    lines.push(
+      `dist task ${nav.distTask.toFixed(0)} · goal ${nav.distGoal.toFixed(0)} · pursuit ${nav.distPursuit.toFixed(0)}`,
+    );
+    lines.push(
+      `graph ${nav.startNode}→${nav.goalNode} · src ${nav.driveSource}`,
+    );
+    if (nav.flags.length > 0) {
+      lines.push(`⚠ ${nav.flags.join(', ')}`);
+    } else {
+      lines.push(
+        `launch ${entry.inLaunchZone ? 1 : 0} · aligned ${entry.aligned ? 1 : 0} · stuck ${entry.stuckPhase}`,
+      );
+    }
+  } else {
+    lines.push(
+      `launch ${entry.inLaunchZone ? 1 : 0} · aligned ${entry.aligned ? 1 : 0} · stuck ${entry.stuckPhase}`,
+    );
+  }
+  return lines;
+}
+
+function botPursuitSignature(entry: BotDebugState): string {
+  const p = entry.nav?.pursuitTarget;
+  return p ? `${Math.round(p.x)},${Math.round(p.y)}|${entry.nav?.waypointIndex ?? 0}` : '-';
+}
+
 export function FieldCanvas({
   field,
   barriers,
@@ -190,10 +313,35 @@ export function FieldCanvas({
   netSnapshotAtRef,
   ownedRobotId = null,
   ownedPoseRef,
+  showBotDebug = false,
+  botDebugRef,
+  robotSkinId = 'transparent',
 }: FieldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MapVertexSelection | null>(null);
   const robotElsRef = useRef<Map<string, SVGGElement>>(new Map());
+  const botDebugPathsLayerRef = useRef<SVGGElement>(null);
+  const botDebugLabelsLayerRef = useRef<SVGGElement>(null);
+  const botCollectScanLayerRef = useRef<SVGGElement>(null);
+  const botCollectScanElsRef = useRef<Map<string, SVGRectElement>>(new Map());
+  const botDebugElsRef = useRef<
+    Map<
+      string,
+      {
+        path: SVGPolylineElement;
+        target: SVGCircleElement;
+        pursuitLine: SVGLineElement;
+        pursuit: SVGCircleElement;
+        waypoint: SVGRectElement;
+        labelBg: SVGRectElement;
+        label: SVGTextElement;
+      }
+    >
+  >(new Map());
+  const botPathSignatureRef = useRef<Map<string, string>>(new Map());
+  const botTargetSignatureRef = useRef<Map<string, string>>(new Map());
+  const botPursuitSignatureRef = useRef<Map<string, string>>(new Map());
+  const botLabelTextRef = useRef<Map<string, string>>(new Map());
   const smoothedRobotPosesRef = useRef<Map<string, Pose>>(new Map());
   const robotMotionLastRef = useRef(performance.now());
   const lastNetSnapshotTickRef = useRef(netSnapshotTick);
@@ -310,6 +458,241 @@ export function FieldCanvas({
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion, ownedRobotId, ownedPoseRef]);
+
+  useEffect(() => {
+    if (!showBotDebug || !botDebugRef || !fieldRobotsRef) return;
+    const pathsLayer = botDebugPathsLayerRef.current;
+    const labelsLayer = botDebugLabelsLayerRef.current;
+    if (!pathsLayer || !labelsLayer) return;
+
+    let frame = 0;
+    const tick = () => {
+      const debugEntries = botDebugRef.current ?? [];
+      const robots = fieldRobotsRef.current ?? [];
+      const seen = new Set<string>();
+
+      for (const entry of debugEntries) {
+        seen.add(entry.robotId);
+        let els = botDebugElsRef.current.get(entry.robotId);
+        if (!els) {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+          path.classList.add('field-bot-debug-path');
+          path.classList.add(`field-bot-debug-path--${entry.alliance}`);
+          const target = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          target.classList.add('field-bot-debug-target');
+          target.classList.add(`field-bot-debug-target--${entry.alliance}`);
+          target.setAttribute('r', '5');
+          const pursuitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          pursuitLine.classList.add('field-bot-debug-pursuit-line');
+          const pursuit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          pursuit.classList.add('field-bot-debug-pursuit');
+          pursuit.setAttribute('r', '4');
+          const waypoint = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          waypoint.classList.add('field-bot-debug-waypoint');
+          waypoint.setAttribute('width', '8');
+          waypoint.setAttribute('height', '8');
+          waypoint.setAttribute('x', '-4');
+          waypoint.setAttribute('y', '-4');
+          const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          labelBg.classList.add('field-bot-debug-label-bg');
+          labelBg.classList.add(`field-bot-debug-label-bg--${entry.alliance}`);
+          const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          label.classList.add('field-bot-debug-label');
+          label.classList.add(`field-bot-debug-label--${entry.alliance}`);
+          label.setAttribute('textAnchor', 'middle');
+          pathsLayer.appendChild(path);
+          pathsLayer.appendChild(pursuitLine);
+          pathsLayer.appendChild(target);
+          pathsLayer.appendChild(pursuit);
+          pathsLayer.appendChild(waypoint);
+          labelsLayer.appendChild(labelBg);
+          labelsLayer.appendChild(label);
+          els = { path, target, pursuitLine, pursuit, waypoint, labelBg, label };
+          botDebugElsRef.current.set(entry.robotId, els);
+        }
+
+        const pathKey = botPathSignature(entry);
+        if (botPathSignatureRef.current.get(entry.robotId) !== pathKey) {
+          botPathSignatureRef.current.set(entry.robotId, pathKey);
+          if (entry.path.length >= 2) {
+            els.path.setAttribute(
+              'points',
+              entry.path
+                .map((pt) => {
+                  const px = pedroToFieldPx(pt, viewport);
+                  return `${px.x},${px.y}`;
+                })
+                .join(' '),
+            );
+            els.path.style.display = '';
+          } else {
+            els.path.style.display = 'none';
+          }
+        }
+
+        if (entry.target) {
+          const targetKey = botTargetSignature(entry);
+          if (botTargetSignatureRef.current.get(entry.robotId) !== targetKey) {
+            botTargetSignatureRef.current.set(entry.robotId, targetKey);
+            const targetPx = pedroToFieldPx(entry.target, viewport);
+            els.target.setAttribute('cx', String(targetPx.x));
+            els.target.setAttribute('cy', String(targetPx.y));
+          }
+          els.target.style.display = '';
+        } else {
+          els.target.style.display = 'none';
+        }
+
+        const pursuitKey = botPursuitSignature(entry);
+        const robot = robots.find((r) => r.id === entry.robotId);
+        const robotPose =
+          robot &&
+          (smoothNetMotion
+            ? (smoothedRobotPosesRef.current.get(robot.id) ?? robot.pose)
+            : robot.pose);
+
+        if (entry.nav?.pursuitTarget && robotPose) {
+          if (botPursuitSignatureRef.current.get(entry.robotId) !== pursuitKey) {
+            botPursuitSignatureRef.current.set(entry.robotId, pursuitKey);
+            const pursuitPx = pedroToFieldPx(entry.nav.pursuitTarget, viewport);
+            els.pursuit.setAttribute('cx', String(pursuitPx.x));
+            els.pursuit.setAttribute('cy', String(pursuitPx.y));
+          }
+          const robotPx = pedroToFieldPx(robotPose, viewport);
+          const pursuitPx = pedroToFieldPx(entry.nav.pursuitTarget, viewport);
+          els.pursuitLine.setAttribute('x1', String(robotPx.x));
+          els.pursuitLine.setAttribute('y1', String(robotPx.y));
+          els.pursuitLine.setAttribute('x2', String(pursuitPx.x));
+          els.pursuitLine.setAttribute('y2', String(pursuitPx.y));
+          els.pursuit.style.display = '';
+          els.pursuitLine.style.display = '';
+
+          const wpIndex = entry.nav.waypointIndex;
+          const wp = entry.path[wpIndex];
+          if (wp) {
+            const wpPx = pedroToFieldPx(wp, viewport);
+            els.waypoint.setAttribute('transform', `translate(${wpPx.x} ${wpPx.y})`);
+            els.waypoint.style.display = '';
+          } else {
+            els.waypoint.style.display = 'none';
+          }
+        } else {
+          els.pursuit.style.display = 'none';
+          els.pursuitLine.style.display = 'none';
+          els.waypoint.style.display = 'none';
+        }
+
+        const catalogEntry = fieldRobotCatalog.find((r) => r.id === entry.robotId);
+        const pose = robotPose;
+        if (pose) {
+          const center = pedroToFieldPx(pose, viewport);
+          const robotHalfPx = catalogEntry
+            ? (catalogEntry.length * viewport.scalePxPerInch * VISUAL_SCALE) / 2
+            : 14;
+          const labelY = center.y - robotHalfPx - 34;
+          const labelText = botLabelLines(entry).join('\n');
+          if (botLabelTextRef.current.get(entry.robotId) !== labelText) {
+            botLabelTextRef.current.set(entry.robotId, labelText);
+            while (els.label.firstChild) els.label.removeChild(els.label.firstChild);
+            botLabelLines(entry).forEach((line, index) => {
+              const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+              tspan.setAttribute('x', String(center.x));
+              tspan.setAttribute('dy', index === 0 ? '0' : '1.2em');
+              tspan.textContent = line;
+              els.label.appendChild(tspan);
+            });
+          } else {
+            const tspans = els.label.querySelectorAll('tspan');
+            tspans.forEach((tspan) => tspan.setAttribute('x', String(center.x)));
+          }
+          els.label.setAttribute('x', String(center.x));
+          els.label.setAttribute('y', String(labelY));
+          const bbox = els.label.getBBox();
+          els.labelBg.setAttribute('x', String(bbox.x - 6));
+          els.labelBg.setAttribute('y', String(bbox.y - 3));
+          els.labelBg.setAttribute('width', String(bbox.width + 12));
+          els.labelBg.setAttribute('height', String(bbox.height + 6));
+          els.label.style.display = '';
+          els.labelBg.style.display = '';
+        } else {
+          els.label.style.display = 'none';
+          els.labelBg.style.display = 'none';
+        }
+      }
+
+      for (const [id, els] of botDebugElsRef.current) {
+        if (!seen.has(id)) {
+          els.path.remove();
+          els.pursuitLine.remove();
+          els.target.remove();
+          els.pursuit.remove();
+          els.waypoint.remove();
+          els.label.remove();
+          els.labelBg.remove();
+          botDebugElsRef.current.delete(id);
+          botPathSignatureRef.current.delete(id);
+          botTargetSignatureRef.current.delete(id);
+          botPursuitSignatureRef.current.delete(id);
+          botLabelTextRef.current.delete(id);
+        }
+      }
+
+      const polledSeen = new Set<string>();
+      const scanLayer = botCollectScanLayerRef.current;
+      for (const entry of debugEntries) {
+        if (entry.task !== 'collect' || !entry.collectScan) continue;
+        for (const polled of entry.collectScan.polled) {
+          if (polled.chosen) continue;
+          const key = `${entry.robotId}:${polled.id}`;
+          polledSeen.add(key);
+          let rect = botCollectScanElsRef.current.get(key);
+          if (!rect && scanLayer) {
+            rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.classList.add('field-bot-collect-pass');
+            scanLayer.appendChild(rect);
+            botCollectScanElsRef.current.set(key, rect);
+          }
+          if (!rect) continue;
+          const center = pedroToFieldPx({ x: polled.x, y: polled.y }, viewport);
+          const box = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
+          rect.setAttribute('x', String(center.x - box / 2));
+          rect.setAttribute('y', String(center.y - box / 2));
+          rect.setAttribute('width', String(box));
+          rect.setAttribute('height', String(box));
+          rect.style.display = '';
+        }
+      }
+      for (const [key, rect] of botCollectScanElsRef.current) {
+        if (polledSeen.has(key)) continue;
+        rect.remove();
+        botCollectScanElsRef.current.delete(key);
+      }
+
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const els of botDebugElsRef.current.values()) {
+        els.path.remove();
+        els.pursuitLine.remove();
+        els.target.remove();
+        els.pursuit.remove();
+        els.waypoint.remove();
+        els.label.remove();
+        els.labelBg.remove();
+      }
+      botDebugElsRef.current.clear();
+      for (const rect of botCollectScanElsRef.current.values()) {
+        rect.remove();
+      }
+      botCollectScanElsRef.current.clear();
+      botPathSignatureRef.current.clear();
+      botPursuitSignatureRef.current.clear();
+      botLabelTextRef.current.clear();
+    };
+  }, [showBotDebug, botDebugRef, fieldRobotsRef, fieldRobotCatalog, viewport, smoothNetMotion]);
 
   useEffect(() => {
     if (!showArtifacts || !liveArtifactsRef) return;
@@ -633,6 +1016,9 @@ export function FieldCanvas({
             />
           )}
 
+          <g ref={botCollectScanLayerRef} className="field-bot-debug-layer field-bot-debug-layer--collect-pass" aria-hidden />
+          <g ref={botDebugPathsLayerRef} className="field-bot-debug-layer field-bot-debug-layer--paths" aria-hidden />
+
           {fieldRobotCatalog.map((entry) => (
             <g
               key={entry.id}
@@ -644,7 +1030,7 @@ export function FieldCanvas({
                 entry.id === PLAYER_ROBOT_ID ? ' field-robot--player' : ''
               }`}
             >
-              <FieldRobotShape entry={entry} viewport={viewport} />
+              <FieldRobotShape entry={entry} viewport={viewport} robotSkinId={robotSkinId} />
             </g>
           ))}
 
@@ -680,6 +1066,8 @@ export function FieldCanvas({
               </g>
             );
           })()}
+
+          <g ref={botDebugLabelsLayerRef} className="field-bot-debug-layer field-bot-debug-layer--labels" aria-hidden />
         </svg>
       </div>
     </div>

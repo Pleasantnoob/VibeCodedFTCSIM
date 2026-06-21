@@ -1,6 +1,7 @@
 import type { DriveFrame } from '@ftc-sim/robot';
 import type { SoloSpawnSlot } from '../robot/match-robots';
 import { DEFAULT_SIM_ROBOT_CONFIG, type SimRobotConfig } from '../robot/robot-config';
+import { DEFAULT_ROBOT_SKIN_ID, parseRobotSkinId, type RobotSkinId } from '../robot/robot-skins';
 import { DEFAULT_DRIVE_KEYBINDS, type DriveKeybinds } from './drive-keybind-defaults';
 
 export interface PlayerSettings {
@@ -10,6 +11,7 @@ export interface PlayerSettings {
   keybinds: DriveKeybinds;
   robot: SimRobotConfig;
   robotPreload: boolean;
+  robotSkinId: RobotSkinId;
   spawnSlot: SoloSpawnSlot;
 }
 
@@ -26,6 +28,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   keybinds: { ...DEFAULT_DRIVE_KEYBINDS },
   robot: { ...DEFAULT_SIM_ROBOT_CONFIG },
   robotPreload: true,
+  robotSkinId: DEFAULT_ROBOT_SKIN_ID,
   spawnSlot: 'blue-far',
 };
 
@@ -144,6 +147,7 @@ export function loadPlayerSettings(): PlayerSettings {
       keybinds: mergeKeybinds(parsed.keybinds),
       robot: clampRobotConfig(parsed.robot),
       robotPreload: parsed.robotPreload !== false,
+      robotSkinId: parseRobotSkinId(parsed.robotSkinId),
       spawnSlot: parseSpawnSlot(parsed.spawnSlot),
     };
   } catch {
@@ -176,6 +180,9 @@ export function patchPlayerSettings(patch: Partial<PlayerSettings>): PlayerSetti
   }
   if (patch.spawnSlot !== undefined) {
     next.spawnSlot = parseSpawnSlot(patch.spawnSlot);
+  }
+  if (patch.robotSkinId !== undefined) {
+    next.robotSkinId = parseRobotSkinId(patch.robotSkinId);
   }
   savePlayerSettings(next);
   return next;

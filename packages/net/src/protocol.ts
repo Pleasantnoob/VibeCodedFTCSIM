@@ -73,6 +73,16 @@ export interface HostRoomSettings {
   teamLabel?: string;
 }
 
+/** Serializable practice-bot slot for host → match-server sync. */
+export interface NetBotSlotConfig {
+  robotId: string;
+  enabled: boolean;
+  difficulty: 'easy' | 'normal' | 'hard';
+  runAuto: boolean;
+  autoPathText?: string | null;
+  autoPathLabel?: string;
+}
+
 export interface StateSnapshot {
   type: 'snapshot';
   tick: number;
@@ -121,6 +131,7 @@ export type ClientMessage =
   | { type: 'input'; frame: InputFrame }
   | { type: 'host_cmd'; cmd: HostCommand }
   | { type: 'set_auto_path'; pathText: string }
+  | { type: 'set_bot_slots'; slots: NetBotSlotConfig[] }
   | { type: 'claim_slot'; robotId: string; teamLabel?: string }
   | { type: 'ping'; t: number }
   | { type: 'latency_report'; rttMs: number };

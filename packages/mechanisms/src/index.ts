@@ -4,6 +4,7 @@ export type {
   RobotMechanismTick,
   SimArtifactState,
   MechanismLogEntry,
+  StoredArtifact,
 } from './types.js';
 export { DEFAULT_PLAYER_ROBOT_ID } from './types.js';
 export type { MechanismLogCategory } from './mechanism-log.js';

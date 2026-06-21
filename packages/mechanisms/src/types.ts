@@ -50,6 +50,19 @@ export interface GateReleaseItem {
   releaseAt: number;
   velocity: { x: number; y: number };
   spawnPose: { x: number; y: number; heading: number };
+  startPose: { x: number; y: number; heading: number };
+}
+
+export interface RampRollAnimation {
+  artifactId: string;
+  targetAlliance: Alliance;
+  openedByAlliance: Alliance;
+  slotIndex: number;
+  start: Pose;
+  end: Pose;
+  startTime: number;
+  duration: number;
+  velocity: Vector2;
 }
 
 export interface RobotMechanismStateSnapshot {

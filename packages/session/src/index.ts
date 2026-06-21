@@ -5,3 +5,6 @@ export * from './match-robots.js';
 export * from './physics-scene.js';
 export * from './robot-config.js';
 export * from './sim-session.js';
+export * from './bot-world-snapshot.js';
+export * from './bot-adapter.js';
+export * from './bot-slots-net.js';

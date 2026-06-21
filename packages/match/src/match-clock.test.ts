@@ -40,6 +40,7 @@ describe('MatchClock', () => {
     snap = clock.snapshot();
     expect(snap.phase).toBe('post');
     expect(snap.timeRemainingInPhase).toBe(0);
+    expect(snap.running).toBe(false);
     expect(snap.allowsDrive).toBe(false);
   });
 

@@ -13,6 +13,7 @@ export const SHOT_SPEED_BASE = 30;
 export const OVERFLOW_SOUTH_VELOCITY = 18;
 export const GATE_RELEASE_SOUTH_VELOCITY = 26;
 export const GATE_RELEASE_INTERVAL_S = 0.12;
+export const RAMP_ROLL_DURATION_S = 0.9;
 export const RAMP_BOTTOM_Y = 70;
 export const RAMP_STACK_DIAMETER = ARTIFACT_RADIUS_IN * 2;
 

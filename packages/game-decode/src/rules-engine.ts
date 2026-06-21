@@ -34,12 +34,26 @@ function opponent(alliance: Alliance): Alliance {
   return alliance === 'red' ? 'blue' : 'red';
 }
 
+const PARKING_RANK: Record<'none' | 'partial' | 'full', number> = {
+  none: 0,
+  partial: 1,
+  full: 2,
+};
+
+function maxParkingStatus(
+  a: 'none' | 'partial' | 'full',
+  b: 'none' | 'partial' | 'full',
+): 'none' | 'partial' | 'full' {
+  return PARKING_RANK[a] >= PARKING_RANK[b] ? a : b;
+}
+
 export class DecodeRulesEngine {
   private rules = getDecodeRules();
   private state: MatchState;
   private patternScored: Record<'auto' | 'teleop', boolean> = { auto: false, teleop: false };
   private foulCooldownUntil = new Map<string, number>();
   private forcedFullBaseRobots = new Set<string>();
+  private autoPeriodEntered = false;
 
   constructor(private ctx: RulesEngineContext) {
     this.state = this.createInitialState(ctx.motif ?? this.randomMotif(ctx.seed ?? 42));
@@ -57,10 +71,12 @@ export class DecodeRulesEngine {
     this.patternScored = { auto: false, teleop: false };
     this.foulCooldownUntil.clear();
     this.forcedFullBaseRobots.clear();
+    this.autoPeriodEntered = false;
     this.state = this.createInitialState(motif ?? this.randomMotif(this.ctx.seed ?? 42));
   }
 
   syncPhase(phase: MatchPhase, timeElapsed: number): void {
+    if (phase === 'auto') this.autoPeriodEntered = true;
     this.state.phase = phase;
     this.state.timeElapsed = timeElapsed;
   }
@@ -133,6 +149,7 @@ export class DecodeRulesEngine {
 
   /** Manual §10.5.3 E — LEAVE assessed at end of AUTO (3 pts per robot, once each). */
   evaluateAutoLeave(robots: MatchRobotSnapshot[]): number {
+    if (!this.autoPeriodEntered) return 0;
     if (this.state.leaveScored) return 0;
     this.state.leaveScored = true;
 
@@ -216,6 +233,19 @@ export class DecodeRulesEngine {
     this.evaluateMatchParking([{ id: 'robot', alliance, footprint: robotFootprint }]);
   }
 
+  /** Remember best BASE contact during endgame (full beats partial). */
+  trackMatchParkingProgress(robots: MatchRobotSnapshot[]): void {
+    for (const robot of robots) {
+      const base = this.getZone('base_zone', robot.alliance);
+      if (!base) continue;
+      const now = this.forcedFullBaseRobots.has(robot.id)
+        ? 'full'
+        : evaluateBaseReturn(robot.footprint, base.polygon);
+      const prev = this.state.robotParking[robot.id] ?? 'none';
+      this.state.robotParking[robot.id] = maxParkingStatus(prev, now);
+    }
+  }
+
   /** Score BASE parking for every robot on the field (once per match). */
   evaluateMatchParking(robots: MatchRobotSnapshot[]): void {
     if (this.state.parkingScored) return;
@@ -229,13 +259,10 @@ export class DecodeRulesEngine {
       let fullCount = 0;
 
       for (const robot of allianceRobots) {
-        let result = this.forcedFullBaseRobots.has(robot.id)
+        const live = this.forcedFullBaseRobots.has(robot.id)
           ? 'full'
           : evaluateBaseReturn(robot.footprint, base.polygon);
-
-        if (result === 'none' && this.state.robotParking[robot.id]) {
-          result = this.state.robotParking[robot.id]!;
-        }
+        let result = maxParkingStatus(live, this.state.robotParking[robot.id] ?? 'none');
 
         this.state.robotParking[robot.id] = result;
         const bucket = this.state.byAlliance[alliance].teleopScore;

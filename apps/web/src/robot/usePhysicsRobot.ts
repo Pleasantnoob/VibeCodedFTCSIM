@@ -5,19 +5,31 @@ import type { SimArtifactState, MechanismLogEntry } from '@ftc-sim/mechanisms';
 import type { MatchPhase, MatchSnapshot } from '@ftc-sim/match';
 import type { AutoSequenceRunner } from '@ftc-sim/pedro';
 import {
+  BotManager,
+  defaultPracticeBotSlots,
+  type BotDebugState,
+  type BotSlotConfig,
+} from '@ftc-sim/bot';
+import {
   DEFAULT_KINEMATIC_ROBOT,
   stepMultiRobotDrive,
   type DriveFrame,
   type HolonomicInput,
 } from '@ftc-sim/robot';
-import { resolveDriveInput } from '@ftc-sim/session';
+import {
+  botSampleToDriveSample,
+  buildBotWorldSnapshotFromWebContext,
+  resolveDriveInput,
+  simRobotFootprint,
+  simRobotLimits,
+} from '@ftc-sim/session';
 import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION } from '../artifacts/artifact-world';
 import type { DriveTelemetryFrame } from '../dev/inject-drive';
 import type { EditableBarrier } from '../field/barrier-editor';
 import type { DriveInputSamplerState } from '../input/drive-input-sampler';
 import { sampleDriveInput } from '../input/drive-input-sampler';
 import type { SimRobotConfig } from './robot-config';
-import { DEFAULT_SIM_ROBOT_CONFIG, simRobotFootprint, simRobotLimits } from './robot-config';
+import { DEFAULT_SIM_ROBOT_CONFIG } from './robot-config';
 import {
   buildFieldRobotCatalog,
   buildFieldRobotRenderStates,
@@ -63,6 +75,10 @@ export interface PhysicsRobotOptions {
   playerTeamNumber?: string;
   teleopDriveFrameRef?: RefObject<DriveFrame>;
   robotPreloadRef?: RefObject<boolean>;
+  botManagerRef?: RefObject<BotManager | null>;
+  botsEnabledRef?: RefObject<boolean>;
+  botSlotConfigsRef?: RefObject<BotSlotConfig[]>;
+  botsEnabled?: boolean;
 }
 
 export function usePhysicsRobot(
@@ -86,6 +102,7 @@ export function usePhysicsRobot(
   const [liveArtifacts, setLiveArtifacts] = useState<SimArtifactState[]>([]);
   const [matchGameState, setMatchGameState] = useState<MatchState | null>(null);
   const [mechanismDebugLogs, setMechanismDebugLogs] = useState<MechanismLogEntry[]>([]);
+  const [botDebugLogs, setBotDebugLogs] = useState<import('@ftc-sim/bot').BotDebugLogEntry[]>([]);
   const [physicsEvents, setPhysicsEvents] = useState<string[]>(['[info] Initializing physics…']);
   const [fieldRobotCatalog, setFieldRobotCatalog] = useState<FieldRobotCatalogEntry[]>([]);
 
@@ -105,6 +122,9 @@ export function usePhysicsRobot(
   const prevMatchPhaseRef = useRef<MatchPhase>('setup');
   const lastFootprintRef = useRef({ width: 18, length: 18 });
   const barriersSyncedRef = useRef(false);
+  const botDebugRef = useRef<BotDebugState[]>([]);
+  const simTickIndexRef = useRef(0);
+  const advanceSimulationRef = useRef<(steps: number) => void>(() => {});
 
   const allowsDriveRef = simOptions?.allowsDriveRef;
   const matchActiveRef = simOptions?.matchActiveRef;
@@ -120,11 +140,39 @@ export function usePhysicsRobot(
   const practiceRobotsRef = simOptions?.practiceRobotsRef;
   const playerTeamNumber = simOptions?.playerTeamNumber ?? '-4';
   const robotPreloadRef = simOptions?.robotPreloadRef;
+  const botManagerRef = simOptions?.botManagerRef;
+  const botsEnabledRef = simOptions?.botsEnabledRef;
+  const botSlotConfigsRef = simOptions?.botSlotConfigsRef;
+  const botsEnabled = simOptions?.botsEnabled ?? botsEnabledRef?.current ?? false;
+
+  useEffect(() => {
+    const botManager = botManagerRef?.current;
+    if (!botManager || !botsEnabled) return;
+    botManager.setDebugLogging(true);
+    botManager.setSlots(
+      botSlotConfigsRef?.current ?? defaultPracticeBotSlots('normal'),
+    );
+  }, [botManagerRef, botsEnabled, botSlotConfigsRef]);
 
   const layoutOptions = useCallback(
     () => ({ preload: robotPreloadRef?.current ?? false }),
     [robotPreloadRef],
   );
+
+  const applyPracticeBotPreloads = useCallback(() => {
+    if (!botsEnabledRef?.current) return;
+    const world = artifactWorldRef.current;
+    const botManager = botManagerRef?.current;
+    if (!world || !botManager) return;
+    const robotConfig = robotConfigRef?.current ?? DEFAULT_SIM_ROBOT_CONFIG;
+    const footprint = simRobotFootprint(robotConfig);
+    for (const slot of botManager.getSlots()) {
+      if (!slot.enabled) continue;
+      const npc = npcMotionRef.current.find((entry) => entry.id === slot.robotId);
+      if (!npc) continue;
+      world.applyClaimedSlotPreload(npc.id, npc.alliance, npc.pose, footprint);
+    }
+  }, [botManagerRef, botsEnabledRef, robotConfigRef]);
 
   const refreshFieldRobotsRef = useCallback(() => {
     const robotConfig = robotConfigRef?.current ?? DEFAULT_SIM_ROBOT_CONFIG;
@@ -221,8 +269,11 @@ export function usePhysicsRobot(
         setMechanismDebugLogs(artifactWorldRef.current.getDebugLogs());
       }
       prevMatchPhaseRef.current = 'setup';
+      simTickIndexRef.current = 0;
+      botManagerRef?.current?.reset();
+      applyPracticeBotPreloads();
     },
-    [startPose, artifactStaging, artifactFrictionRef, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, layoutOptions],
+    [startPose, artifactStaging, artifactFrictionRef, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, layoutOptions, botManagerRef, applyPracticeBotPreloads],
   );
 
   useEffect(() => {
@@ -257,6 +308,7 @@ export function usePhysicsRobot(
         setMatchGameState(world.getMatchState());
         setMechanismDebugLogs(world.getDebugLogs());
         world.setArtifactFriction(artifactFrictionRef?.current ?? DEFAULT_ARTIFACT_FRICTION);
+        applyPracticeBotPreloads();
         setPhysicsEvents(['[info] Rapier artifacts ready', '[info] Kinematic drive + mechanisms ready']);
         setReady(true);
       })
@@ -272,7 +324,7 @@ export function usePhysicsRobot(
       artifactWorldRef.current = null;
       setReady(false);
     };
-  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld, layoutOptions, startPose]);
+  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld, layoutOptions, startPose, applyPracticeBotPreloads]);
 
   useEffect(() => {
     if (!ready) {
@@ -308,190 +360,299 @@ export function usePhysicsRobot(
       setMatchGameState(artifactWorldRef.current.getMatchState());
     };
 
-    const tick = (now: number) => {
-      const { steps, dt } = advanceAccumulator(accRef.current, now);
-
-      const matchSnapNow = getMatchSnapshotRef?.current?.();
-      const matchActive =
-        matchSnapNow !== undefined
-          ? matchSnapNow.running && !matchSnapNow.paused
-          : (matchActiveRef?.current ?? true);
-
-      const phase = matchSnapNow?.phase ?? 'setup';
-
-      if (enabledRef.current && steps > 0) {
-        const sample =
-          sampleInputRef.current?.() ??
-          ({
-            input: ZERO_INPUT,
-            debug: {
-              rawForward: 0,
-              rawStrafe: 0,
-              rawTurn: 0,
-              forward: 0,
-              strafe: 0,
-              turn: 0,
-              source: 'none' as const,
-              padAxes: [0, 0, 0, 0] as [number, number, number, number],
-              intake: 0,
-              shoot: false,
-              gate: false,
-            },
-            mechanism: {
-              command: {},
-              shootEdge: false,
-              gateEdge: false,
-              shootHeld: false,
-            },
+    const runSimulationSteps = (steps: number, dt: number) => {
+      const sample =
+        sampleInputRef.current?.() ??
+        ({
+          input: ZERO_INPUT,
+          debug: {
+            rawForward: 0,
+            rawStrafe: 0,
+            rawTurn: 0,
+            forward: 0,
+            strafe: 0,
+            turn: 0,
             source: 'none' as const,
-          } satisfies ReturnType<typeof sampleDriveInput>);
+            padAxes: [0, 0, 0, 0] as [number, number, number, number],
+            intake: 0,
+            shoot: false,
+            gate: false,
+          },
+          mechanism: {
+            command: {},
+            shootEdge: false,
+            gateEdge: false,
+            shootHeld: false,
+          },
+          source: 'none' as const,
+        } satisfies ReturnType<typeof sampleDriveInput>);
 
-        const injected = samplerRef.current?.injectInput;
+      const injected = samplerRef.current?.injectInput;
+      const robotConfig = robotConfigRef?.current;
+      const limits = robotConfig ? simRobotLimits(robotConfig) : DEFAULT_KINEMATIC_ROBOT.limits;
+      const footprint = robotConfig ? simRobotFootprint(robotConfig) : DEFAULT_KINEMATIC_ROBOT.footprint;
+      let didSimulate = false;
+
+      for (let i = 0; i < steps; i++) {
+        const matchSnapNow = getMatchSnapshotRef?.current?.();
+        const matchActive =
+          matchSnapNow !== undefined
+            ? matchSnapNow.running && !matchSnapNow.paused
+            : (matchActiveRef?.current ?? true);
+        const phase = matchSnapNow?.phase ?? 'setup';
+        const shouldSimulateWorld =
+          matchActive && (phase === 'auto' || phase === 'transition' || phase === 'teleop');
+
+        if (matchActive || phase === 'post') {
+          applyMatchPhaseTransitions();
+        }
+        if (!shouldSimulateWorld) {
+          continue;
+        }
+        didSimulate = true;
+
         const allowsDrive =
           (matchSnapNow?.allowsDrive ?? allowsDriveRef?.current ?? false) &&
           !(driveBlockedRef?.current ?? false);
         const controlSource = matchSnapNow?.controlSource ?? 'none';
         const follower = followerRef?.current ?? null;
-        const robotConfig = robotConfigRef?.current;
-        const limits = robotConfig ? simRobotLimits(robotConfig) : DEFAULT_KINEMATIC_ROBOT.limits;
-        const footprint = robotConfig ? simRobotFootprint(robotConfig) : DEFAULT_KINEMATIC_ROBOT.footprint;
 
-        for (let i = 0; i < steps; i++) {
-          if (matchActive) {
-            applyMatchPhaseTransitions();
-          }
-          const { input: driveInput, driveFrame } = resolveDriveInput(
-            {
-              input: sample.input,
-              driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'field',
-              mechanism: sample.mechanism,
-            },
-            injected,
-            allowsDrive,
-            controlSource,
-            phase,
-            matchActive,
-            follower,
-            poseRef.current,
-            linearRef.current,
-            dt,
-            limits,
-          );
-          lastDriveInputRef.current = driveInput;
+        const { input: driveInput, driveFrame } = resolveDriveInput(
+          {
+            input: sample.input,
+            driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'field',
+            mechanism: sample.mechanism,
+          },
+          injected,
+          allowsDrive,
+          controlSource,
+          phase,
+          matchActive,
+          follower,
+          poseRef.current,
+          linearRef.current,
+          dt,
+          limits,
+        );
+        lastDriveInputRef.current = driveInput;
 
-          const multi = stepMultiRobotDrive({
-            player: {
-              pose: poseRef.current,
-              linear: linearRef.current,
-              angular: angularRef.current,
-              input: driveInput,
-            },
-            npcs: npcMotionRef.current,
-            dt,
-            limits,
-            footprint,
+        const botSamples = new Map<string, ReturnType<typeof botSampleToDriveSample>>();
+        const botManager = botManagerRef?.current;
+        const botsEnabled = botsEnabledRef?.current ?? false;
+        const botDriveAllowed =
+          allowsDrive || phase === 'auto' || phase === 'transition';
+
+        if (botsEnabled && botManager && matchActive && npcMotionRef.current.length > 0) {
+          const mechanismSnap = artifactWorldRef.current?.getSnapshot();
+          const world = buildBotWorldSnapshotFromWebContext({
+            tickIndex: simTickIndexRef.current,
+            match: matchSnapNow!,
+            field,
+            playerAlliance: alliance,
+            playerPose: poseRef.current,
+            playerLinear: linearRef.current,
+            playerAngular: angularRef.current,
+            playerStored: mechanismSnap?.stored ?? [],
+            npcRobots: npcMotionRef.current.map((npc) => ({
+              id: npc.id,
+              alliance: npc.alliance,
+              pose: npc.pose,
+              linear: npc.linear,
+              angular: npc.angular,
+              stored: mechanismSnap?.byRobot[npc.id]?.stored ?? [],
+            })),
+            artifacts: liveArtifactsRef.current.map((artifact) => ({
+              id: artifact.id,
+              color: artifact.color,
+              phase: artifact.phase,
+              pose: { ...artifact.pose },
+              source: artifact.source,
+            })),
+            gameState: artifactWorldRef.current?.getMatchState() ?? null,
             barriers: barriersRef.current,
-            fieldSizeInches: 144,
-            driveFrame,
-            maxAcceleration: robotConfig?.maxAcceleration ?? 48,
-            maxAngularAcceleration: robotConfig?.maxAngularAcceleration ?? 18,
+            footprint,
+            limits,
+            robotConfig: {
+              mass: robotConfig?.mass ?? 40,
+              maxAcceleration: robotConfig?.maxAcceleration ?? 48,
+              maxAngularAcceleration: robotConfig?.maxAngularAcceleration ?? 18,
+            },
+            humanInputRobotIds: new Set([PLAYER_ROBOT_ID]),
+            botSlots: botManager.getSlots(),
           });
-          poseRef.current = multi.player.pose;
-          linearRef.current = multi.player.linear;
-          angularRef.current = multi.player.angular;
-          npcMotionRef.current = multi.npcs.map((npc, index) => ({
-            ...npcMotionRef.current[index]!,
-            pose: npc.pose,
-            linear: npc.linear,
-            angular: npc.angular,
-          }));
-
-          if (
-            footprint.width !== lastFootprintRef.current.width ||
-            footprint.length !== lastFootprintRef.current.length
-          ) {
-            lastFootprintRef.current = { width: footprint.width, length: footprint.length };
-            artifactWorldRef.current?.syncRobotFootprint(footprint);
-            initFieldRobotCatalog();
-          }
-
-          refreshFieldRobotsRef();
-
-          if (artifactFrictionRef) {
-            artifactWorldRef.current?.setArtifactFriction(artifactFrictionRef.current);
-          }
-
-          const autoMechanisms = phase === 'auto' || phase === 'transition';
-          const mechanismsAllowed =
-            phase === 'auto' || phase === 'transition' || phase === 'teleop';
-          let mechanismCommand = sample.mechanism.command;
-          let shootEdge = sample.mechanism.shootEdge;
-          let shootHeld = sample.mechanism.shootHeld;
-
-          if (!mechanismsAllowed) {
-            mechanismCommand = {};
-            shootEdge = false;
-            shootHeld = false;
-          } else if (autoMechanisms) {
-            mechanismCommand = { ...mechanismCommand, intake: 1 };
-            if (follower?.shouldAutoShoot()) {
-              shootHeld = true;
+          const botOutputs = botManager.tick(world, dt);
+          for (const [robotId, sample] of botOutputs) {
+            if (botManager.isBotControlled(robotId)) {
+              botSamples.set(robotId, botSampleToDriveSample(sample));
             }
           }
+          botDebugRef.current = botManager.getDebugStates();
+        } else {
+          botDebugRef.current = [];
+        }
 
-          if (shootHeld) {
-            shootEdge = false;
+        const npcInputs: Record<string, HolonomicInput> = {};
+        const npcDriveFrames: Record<string, DriveFrame> = {};
+        for (const npc of npcMotionRef.current) {
+          const botSample = botSamples.get(npc.id);
+          if (botSample && botDriveAllowed) {
+            npcInputs[npc.id] = {
+              forward: botSample.input.forward,
+              strafe: botSample.input.strafe,
+              turn: botSample.input.turn,
+              brake: botSample.input.brake,
+              endpointBrake: botSample.input.endpointBrake,
+            };
+            npcDriveFrames[npc.id] = botSample.driveFrame ?? 'field';
           }
+        }
 
-          const alliance = simOptions?.alliance ?? 'blue';
-          artifactWorldRef.current?.tickRobots(
-            dt,
-            [
-              {
-                robotId: PLAYER_ROBOT_ID,
-                pose: poseRef.current,
-                linear: linearRef.current,
-                alliance,
-                command: mechanismCommand,
-                shootEdge,
-                gateEdge: sample.mechanism.gateEdge,
-                shootHeld,
-              },
-              ...npcMotionRef.current.map((npc) => ({
+        const multi = stepMultiRobotDrive({
+          player: {
+            pose: poseRef.current,
+            linear: linearRef.current,
+            angular: angularRef.current,
+            input: driveInput,
+          },
+          npcs: npcMotionRef.current,
+          npcInputs,
+          dt,
+          limits,
+          footprint,
+          barriers: barriersRef.current,
+          fieldSizeInches: 144,
+          driveFrame,
+          npcDriveFrames,
+          maxAcceleration: robotConfig?.maxAcceleration ?? 48,
+          maxAngularAcceleration: robotConfig?.maxAngularAcceleration ?? 18,
+        });
+        poseRef.current = multi.player.pose;
+        linearRef.current = multi.player.linear;
+        angularRef.current = multi.player.angular;
+        npcMotionRef.current = multi.npcs.map((npc, index) => ({
+          ...npcMotionRef.current[index]!,
+          pose: npc.pose,
+          linear: npc.linear,
+          angular: npc.angular,
+        }));
+
+        if (
+          footprint.width !== lastFootprintRef.current.width ||
+          footprint.length !== lastFootprintRef.current.length
+        ) {
+          lastFootprintRef.current = { width: footprint.width, length: footprint.length };
+          artifactWorldRef.current?.syncRobotFootprint(footprint);
+          initFieldRobotCatalog();
+        }
+
+        refreshFieldRobotsRef();
+
+        if (artifactFrictionRef) {
+          artifactWorldRef.current?.setArtifactFriction(artifactFrictionRef.current);
+        }
+
+        const autoMechanisms = phase === 'auto' || phase === 'transition';
+        const mechanismsAllowed =
+          phase === 'auto' || phase === 'transition' || phase === 'teleop';
+        let mechanismCommand = sample.mechanism.command;
+        let shootEdge = sample.mechanism.shootEdge;
+        let shootHeld = sample.mechanism.shootHeld;
+
+        if (!mechanismsAllowed) {
+          mechanismCommand = {};
+          shootEdge = false;
+          shootHeld = false;
+        } else if (autoMechanisms) {
+          mechanismCommand = { ...mechanismCommand, intake: 1 };
+          if (follower?.shouldAutoShoot()) {
+            shootHeld = true;
+          }
+        }
+
+        if (shootHeld) {
+          shootEdge = false;
+        }
+
+        const allianceForMech = simOptions?.alliance ?? 'blue';
+        artifactWorldRef.current?.tickRobots(
+          dt,
+          [
+            {
+              robotId: PLAYER_ROBOT_ID,
+              pose: poseRef.current,
+              linear: linearRef.current,
+              alliance: allianceForMech,
+              command: mechanismCommand,
+              shootEdge,
+              gateEdge: sample.mechanism.gateEdge,
+              shootHeld,
+            },
+            ...npcMotionRef.current.map((npc) => {
+              const botSample = botSamples.get(npc.id);
+              const isBot = botsEnabled && botManager?.isBotControlled(npc.id);
+              const command =
+                isBot && mechanismsAllowed
+                  ? (botSample?.mechanism.command ?? { intake: 1 })
+                  : {};
+              return {
                 robotId: npc.id,
                 pose: npc.pose,
                 linear: npc.linear,
                 alliance: npc.alliance,
-                shootEdge: false,
-                gateEdge: false,
-                shootHeld: false,
-              })),
-            ],
-            footprint,
-            phase,
-            buildMatchRobots(),
-            matchSnapNow?.phase === 'teleop' ? matchSnapNow.timeRemainingInPhase : undefined,
-            buildNpcSync(),
-          );
-          if (artifactWorldRef.current) {
-            liveArtifactsRef.current = artifactWorldRef.current.getRenderArtifacts();
-          }
+                command,
+                shootEdge: botSample?.mechanism.shootEdge ?? false,
+                gateEdge: botSample?.mechanism.gateEdge ?? false,
+                shootHeld: botSample?.mechanism.shootHeld ?? false,
+              };
+            }),
+          ],
+          footprint,
+          phase,
+          buildMatchRobots(),
+          matchSnapNow?.phase === 'teleop' ? matchSnapNow.timeRemainingInPhase : undefined,
+          buildNpcSync(),
+        );
+        if (artifactWorldRef.current) {
+          liveArtifactsRef.current = artifactWorldRef.current.getRenderArtifacts();
         }
+        simTickIndexRef.current += 1;
+      }
 
-        pushTelemetry(lastDriveInputRef.current);
-
-        if (shouldUpdateHud(accRef.current, now)) {
-          setPose({ ...poseRef.current });
-          const speed = Math.hypot(linearRef.current.x, linearRef.current.y);
-          setHud({ speed, angularSpeed: angularRef.current });
-          if (artifactWorldRef.current) {
-            setLiveArtifacts(artifactWorldRef.current.getRenderArtifacts());
-            setMatchGameState(artifactWorldRef.current.getMatchState());
-            setMechanismDebugLogs(artifactWorldRef.current.getDebugLogs());
-          }
-          onHudTick?.(sample.debug, sample.source, samplerRef.current?.gamepadConnected ?? false);
-          onSimHudTick?.();
+      if (!didSimulate) {
+        const sampleForHud = sampleInputRef.current?.() ?? null;
+        if (sampleForHud) {
+          onHudTick?.(sampleForHud.debug, sampleForHud.source, samplerRef.current?.gamepadConnected ?? false);
         }
+        onSimHudTick?.();
+        return;
+      }
+
+      pushTelemetry(lastDriveInputRef.current);
+      setPose({ ...poseRef.current });
+      const speed = Math.hypot(linearRef.current.x, linearRef.current.y);
+      setHud({ speed, angularSpeed: angularRef.current });
+      if (artifactWorldRef.current) {
+        setLiveArtifacts(artifactWorldRef.current.getRenderArtifacts());
+        setMatchGameState(artifactWorldRef.current.getMatchState());
+        setMechanismDebugLogs(artifactWorldRef.current.getDebugLogs());
+        if (botsEnabledRef?.current && botManagerRef?.current) {
+          setBotDebugLogs(botManagerRef.current.getDebugLogs());
+        }
+      }
+      onHudTick?.(sample.debug, sample.source, samplerRef.current?.gamepadConnected ?? false);
+      onSimHudTick?.();
+    };
+
+    advanceSimulationRef.current = (steps: number) => {
+      if (!enabledRef.current || steps <= 0) return;
+      runSimulationSteps(steps, 1 / 120);
+    };
+
+    const tick = (now: number) => {
+      const { steps, dt } = advanceAccumulator(accRef.current, now);
+
+      if (enabledRef.current && steps > 0) {
+        runSimulationSteps(steps, dt);
       } else if (shouldUpdateHud(accRef.current, now) && enabledRef.current) {
         const sample = sampleInputRef.current?.() ?? null;
         if (sample) {
@@ -524,6 +685,12 @@ export function usePhysicsRobot(
     buildNpcSync,
     refreshFieldRobotsRef,
     initFieldRobotCatalog,
+      botManagerRef,
+      botsEnabledRef,
+      botSlotConfigsRef,
+      botsEnabled,
+      field,
+    alliance,
   ]);
 
   const randomizeMotif = useCallback(() => {
@@ -537,15 +704,12 @@ export function usePhysicsRobot(
     const world = artifactWorldRef.current;
     if (!world) return null;
 
+    const robots = buildMatchRobots();
     const phase = getMatchSnapshotRef?.current?.().phase ?? 'setup';
-
     if (phase === 'auto' || phase === 'transition') {
-      world.evaluateEndOfAuto(buildMatchRobots());
+      world.evaluateEndOfAuto(robots);
     }
-    if (phase === 'auto' || phase === 'transition' || phase === 'teleop') {
-      const robots = buildMatchRobots();
-      world.evaluateEndOfMatch(robots);
-    }
+    world.evaluateEndOfMatch(robots);
 
     const state = world.getMatchState();
     setMatchGameState(state);
@@ -555,6 +719,10 @@ export function usePhysicsRobot(
     setMechanismDebugLogs(world.getDebugLogs());
     return state;
   }, [getMatchSnapshotRef, robotConfigRef, buildMatchRobots]);
+
+  const advanceSimulation = useCallback((steps: number) => {
+    advanceSimulationRef.current(steps);
+  }, []);
 
   return {
     pose,
@@ -572,9 +740,12 @@ export function usePhysicsRobot(
     liveArtifactsRef,
     matchGameState,
     mechanismDebugLogs,
+    botDebugLogs,
+    botDebugRef,
     setArtifactFriction,
     randomizeMotif,
     finalizeMatch,
+    advanceSimulation,
     fieldRobotsRef,
     fieldRobotCatalog,
   };

@@ -463,6 +463,10 @@ export class PhysicsWorld {
     }
   }
 
+  isColliderEnabled(id: string): boolean {
+    return this.bodies.get(id)?.collider.isEnabled() ?? false;
+  }
+
   /** Remove an artifact from the physics simulation (held, shot, on ramp). */
   parkArtifactBody(id: string, pose: Pose): void {
     const bodyHandle = this.bodies.get(id);

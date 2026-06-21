@@ -1,0 +1,32 @@
+{
+  "name": "@ftc-sim/bot",
+  "version": "0.2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude 'archive/**'"
+  },
+  "dependencies": {
+    "@ftc-sim/field": "workspace:*",
+    "@ftc-sim/game-decode": "workspace:*",
+    "@ftc-sim/match": "workspace:*",
+    "@ftc-sim/mechanisms": "workspace:*",
+    "@ftc-sim/pedro": "workspace:*",
+    "@ftc-sim/robot": "workspace:*"
+  },
+  "devDependencies": {
+    "@ftc-sim/season-decode": "workspace:*",
+    "@ftc-sim/session": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

@@ -13,6 +13,24 @@ describe('DECODE rules', () => {
     expect(DECODE_RULES.scoring.patternPerArtifact).toBe(2);
   });
 
+  it('skips AUTO LEAVE when the auto period never ran', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
+    engine.syncPhase('teleop', 90);
+
+    const outsideLaunch = [
+      { x: 60, y: 60 },
+      { x: 66, y: 60 },
+      { x: 66, y: 66 },
+      { x: 60, y: 66 },
+    ];
+
+    expect(
+      engine.evaluateAutoLeave([{ id: 'player', alliance: 'blue', footprint: outsideLaunch }]),
+    ).toBe(0);
+    expect(engine.getState().byAlliance.blue.autoScore.leave).toBe(0);
+    expect(engine.getState().leaveScored).toBe(false);
+  });
+
   it('awards AUTO LEAVE when robot footprint clears all launch zones', () => {
     const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
     engine.syncPhase('auto', 29);

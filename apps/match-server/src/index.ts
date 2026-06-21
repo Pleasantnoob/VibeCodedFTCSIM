@@ -21,7 +21,9 @@ import {
 } from '@ftc-sim/net';
 import { getDecodeField, getMatchArtifactStaging } from '@ftc-sim/season-decode';
 import {
+  CLAIMABLE_ROBOT_IDS,
   DEFAULT_PRACTICE_TEAMS,
+  botSlotsFromNetConfig,
   isClaimableRobotId,
   playerSpawnPose,
   practiceFieldRobots,
@@ -29,6 +31,7 @@ import {
   simRobotFootprint,
   DEFAULT_SIM_ROBOT_CONFIG,
 } from '@ftc-sim/session';
+import { defaultPracticeBotSlots, type BotSlotConfig } from '@ftc-sim/bot';
 
 import { startFixedTickLoop } from './tick-loop.js';
 
@@ -36,6 +39,8 @@ const APP_VERSION = readAppVersion();
 const SNAPSHOT_EVERY = Math.round(SERVER_TICK_HZ / SNAPSHOT_HZ);
 const MAX_CLIENTS = 8;
 const MAX_SNAPSHOT_EVENTS = 20;
+const BOT_FILL_UNCLAIMED = process.env.BOT_FILL_UNCLAIMED !== '0';
+const BOT_DIFFICULTY = (process.env.BOT_DIFFICULTY ?? 'normal') as BotSlotConfig['difficulty'];
 
 interface ClientRecord {
   id: string;
@@ -118,6 +123,24 @@ function buildSession(): SimSession {
   });
 }
 
+function syncHostBots(
+  session: SimSession,
+  clients: Map<WebSocket, ClientRecord>,
+  hostBotTemplate: BotSlotConfig[] | null,
+): void {
+  if (!BOT_FILL_UNCLAIMED) return;
+  const claimed = new Set<string>();
+  for (const client of clients.values()) {
+    if (client.robotId) claimed.add(client.robotId);
+  }
+  const template = hostBotTemplate ?? defaultPracticeBotSlots(BOT_DIFFICULTY);
+  const slots = template.map((slot) => ({
+    ...slot,
+    enabled: slot.enabled && !claimed.has(slot.robotId),
+  }));
+  session.setBotSlots(slots);
+}
+
 async function main(): Promise<void> {
   const port = Number(process.env.MATCH_PORT ?? DEFAULT_MATCH_PORT);
   const session = buildSession();
@@ -126,6 +149,7 @@ async function main(): Promise<void> {
   const clients = new Map<WebSocket, ClientRecord>();
   let nextClientId = 1;
   let hostClient: ClientRecord | null = null;
+  let hostBotTemplate: BotSlotConfig[] | null = null;
 
   const broadcast = (message: ServerMessage, except?: WebSocket) => {
     const raw = encodeMessage(message);
@@ -190,6 +214,7 @@ async function main(): Promise<void> {
     });
     broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
     sendRoomInfo();
+    syncHostBots(session, clients, hostBotTemplate);
   };
 
   const httpServer = createServer((_req, res) => {
@@ -408,6 +433,23 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (message.type === 'set_bot_slots') {
+      if (client.role !== 'host') return;
+      try {
+        hostBotTemplate = botSlotsFromNetConfig(message.slots);
+        syncHostBots(session, clients, hostBotTemplate);
+      } catch (error) {
+        ws.send(
+          encodeMessage({
+            type: 'error',
+            code: 'bad_bot_slots',
+            message: error instanceof Error ? error.message : 'Invalid bot slot config',
+          }),
+        );
+      }
+      return;
+    }
+
     if (message.type === 'ping') {
       client.sendQueueBytes = ws.bufferedAmount;
       ws.send(encodeMessage({ type: 'pong', t: message.t }));
@@ -428,6 +470,7 @@ async function main(): Promise<void> {
   startFixedTickLoop({
     hz: SERVER_TICK_HZ,
     onTick: () => {
+      syncHostBots(session, clients, hostBotTemplate);
       for (const client of clients.values()) {
         if (!client.robotId) continue;
         const frame = client.input.peekLatest();

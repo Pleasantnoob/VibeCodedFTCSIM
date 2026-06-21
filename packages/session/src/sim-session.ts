@@ -2,7 +2,12 @@ import type { FieldDefinition, Pose, StagedArtifactLayout } from '@ftc-sim/field
 import type { Alliance, MatchPhase } from '@ftc-sim/game-decode';
 import type { HostCommand, HostRoomSettings, InputFrame, StateSnapshot } from '@ftc-sim/net';
 import { MatchClock } from '@ftc-sim/match';
-import type { MechanismLogEntry, SimArtifactState } from '@ftc-sim/mechanisms';
+import type { MechanismLogEntry, MechanismSnapshot, SimArtifactState } from '@ftc-sim/mechanisms';
+import {
+  BotManager,
+  type BotDebugState,
+  type BotSlotConfig,
+} from '@ftc-sim/bot';
 import {
   AutoSequenceRunner,
   autoSequenceForAlliance,
@@ -38,6 +43,7 @@ import {
   simRobotLimits,
   type SimRobotConfig,
 } from './robot-config.js';
+import { botSampleToDriveSample, buildBotWorldSnapshot } from './bot-world-snapshot.js';
 
 export const PHYSICS_DT = 1 / 120;
 
@@ -57,6 +63,7 @@ export interface SimSessionConfig {
   /** Net multiplayer: robots appear only after a player claims their slot. */
   onlyClaimedRobots?: boolean;
   robotPreload?: boolean;
+  botSlots?: BotSlotConfig[];
 }
 
 export interface SimSessionState {
@@ -106,6 +113,10 @@ export class SimSession {
   private snapshotCounter = 0;
   private robotPreload = false;
   private hostTeamLabel: string | undefined;
+  private botManager: BotManager | null = null;
+  private botSlots: BotSlotConfig[] = [];
+  private humanInputRobotIds = new Set<string>();
+  private botAutoActive = new Set<string>();
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -120,6 +131,9 @@ export class SimSession {
     this.world = new ArtifactWorld(config.field, config.alliance);
     this.autoFollower.updateConstants({ mass: this.robotConfig.mass });
     this.follower = this.autoFollower;
+    if (config.botSlots?.length) {
+      this.setBotSlots(config.botSlots);
+    }
   }
 
   loadAutoPath(pathText: string): void {
@@ -177,6 +191,7 @@ export class SimSession {
       this.world.randomizeMotif();
     }
     this.world.setArtifactFriction(this.artifactFriction);
+    this.applyPracticeBotPreloads();
     this.refreshFieldRobots();
     if (this.config.onlyClaimedRobots) {
       this.world.setAllRobotSlotsInactive();
@@ -208,6 +223,7 @@ export class SimSession {
   }
 
   applyInputFrame(frame: InputFrame): void {
+    this.humanInputRobotIds.add(frame.robotId);
     const sample: DriveSample = {
       input: {
         forward: frame.drive.forward,
@@ -225,6 +241,50 @@ export class SimSession {
       },
     };
     this.robotInputs.set(frame.robotId, sample);
+  }
+
+  setBotSlots(slots: BotSlotConfig[]): void {
+    this.botSlots = slots;
+    if (!this.botManager) {
+      this.botManager = new BotManager();
+    }
+    this.botManager.setSlots(slots);
+  }
+
+  getBotSlots(): BotSlotConfig[] {
+    return [...this.botSlots];
+  }
+
+  getBotDebugStates(): BotDebugState[] {
+    return this.botManager?.getDebugStates() ?? [];
+  }
+
+  getBotMetrics(): Record<string, import('@ftc-sim/bot').BotMetrics> {
+    return this.botManager?.getMetrics() ?? {};
+  }
+
+  isBotControlled(robotId: string): boolean {
+    return this.botManager?.isBotControlled(robotId) ?? false;
+  }
+
+  getMechanismSnapshot(): MechanismSnapshot {
+    return this.world.getSnapshot();
+  }
+
+  getRobotConfig(): SimRobotConfig {
+    return this.robotConfig;
+  }
+
+  getPlayerAlliance(): Alliance {
+    return this.config.alliance;
+  }
+
+  getField(): FieldDefinition {
+    return this.config.field;
+  }
+
+  getBarrierPolygons(): ReturnType<typeof barrierPolygons> {
+    return this.barrierPolys;
   }
 
   /** Clear buffered drive input for every slot (call once per server tick). */
@@ -374,6 +434,9 @@ export class SimSession {
     this.robotInputs.clear();
     this.injectedInput = null;
     this.cancelAutoFollower();
+    this.botManager?.reset();
+    this.humanInputRobotIds.clear();
+    this.botAutoActive.clear();
     this.world.reset(
       this.config.artifactStaging,
       spawn,
@@ -381,6 +444,7 @@ export class SimSession {
       this.config.fixedMotif,
     );
     this.world.setArtifactFriction(this.artifactFriction);
+    this.applyPracticeBotPreloads();
     if (this.config.onlyClaimedRobots) {
       const claimed = [...this.claimedRobotIds];
       const labels = new Map(this.robotTeamLabels);
@@ -413,10 +477,35 @@ export class SimSession {
     this.applyMatchPhaseTransitions();
 
     const matchSnap = this.clock.snapshot();
-    const matchActive = matchSnap.running && !matchSnap.paused;
     const phase = matchSnap.phase;
+    const matchActive = matchSnap.running && !matchSnap.paused;
+    const shouldSimulateWorld =
+      matchActive && (phase === 'auto' || phase === 'transition' || phase === 'teleop');
+    if (!shouldSimulateWorld) {
+      this.humanInputRobotIds.clear();
+      return;
+    }
+
     const limits = simRobotLimits(this.robotConfig);
     const footprint = simRobotFootprint(this.robotConfig);
+
+    if (matchActive && this.botManager && this.botSlots.some((slot) => slot.enabled)) {
+      const world = buildBotWorldSnapshot(this, this.humanInputRobotIds, this.botSlots);
+      const botOutputs = this.botManager.tick(world, dt);
+      for (const [robotId, sample] of botOutputs) {
+        if (!this.humanInputRobotIds.has(robotId)) {
+          this.robotInputs.set(robotId, botSampleToDriveSample(sample));
+        }
+      }
+      this.botAutoActive.clear();
+      for (const slot of this.botSlots) {
+        if (!slot.enabled) continue;
+        if (this.humanInputRobotIds.has(slot.robotId)) continue;
+        if (phase === 'auto' || phase === 'transition') {
+          this.botAutoActive.add(slot.robotId);
+        }
+      }
+    }
 
     let driveInput: import('@ftc-sim/robot').HolonomicInput = {
       forward: 0,
@@ -447,7 +536,11 @@ export class SimSession {
     const npcDriveFrames: Record<string, import('@ftc-sim/robot').DriveFrame> = {};
     for (const npc of activeNpcs) {
       const npcSample = this.robotInputs.get(npc.id);
-      if (!npcSample || !matchSnap.allowsDrive) continue;
+      const botDriveAllowed =
+        matchSnap.allowsDrive ||
+        matchSnap.phase === 'auto' ||
+        matchSnap.phase === 'transition';
+      if (!npcSample || !botDriveAllowed) continue;
       npcInputs[npc.id] = {
         forward: npcSample.input.forward,
         strafe: npcSample.input.strafe,
@@ -517,14 +610,16 @@ export class SimSession {
       );
     }
     for (const npc of activeNpcs) {
+      const npcSample = this.robotInputs.get(npc.id) ?? emptySample;
+      const npcAuto = this.botAutoActive.has(npc.id);
       robotTicks.push(
         this.buildRobotMechanismTick(
           npc.id,
           npc.pose,
           npc.linear,
           npc.alliance,
-          this.robotInputs.get(npc.id) ?? emptySample,
-          false,
+          npcSample,
+          npcAuto,
         ),
       );
     }
@@ -540,6 +635,7 @@ export class SimSession {
     );
 
     this.tickIndex += 1;
+    this.humanInputRobotIds.clear();
   }
 
   getState(): SimSessionState {
@@ -632,13 +728,12 @@ export class SimSession {
 
   finalizeMatch(): ReturnType<ArtifactWorld['getMatchState']> | null {
     if (!this.ready) return null;
+    const robots = this.buildMatchRobots();
     const phase = this.clock.snapshot().phase;
     if (phase === 'auto' || phase === 'transition') {
-      this.world.evaluateEndOfAuto(this.buildMatchRobots());
+      this.world.evaluateEndOfAuto(robots);
     }
-    if (phase === 'auto' || phase === 'transition' || phase === 'teleop') {
-      this.world.evaluateEndOfMatch(this.buildMatchRobots());
-    }
+    this.world.evaluateEndOfMatch(robots);
     return this.world.getMatchState();
   }
 
@@ -703,6 +798,17 @@ export class SimSession {
     }));
   }
 
+  private applyPracticeBotPreloads(): void {
+    if (!this.botManager || !this.botSlots.some((slot) => slot.enabled)) return;
+    const footprint = simRobotFootprint(this.robotConfig);
+    for (const slot of this.botSlots) {
+      if (!slot.enabled) continue;
+      const npc = this.npcMotion.find((entry) => entry.id === slot.robotId);
+      if (!npc) continue;
+      this.world.applyClaimedSlotPreload(npc.id, npc.alliance, npc.pose, footprint);
+    }
+  }
+
   private buildRobotMechanismTick(
     robotId: string,
     pose: Pose,
@@ -719,6 +825,12 @@ export class SimSession {
     if (autoMechanisms && robotId === PLAYER_ROBOT_ID) {
       mechanismCommand = { ...mechanismCommand, intake: 1 };
       if (this.follower?.shouldAutoShoot?.()) {
+        shootHeld = true;
+      }
+    }
+    if (autoMechanisms && robotId !== PLAYER_ROBOT_ID && this.botAutoActive.has(robotId)) {
+      mechanismCommand = { ...mechanismCommand, intake: 1 };
+      if (sample.mechanism.shootHeld) {
         shootHeld = true;
       }
     }

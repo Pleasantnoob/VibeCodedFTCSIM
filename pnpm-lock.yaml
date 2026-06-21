@@ -63,6 +63,9 @@ importers:
       '@dimforge/rapier2d-compat':
         specifier: ^0.19.3
         version: 0.19.3
+      '@ftc-sim/bot':
+        specifier: workspace:*
+        version: link:../../packages/bot
       '@ftc-sim/field':
         specifier: workspace:*
         version: link:../../packages/field
@@ -112,6 +115,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ftc-sim/bot':
+        specifier: workspace:*
+        version: link:../../packages/bot
       '@ftc-sim/game-decode':
         specifier: workspace:*
         version: link:../../packages/game-decode
@@ -164,6 +170,40 @@ importers:
       vite:
         specifier: ^6.0.11
         version: 6.4.3(@types/node@22.19.21)(tsx@4.22.4)
+
+  packages/bot:
+    dependencies:
+      '@ftc-sim/field':
+        specifier: workspace:*
+        version: link:../field
+      '@ftc-sim/game-decode':
+        specifier: workspace:*
+        version: link:../game-decode
+      '@ftc-sim/match':
+        specifier: workspace:*
+        version: link:../match
+      '@ftc-sim/mechanisms':
+        specifier: workspace:*
+        version: link:../mechanisms
+      '@ftc-sim/pedro':
+        specifier: workspace:*
+        version: link:../pedro
+      '@ftc-sim/robot':
+        specifier: workspace:*
+        version: link:../robot
+    devDependencies:
+      '@ftc-sim/season-decode':
+        specifier: workspace:*
+        version: link:../season-decode
+      '@ftc-sim/session':
+        specifier: workspace:*
+        version: link:../session
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@22.19.21)(tsx@4.22.4)
 
   packages/field:
     devDependencies:
@@ -297,6 +337,9 @@ importers:
 
   packages/session:
     dependencies:
+      '@ftc-sim/bot':
+        specifier: workspace:*
+        version: link:../bot
       '@ftc-sim/field':
         specifier: workspace:*
         version: link:../field

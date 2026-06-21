@@ -30,7 +30,7 @@ import { buildWsUrl } from './session-mode';
 
 declare const __APP_VERSION__: string;
 
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.0';
 const CONNECT_TIMEOUT_MS = 12_000;
 const HUD_UPDATE_MS = 1000 / 12;
 const DEFAULT_ROBOT_FOOTPRINT = 18;
@@ -532,6 +532,15 @@ export function useSessionClient() {
     ws.send(encodeMessage({ type: 'set_auto_path', pathText }));
   }, []);
 
+  const sendBotSlots = useCallback(
+    (slots: import('@ftc-sim/net').NetBotSlotConfig[]) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(encodeMessage({ type: 'set_bot_slots', slots }));
+    },
+    [],
+  );
+
   const claimSlot = useCallback((robotId: string, teamLabel?: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -582,6 +591,7 @@ export function useSessionClient() {
     sendInput,
     sendHostCommand,
     sendAutoPath,
+    sendBotSlots,
     claimSlot,
     ping,
     setOnAudioCue,

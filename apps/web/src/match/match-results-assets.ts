@@ -108,10 +108,12 @@ export function mergedAllianceScore(state: MatchState | null, alliance: Alliance
   const bucket = state.byAlliance?.[alliance];
   if (bucket) {
     const merged = mergeScoreBreakdowns(bucket.autoScore ?? EMPTY_SCORE, bucket.teleopScore ?? EMPTY_SCORE);
+    merged.total = sumScore(merged);
     if (merged.total > 0) return merged;
     if ((bucket.score?.total ?? 0) > 0) {
       return { ...merged, total: bucket.score.total };
     }
+    if (sumScore(merged) > 0) return merged;
   }
 
   if (state.alliance === alliance) {

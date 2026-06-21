@@ -28,6 +28,7 @@ export function startMatchServer(): Promise<void> {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       MATCH_PORT: String(MATCH_PORT),
+      BOT_FILL_UNCLAIMED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
