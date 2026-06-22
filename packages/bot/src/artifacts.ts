@@ -22,6 +22,7 @@ const RIVAL_MIN_SPEED = 6;
 const RIVAL_MAX_DIST = 58;
 const RIVAL_AIM_RAD = 0.55;
 const GATE_PROXIMITY_PENALTY = 80;
+const ALLY_ARTIFACT_RESERVE_PENALTY = 120;
 
 const NON_COLLECTIBLE_PHASES = new Set([
   'held',
@@ -230,6 +231,7 @@ export function pickCollectTarget(
   robots: readonly BotRobotSnapshot[] = [],
   excludeIds: ReadonlySet<string> = new Set(),
   difficulty: Difficulty = 'normal',
+  allyArtifactIds: ReadonlyMap<string, string> = new Map(),
 ): CollectScanResult {
   const heldIds = storedArtifactIds(robots);
   const pool: BotArtifactSnapshot[] = [];
@@ -267,6 +269,13 @@ export function pickCollectTarget(
         score -= RIVAL_CLUSTER_PENALTY;
         mode = 'deconflict';
       }
+    }
+
+    for (const [allyId, reservedId] of allyArtifactIds) {
+      if (allyId === robot.id || reservedId !== artifact.id) continue;
+      score -= ALLY_ARTIFACT_RESERVE_PENALTY;
+      mode = 'deconflict';
+      break;
     }
 
     const gateDist = distToOpponentGate(artifact.pose, robot.alliance);

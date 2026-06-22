@@ -1,7 +1,10 @@
 import {
+  gateApproachPoint,
+  opponentInOurSecretTunnel,
   OPPONENT_GATE_COLLECT_REPEL_RADIUS,
   OPPONENT_GATE_COLLECT_REPEL_STRENGTH,
   opponentGatePoint,
+  shouldAvoidOpponentGateZone,
 } from '../coordination.js';
 import { pointInPolygon, type FieldDefinition, type Pose, type Vector2 } from '@ftc-sim/field';
 import type { Alliance } from '@ftc-sim/game-decode';
@@ -165,12 +168,84 @@ function allyShootingSpaceRepulsion(
   return { x: vx, y: vy };
 }
 
+function allyGateLaneRepulsion(
+  pose: Pose,
+  robots: BotRobotSnapshot[],
+  selfId: string,
+  selfAlliance: Alliance,
+  selfTask: BotTaskKind,
+  allyTasks: ReadonlyMap<string, BotTaskKind> | undefined,
+  gateAssignees: ReadonlySet<string> | undefined,
+): Vector2 {
+  if (!allyTasks || selfTask === 'gate') return { x: 0, y: 0 };
+  const gate = gateApproachPoint(selfAlliance);
+  let vx = 0;
+  let vy = 0;
+  for (const other of robots) {
+    if (other.id === selfId || other.alliance !== selfAlliance) continue;
+    const allyTask = allyTasks.get(other.id);
+    const allyOnGate =
+      allyTask === 'gate' ||
+      gateAssignees?.has(other.id) === true;
+    if (!allyOnGate) continue;
+    const rep = repulsionFromPoint(pose, gate, 52, selfTask === 'collect' ? 42 : 28);
+    vx += rep.x;
+    vy += rep.y;
+    const personal = repulsionFromPoint(pose, other.pose, 40, 24);
+    vx += personal.x;
+    vy += personal.y;
+  }
+  return { x: vx, y: vy };
+}
+
+function ourSecretTunnelRepulsion(
+  pose: Pose,
+  alliance: Alliance,
+  field: FieldDefinition,
+): Vector2 {
+  const zone = field.zones.find(
+    (z) => z.type === 'secret_tunnel' && z.alliance === alliance,
+  );
+  if (!zone || zone.polygon.length < 3) return { x: 0, y: 0 };
+  let cx = 0;
+  let cy = 0;
+  for (const p of zone.polygon) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= zone.polygon.length;
+  cy /= zone.polygon.length;
+  return repulsionFromPoint(pose, { x: cx, y: cy }, 36, 36);
+}
+
+function allyParkRepulsion(
+  pose: Pose,
+  robots: BotRobotSnapshot[],
+  selfId: string,
+  selfAlliance: Alliance,
+  selfTask: BotTaskKind,
+  allyTasks: ReadonlyMap<string, BotTaskKind> | undefined,
+): Vector2 {
+  if (selfTask !== 'park' || !allyTasks) return { x: 0, y: 0 };
+  let vx = 0;
+  let vy = 0;
+  for (const other of robots) {
+    if (other.id === selfId || other.alliance !== selfAlliance) continue;
+    if (allyTasks.get(other.id) !== 'park') continue;
+    const rep = repulsionFromPoint(pose, other.pose, 48, 46);
+    vx += rep.x;
+    vy += rep.y;
+  }
+  return { x: vx, y: vy };
+}
+
 function applyRobotSeparation(
   vel: Vector2,
   pose: Pose,
   robots: BotRobotSnapshot[],
   selfId: string,
   selfAlliance: Alliance,
+  selfTask: BotTaskKind,
   allyTasks: ReadonlyMap<string, BotTaskKind> | undefined,
 ): Vector2 {
   let vx = vel.x;
@@ -184,13 +259,29 @@ function applyRobotSeparation(
     const minDist = ROBOT_RADIUS * 2.1;
     if (dist >= minDist) continue;
     let push = ((minDist - dist) / minDist) * (other.alliance === selfAlliance ? 22 : 14);
-    if (other.alliance === selfAlliance && allyTasks?.get(other.id) === 'score') {
-      push *= 1.8;
+    if (other.alliance === selfAlliance) {
+      const allyTask = allyTasks?.get(other.id);
+      if (allyTask === 'score') push *= 1.8;
+      if (allyTask === 'gate') push *= 1.5;
+      if (allyTask === 'park' && selfTask === 'park') push *= 2.4;
     }
     vx += (dx / dist) * push;
     vy += (dy / dist) * push;
   }
   return { x: vx, y: vy };
+}
+
+function playerAutoRepulsion(
+  pose: Pose,
+  robots: BotRobotSnapshot[],
+  task: BotTaskKind,
+): Vector2 {
+  if (task !== 'auto_hold' && task !== 'auto_drive') return { x: 0, y: 0 };
+  const player = robots.find((robot) => robot.id === 'player');
+  if (!player) return { x: 0, y: 0 };
+  const strength = task === 'auto_hold' ? 42 : 22;
+  const radius = task === 'auto_hold' ? 34 : 26;
+  return repulsionFromPoint(pose, player.pose, radius, strength);
 }
 
 export function applyBotAvoidance(
@@ -204,17 +295,30 @@ export function applyBotAvoidance(
   opponentInTunnel: boolean,
   driveFrame: DriveFrame = 'field',
   allyTasks?: ReadonlyMap<string, BotTaskKind>,
+  gateAssignees?: ReadonlySet<string>,
 ): HolonomicInput {
   let vel = inputToFieldVel(input, pose.heading, driveFrame);
 
   const opponentGate = opponentGatePoint(selfAlliance);
   const gateRepRadius =
     task === 'collect' ? OPPONENT_GATE_COLLECT_REPEL_RADIUS : REPULSE_RADIUS;
-  const gateRepStrength =
+  let gateRepStrength =
     task === 'collect' ? OPPONENT_GATE_COLLECT_REPEL_STRENGTH : 28;
+  if (shouldAvoidOpponentGateZone(pose, selfAlliance, task, gateAssignees ?? new Set(), selfId)) {
+    gateRepStrength = Math.max(gateRepStrength, 62);
+  }
   const gateRep = repulsionFromPoint(pose, opponentGate, gateRepRadius, gateRepStrength);
   vel.x += gateRep.x;
   vel.y += gateRep.y;
+
+  if (opponentInOurSecretTunnel(robots, selfAlliance, field) && task !== 'gate') {
+    const tunnel = ourSecretTunnelRepulsion(pose, selfAlliance, field);
+    vel.x += tunnel.x;
+    vel.y += tunnel.y;
+    const damp = 0.55;
+    vel.x *= damp;
+    vel.y *= damp;
+  }
 
   if (opponentInTunnel) {
     const tunnel = secretTunnelRepulsion(pose, selfAlliance, field);
@@ -239,11 +343,31 @@ export function applyBotAvoidance(
   vel.x += allyRep.x;
   vel.y += allyRep.y;
 
+  const gateLane = allyGateLaneRepulsion(
+    pose,
+    robots,
+    selfId,
+    selfAlliance,
+    task,
+    allyTasks,
+    gateAssignees,
+  );
+  vel.x += gateLane.x;
+  vel.y += gateLane.y;
+
+  const parkRep = allyParkRepulsion(pose, robots, selfId, selfAlliance, task, allyTasks);
+  vel.x += parkRep.x;
+  vel.y += parkRep.y;
+
   const oppBase = opponentBaseRepulsion(pose, selfAlliance, field, task);
   vel.x += oppBase.x;
   vel.y += oppBase.y;
 
-  vel = applyRobotSeparation(vel, pose, robots, selfId, selfAlliance, allyTasks);
+  const playerRep = playerAutoRepulsion(pose, robots, task);
+  vel.x += playerRep.x;
+  vel.y += playerRep.y;
+
+  vel = applyRobotSeparation(vel, pose, robots, selfId, selfAlliance, task, allyTasks);
   return fieldVelToInput(input, vel, pose.heading, driveFrame);
 }
 

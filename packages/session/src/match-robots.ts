@@ -155,6 +155,32 @@ export function playerSpawnPose(slot: SoloSpawnSlot = 'blue-far'): Pose {
   }
 }
 
+/** Practice / net slots driven by a human — bots must not control these ids. */
+export function humanOccupiedRobotIds(options: {
+  spawnSlot?: SoloSpawnSlot;
+  netRobotId?: string | null;
+} = {}): Set<string> {
+  const ids = new Set<string>([PLAYER_ROBOT_ID]);
+  if (options.netRobotId && isClaimableRobotId(options.netRobotId)) {
+    ids.add(options.netRobotId);
+    return ids;
+  }
+  switch (options.spawnSlot) {
+    case 'blue-near':
+      ids.add('blue-near');
+      break;
+    case 'red-near':
+      ids.add('red-near');
+      break;
+    case 'red-far':
+      ids.add('red-far');
+      break;
+    default:
+      break;
+  }
+  return ids;
+}
+
 /** Non-controlled robots for a practice 2v2 field. */
 export function practiceFieldRobots(
   footprint: { width: number; length: number },

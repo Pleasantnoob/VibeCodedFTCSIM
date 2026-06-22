@@ -133,6 +133,10 @@ export class PedroFollower {
     return { ...this.pose };
   }
 
+  getVelocity(): Vector2 {
+    return { ...this.velocity };
+  }
+
   setVelocity(v: Vector2): void {
     this.velocity = { ...v };
   }
@@ -288,6 +292,20 @@ export class PedroFollower {
     const endPose = path.curve.getEnd();
     const distToEnd = distance(this.pose, endPose);
     const speed = Math.hypot(this.velocity.x, this.velocity.y);
+
+    if (this.activePathIndex === lastIndex && this.currentT >= 0.99) {
+      if (speed < PedroFollower.END_STOP_SPEED) {
+        this.busy = false;
+      }
+      return clampHolonomic({
+        forward: 0,
+        strafe: 0,
+        turn: 0,
+        brake: true,
+        endpointBrake: true,
+      });
+    }
+
     const overshot =
       this.activePathIndex === lastIndex && driveError > 0.15 && this.currentT >= 0.85;
 

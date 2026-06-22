@@ -569,6 +569,7 @@ export class SimSession {
       npcDriveFrames,
       maxAcceleration: this.robotConfig.maxAcceleration,
       maxAngularAcceleration: this.robotConfig.maxAngularAcceleration,
+      playerPriority: phase === 'auto' || phase === 'transition',
     });
 
     if (playerClaimed) {

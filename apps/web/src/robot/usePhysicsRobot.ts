@@ -79,6 +79,7 @@ export interface PhysicsRobotOptions {
   botsEnabledRef?: RefObject<boolean>;
   botSlotConfigsRef?: RefObject<BotSlotConfig[]>;
   botsEnabled?: boolean;
+  humanInputRobotIdsRef?: RefObject<ReadonlySet<string>>;
 }
 
 export function usePhysicsRobot(
@@ -274,6 +275,25 @@ export function usePhysicsRobot(
       applyPracticeBotPreloads();
     },
     [startPose, artifactStaging, artifactFrictionRef, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, layoutOptions, botManagerRef, applyPracticeBotPreloads],
+  );
+
+  const resetNpcPoses = useCallback(
+    (poses: ReadonlyMap<string, Pose>) => {
+      if (npcMotionRef.current.length === 0 || poses.size === 0) return;
+      let changed = false;
+      for (const npc of npcMotionRef.current) {
+        const pose = poses.get(npc.id);
+        if (!pose) continue;
+        npc.pose = { ...pose };
+        npc.linear = { x: 0, y: 0 };
+        npc.angular = 0;
+        changed = true;
+      }
+      if (!changed) return;
+      refreshFieldRobotsRef();
+      artifactWorldRef.current?.syncNpcRobots(buildNpcSync());
+    },
+    [buildNpcSync, refreshFieldRobotsRef],
   );
 
   useEffect(() => {
@@ -477,7 +497,7 @@ export function usePhysicsRobot(
               maxAcceleration: robotConfig?.maxAcceleration ?? 48,
               maxAngularAcceleration: robotConfig?.maxAngularAcceleration ?? 18,
             },
-            humanInputRobotIds: new Set([PLAYER_ROBOT_ID]),
+            humanInputRobotIds: simOptions?.humanInputRobotIdsRef?.current ?? new Set([PLAYER_ROBOT_ID]),
             botSlots: botManager.getSlots(),
           });
           const botOutputs = botManager.tick(world, dt);
@@ -525,6 +545,7 @@ export function usePhysicsRobot(
           npcDriveFrames,
           maxAcceleration: robotConfig?.maxAcceleration ?? 48,
           maxAngularAcceleration: robotConfig?.maxAngularAcceleration ?? 18,
+          playerPriority: phase === 'auto' || phase === 'transition',
         });
         poseRef.current = multi.player.pose;
         linearRef.current = multi.player.linear;
@@ -731,6 +752,7 @@ export function usePhysicsRobot(
     angularSpeed: hud.angularSpeed,
     ready,
     reset,
+    resetNpcPoses,
     physicsEvents,
     linearRef,
     angularRef,

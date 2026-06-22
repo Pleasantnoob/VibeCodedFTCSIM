@@ -10,12 +10,20 @@ import type {
 import { BOT_AI_VERSION } from './types.js';
 import { pickCollectTarget, scanCollectibleArtifacts } from './artifacts.js';
 import {
-  baseParkTarget,
+  ENDGAME_FORCE_PARK_SEC,
+  ENDGAME_NO_NEW_TASKS_SEC,
   gateApproachPoint,
   isGateOpen,
   isRampFull,
   parkReturnStatus,
+  pickLaunchZoneForScorer,
+  staggeredParkTarget,
+  type EndgameRole,
 } from './coordination.js';
+import {
+  allyBlocksParkApproach,
+  fieldDriveTowardPark,
+} from './navigation/park-navigation.js';
 import {
   fieldDriveAlignShoot,
   fieldDriveScoreApproach,
@@ -41,8 +49,6 @@ import {
 
 const TARGET_STORED = 3;
 const STATUS_LOG_INTERVAL_SEC = 1.5;
-const ENDGAME_NO_NEW_TASKS_SEC = 10;
-const ENDGAME_FORCE_PARK_SEC = 5;
 
 export interface CollectorRobotState {
   commitScoring: boolean;
@@ -57,6 +63,10 @@ export interface CollectorRobotState {
 
 export interface CollectorContext {
   gateAssignees: ReadonlySet<string>;
+  allyLaunchZones: ReadonlyMap<string, 'near' | 'far'>;
+  allyArtifactIds: ReadonlyMap<string, string>;
+  endgameRoles: ReadonlyMap<string, EndgameRole>;
+  allyTasks: ReadonlyMap<string, BotTaskKind>;
 }
 
 export function createCollectorState(): CollectorRobotState {
@@ -103,6 +113,13 @@ function selectTask(
   }
 
   if (teleop && !infinite && timeLeft <= ENDGAME_NO_NEW_TASKS_SEC) {
+    const role = ctx.endgameRoles.get(slot.robotId);
+    if (role === 'finisher') {
+      if (stored > 0) return 'score';
+      if (state.commitScoring && stored > 0) return 'score';
+      return 'park';
+    }
+    if (role === 'parker') return 'park';
     if (state.currentTask === 'score' && stored > 0) return 'score';
     if (stored >= TARGET_STORED) return 'score';
     return 'park';
@@ -149,7 +166,13 @@ export function tickSimpleCollector(
   world: BotWorldSnapshot,
   slot: BotSlotConfig,
   state: CollectorRobotState,
-  ctx: CollectorContext = { gateAssignees: new Set() },
+  ctx: CollectorContext = {
+    gateAssignees: new Set(),
+    allyLaunchZones: new Map(),
+    allyArtifactIds: new Map(),
+    endgameRoles: new Map(),
+    allyTasks: new Map(),
+  },
 ): CollectorTickResult {
   const robot = world.robots.find((entry) => entry.id === slot.robotId);
   const elapsedSec = world.match.timeElapsed;
@@ -190,17 +213,18 @@ export function tickSimpleCollector(
 
   switch (task) {
     case 'park':
-      return tickParkPhase(world, slot, robot, state, canDrive, elapsedSec, logLines);
+      return tickParkPhase(world, slot, robot, state, ctx, canDrive, elapsedSec, logLines);
     case 'gate':
       return tickGatePhase(world, slot, robot, state, canDrive, elapsedSec, logLines);
     case 'score':
-      return tickScorePhase(world, slot, robot, state, canDrive, elapsedSec, logLines);
+      return tickScorePhase(world, slot, robot, state, ctx, canDrive, elapsedSec, logLines);
     default:
       return tickCollectPhase(
         world,
         slot,
         robot,
         state,
+        ctx,
         canDrive,
         storedCount,
         elapsedSec,
@@ -214,6 +238,7 @@ function tickCollectPhase(
   slot: BotSlotConfig,
   robot: BotRobotSnapshot,
   state: CollectorRobotState,
+  ctx: CollectorContext,
   canDrive: boolean,
   storedCount: number,
   elapsedSec: number,
@@ -225,6 +250,7 @@ function tickCollectPhase(
     world.robots,
     state.stuck.blockedArtifactIds,
     slot.difficulty,
+    ctx.allyArtifactIds,
   );
   if (!scan.pick && state.stuck.blockedArtifactIds.size > 0) {
     state.stuck.blockedArtifactIds.clear();
@@ -234,6 +260,7 @@ function tickCollectPhase(
       world.robots,
       state.stuck.blockedArtifactIds,
       slot.difficulty,
+      ctx.allyArtifactIds,
     );
   }
   const pick = scan.pick;
@@ -339,6 +366,7 @@ function tickScorePhase(
   slot: BotSlotConfig,
   robot: BotRobotSnapshot,
   state: CollectorRobotState,
+  ctx: CollectorContext,
   canDrive: boolean,
   elapsedSec: number,
   logLines: string[],
@@ -348,7 +376,12 @@ function tickScorePhase(
   const alignTol = shootAlignTolerance(robot.pose, robot.alliance);
   const aligned = Math.abs(shootHeadingError(robot.pose, robot.alliance)) < alignTol;
   if (!state.committedLaunchZone) {
-    state.committedLaunchZone = launchApproach(robot.pose, robot.alliance, null).zone;
+    state.committedLaunchZone = pickLaunchZoneForScorer(
+      slot.robotId,
+      world.robots,
+      robot.alliance,
+      ctx.allyLaunchZones,
+    );
   }
   const preferZone = state.stuck.launchZone ?? state.committedLaunchZone;
   const { target: launchTarget, zone } = launchApproach(
@@ -483,7 +516,12 @@ function tickGatePhase(
       target: gateTarget,
       storedCount: robot.stored.length,
       input: zeroDrive(),
-      mechanism: IDLE_MECHANISM,
+      mechanism: {
+        command: { gate: true },
+        shootEdge: false,
+        gateEdge: true,
+        shootHeld: false,
+      },
       path: [{ x: robot.pose.x, y: robot.pose.y }, gateTarget],
       aligned: true,
       atGoal: true,
@@ -539,11 +577,12 @@ function tickParkPhase(
   slot: BotSlotConfig,
   robot: BotRobotSnapshot,
   state: CollectorRobotState,
+  ctx: CollectorContext,
   canDrive: boolean,
   elapsedSec: number,
   logLines: string[],
 ): CollectorTickResult {
-  const park = baseParkTarget(world.field, robot.alliance);
+  const park = staggeredParkTarget(world.field, robot.alliance, slot.robotId);
   const dist = Math.hypot(park.target.x - robot.pose.x, park.target.y - robot.pose.y);
   const headingErr = Math.abs(normalizeAngle(robot.pose.heading - park.heading));
   const aligned = headingErr < 0.15;
@@ -552,23 +591,40 @@ function tickParkPhase(
 
   if (logLines.length === 0 && elapsedSec - state.lastStatusLogAt >= STATUS_LOG_INTERVAL_SEC) {
     state.lastStatusLogAt = elapsedSec;
+    const role = ctx.endgameRoles.get(slot.robotId);
     logLines.push(
-      `PARK base=(${park.target.x.toFixed(0)},${park.target.y.toFixed(0)}) dist=${dist.toFixed(1)}in status=${parkStatus} aligned=${aligned ? 'yes' : 'no'}`,
+      `PARK base=(${park.target.x.toFixed(0)},${park.target.y.toFixed(0)}) dist=${dist.toFixed(1)}in status=${parkStatus} role=${role ?? 'solo'} aligned=${aligned ? 'yes' : 'no'}`,
     );
   }
 
   let input = zeroDrive();
-  if (canDrive && !atBase) {
+  const allyBlocking = allyBlocksParkApproach(
+    robot,
+    park.target,
+    world.robots,
+    ctx.allyTasks,
+  );
+
+  if (canDrive && !atBase && !allyBlocking) {
     if (parkStatus === 'partial' && !aligned) {
       input = fieldDriveAlignShoot(robot.pose, park.heading, slot.difficulty);
     } else {
-      input = fieldDriveToward(robot.pose, park.target, {
-        faceHeading: parkStatus !== 'none' ? park.heading : undefined,
-        arriveIn: parkStatus === 'partial' ? 0.75 : 3,
-        maxSpeed: parkStatus === 'partial' ? 0.45 : 0.85,
-        difficulty: slot.difficulty,
-      });
+      input = fieldDriveTowardPark(
+        robot.pose,
+        park.target,
+        world.robots,
+        slot.robotId,
+        robot.alliance,
+        {
+          faceHeading: parkStatus !== 'none' ? park.heading : undefined,
+          arriveIn: parkStatus === 'partial' ? 0.75 : 3,
+          maxSpeed: parkStatus === 'partial' ? 0.45 : 0.85,
+          difficulty: slot.difficulty,
+        },
+      );
     }
+  } else if (allyBlocking && canDrive && !atBase) {
+    logLines.push('PARK yield ally clearing base lane');
   }
 
   const stuck = updateStuckTracker(
@@ -579,10 +635,12 @@ function tickParkPhase(
     elapsedSec,
   );
   if (stuck) {
-    logLines.push('STUCK park nudge');
-    input = { ...zeroDrive(), strafe: robot.alliance === 'blue' ? 0.4 : -0.4 };
+    logLines.push('STUCK park detour');
+    const detourSide = slot.robotId.includes('near') ? 0.55 : -0.55;
+    input = { ...zeroDrive(), strafe: detourSide, forward: 0.35 };
   }
 
+  const pathWaypoints = [{ x: robot.pose.x, y: robot.pose.y }, park.target];
   return buildResult({
     slot,
     robot,
@@ -591,7 +649,7 @@ function tickParkPhase(
     storedCount: robot.stored.length,
     input,
     mechanism: IDLE_MECHANISM,
-    path: [{ x: robot.pose.x, y: robot.pose.y }, park.target],
+    path: pathWaypoints,
     aligned,
     atGoal: atBase,
     inLaunchZone: false,

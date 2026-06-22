@@ -58,29 +58,34 @@ function artifactCounts(score: ScoreBreakdown): { classified: number; overflow: 
   };
 }
 
-function alliancePatternDisplay(matchGameState: MatchState | null, alliance: Alliance): number {
+function alliancePatternDisplay(
+  matchGameState: MatchState | null,
+  alliance: Alliance,
+  phase: MatchSnapshot['phase'] | undefined,
+): number {
   if (!matchGameState) return 0;
-  if (matchGameState.byAlliance) {
+  if (matchGameState.gateOpen[alliance]) return 0;
+  if (phase === 'post' && matchGameState.byAlliance) {
     const merged = mergeScores(
       matchGameState.byAlliance[alliance].autoScore,
       matchGameState.byAlliance[alliance].teleopScore,
     );
     if (merged.patternMatches > 0) return merged.patternMatches;
   }
-  if (matchGameState.gateOpen[alliance]) return 0;
   return countPatternMatchesFromState(matchGameState, alliance);
 }
 
 function allianceHudStats(
   matchGameState: MatchState | null,
   alliance: Alliance,
+  phase: MatchSnapshot['phase'] | undefined,
 ): { total: number; classified: number; overflow: number; pattern: number } {
   if (!matchGameState?.byAlliance) {
     const score = mergeScores(matchGameState?.autoScore ?? emptyHud(), matchGameState?.teleopScore ?? emptyHud());
     const counts = artifactCounts(score);
     return {
       total: matchGameState?.score.total ?? 0,
-      pattern: alliancePatternDisplay(matchGameState, alliance),
+      pattern: alliancePatternDisplay(matchGameState, alliance, phase),
       ...counts,
     };
   }
@@ -90,7 +95,7 @@ function allianceHudStats(
   const counts = artifactCounts(merged);
   return {
     total: bucket.score.total,
-    pattern: alliancePatternDisplay(matchGameState, alliance),
+    pattern: alliancePatternDisplay(matchGameState, alliance, phase),
     ...counts,
   };
 }
@@ -288,8 +293,8 @@ export function MatchFieldOverlay({
   }
   const motifColors = DECODE_RULES.motifs[motifId];
 
-  const redStats = allianceHudStats(matchGameState, 'red');
-  const blueStats = allianceHudStats(matchGameState, 'blue');
+  const redStats = allianceHudStats(matchGameState, 'red', snapshot.phase);
+  const blueStats = allianceHudStats(matchGameState, 'blue', snapshot.phase);
 
   const redLeave = leaveMarksForTeams(
     'red',

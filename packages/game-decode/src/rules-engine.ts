@@ -121,7 +121,7 @@ export class DecodeRulesEngine {
     }
   }
 
-  classifyArtifact(basinAlliance: Alliance, color: ArtifactColor, classified: boolean): void {
+  classifyArtifact(basinAlliance: Alliance, color: ArtifactColor, classified: boolean): number {
     const points = classified ? this.rules.scoring.classified : this.rules.scoring.overflow;
     const allianceState = this.state.byAlliance[basinAlliance];
     const bucket = this.state.phase === 'auto' ? allianceState.autoScore : allianceState.teleopScore;
@@ -134,16 +134,24 @@ export class DecodeRulesEngine {
       'score',
       `${basinAlliance.toUpperCase()} ${classified ? 'CLASSIFIED' : 'OVERFLOW'} ${color} +${points}`,
     );
-    if (classified) {
-      const ramp = this.state.rampOccupancy[basinAlliance];
-      const idx = ramp.findIndex((s) => s === null);
-      if (idx >= 0) ramp[idx] = color;
-    }
+    if (!classified) return -1;
+    const ramp = this.state.rampOccupancy[basinAlliance];
+    const idx = ramp.findIndex((s) => s === null);
+    if (idx >= 0) ramp[idx] = color;
+    return idx;
   }
 
   removeFromRamp(alliance: Alliance, slotIndex: number): void {
     if (slotIndex >= 0 && slotIndex < this.state.rampOccupancy[alliance].length) {
       this.state.rampOccupancy[alliance][slotIndex] = null;
+    }
+  }
+
+  /** Replace ramp occupancy (e.g. sync from sim before PATTERN assessment). */
+  setRampOccupancy(alliance: Alliance, occupancy: (ArtifactColor | null)[]): void {
+    this.state.rampOccupancy[alliance] = occupancy.slice(0, this.rules.rampSlots);
+    while (this.state.rampOccupancy[alliance].length < this.rules.rampSlots) {
+      this.state.rampOccupancy[alliance].push(null);
     }
   }
 

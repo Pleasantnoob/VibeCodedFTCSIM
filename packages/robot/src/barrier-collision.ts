@@ -672,7 +672,12 @@ export interface MutableRobotBody {
 const ROBOT_PUSH_TRANSFER = 0.6;
 const ROBOT_SEPARATION_SCALE = 0.9;
 
-function applyRobotPushExchange(a: MutableRobotBody, b: MutableRobotBody, sepMtv: Vector2): void {
+function applyRobotPushExchange(
+  a: MutableRobotBody,
+  b: MutableRobotBody,
+  sepMtv: Vector2,
+  exchangeScale = 1,
+): void {
   const len = Math.hypot(sepMtv.x, sepMtv.y);
   if (len < 1e-6) return;
   const nx = sepMtv.x / len;
@@ -683,18 +688,33 @@ function applyRobotPushExchange(a: MutableRobotBody, b: MutableRobotBody, sepMtv
   const relNormal = relVx * nx + relVy * ny;
   if (relNormal >= 0) return;
 
-  const impulse = -relNormal * ROBOT_PUSH_TRANSFER;
+  const impulse = -relNormal * ROBOT_PUSH_TRANSFER * exchangeScale;
   a.linear.x += nx * impulse;
   a.linear.y += ny * impulse;
   b.linear.x -= nx * impulse;
   b.linear.y -= ny * impulse;
 }
 
+export interface MutualCollisionOptions {
+  /** Index of the human-driven robot (typically 0 in stepMultiRobotDrive). */
+  playerIndex?: number;
+  /** Fraction of positional separation applied to non-player bodies (default 0.5). */
+  npcSeparationShare?: number;
+  /** Reduce momentum theft when a fast robot hits a nearly stopped partner. */
+  dampExchangeForStatic?: boolean;
+}
+
 /** Separate overlapping robots and transfer push velocity between them. */
 export function resolveMutualRobotCollisions(
   robots: MutableRobotBody[],
   maxPasses = 8,
+  options: MutualCollisionOptions = {},
 ): void {
+  const playerIndex = options.playerIndex ?? -1;
+  const npcShare = options.npcSeparationShare ?? 0.5;
+  const dampStatic = options.dampExchangeForStatic ?? false;
+  const STATIC_SPEED = 5;
+
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
     for (let i = 0; i < robots.length; i++) {
@@ -717,20 +737,52 @@ export function resolveMutualRobotCollisions(
         let dx = push.x * beta;
         let dy = push.y * beta;
 
+        let aShare = 0.5;
+        let bShare = 0.5;
+        if (playerIndex >= 0) {
+          if (i === playerIndex && j !== playerIndex) {
+            aShare = 1 - npcShare;
+            bShare = npcShare;
+          } else if (j === playerIndex && i !== playerIndex) {
+            aShare = npcShare;
+            bShare = 1 - npcShare;
+          }
+        }
+
         const beforeDistSq =
           (a.pose.x - b.pose.x) * (a.pose.x - b.pose.x) + (a.pose.y - b.pose.y) * (a.pose.y - b.pose.y);
         let afterDistSq =
-          (a.pose.x + dx - (b.pose.x - dx)) * (a.pose.x + dx - (b.pose.x - dx)) +
-          (a.pose.y + dy - (b.pose.y - dy)) * (a.pose.y + dy - (b.pose.y - dy));
+          (a.pose.x + dx * aShare - (b.pose.x - dx * bShare)) *
+            (a.pose.x + dx * aShare - (b.pose.x - dx * bShare)) +
+          (a.pose.y + dy * aShare - (b.pose.y - dy * bShare)) *
+            (a.pose.y + dy * aShare - (b.pose.y - dy * bShare));
         if (afterDistSq <= beforeDistSq) {
           dx = -dx;
           dy = -dy;
         }
 
-        a.pose = { x: a.pose.x + dx, y: a.pose.y + dy, heading: a.pose.heading };
-        b.pose = { x: b.pose.x - dx, y: b.pose.y - dy, heading: b.pose.heading };
+        a.pose = { x: a.pose.x + dx * aShare, y: a.pose.y + dy * aShare, heading: a.pose.heading };
+        b.pose = { x: b.pose.x - dx * bShare, y: b.pose.y - dy * bShare, heading: b.pose.heading };
 
-        applyRobotPushExchange(a, b, { x: dx / beta, y: dy / beta });
+        let exchangeScale = 1;
+        if (dampStatic) {
+          const aSpeed = Math.hypot(a.linear.x, a.linear.y);
+          const bSpeed = Math.hypot(b.linear.x, b.linear.y);
+          if (aSpeed < STATIC_SPEED && bSpeed >= STATIC_SPEED) {
+            exchangeScale = 0.2;
+          } else if (bSpeed < STATIC_SPEED && aSpeed >= STATIC_SPEED) {
+            exchangeScale = 0.2;
+          }
+          if (playerIndex >= 0) {
+            const playerIsA = i === playerIndex;
+            const playerIsB = j === playerIndex;
+            if (playerIsA || playerIsB) {
+              exchangeScale = Math.min(exchangeScale, 0.25);
+            }
+          }
+        }
+
+        applyRobotPushExchange(a, b, { x: dx / beta, y: dy / beta }, exchangeScale);
         moved = true;
       }
     }

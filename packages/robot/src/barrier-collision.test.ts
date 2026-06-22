@@ -321,4 +321,40 @@ describe('mutual robot collisions', () => {
     expect(target.pose.x).toBeGreaterThan(startTargetX);
     expect(target.linear.x).toBeGreaterThan(0.5);
   });
+
+  it('favors the player during AUTO when colliding with a stationary bot', () => {
+    const footprintCopy = { ...footprint };
+    const makePair = () => [
+      {
+        pose: { x: 50, y: 50, heading: 0 },
+        linear: { x: 40, y: 0 },
+        angular: 0,
+        footprint: footprintCopy,
+      },
+      {
+        pose: { x: 56, y: 50, heading: 0 },
+        linear: { x: 0, y: 0 },
+        angular: 0,
+        footprint: footprintCopy,
+      },
+    ];
+
+    const defaultPair = makePair();
+    resolveMutualRobotCollisions(defaultPair, 12);
+    const defaultPlayerSpeed = Math.hypot(defaultPair[0]!.linear.x, defaultPair[0]!.linear.y);
+
+    const priorityPair = makePair();
+    resolveMutualRobotCollisions(priorityPair, 12, {
+      playerIndex: 0,
+      npcSeparationShare: 0.88,
+      dampExchangeForStatic: true,
+    });
+    const priorityPlayerSpeed = Math.hypot(
+      priorityPair[0]!.linear.x,
+      priorityPair[0]!.linear.y,
+    );
+
+    expect(priorityPair[1]!.pose.x).toBeGreaterThan(56);
+    expect(priorityPlayerSpeed).toBeGreaterThan(defaultPlayerSpeed);
+  });
 });

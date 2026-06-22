@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ArtifactColor } from './types.js';
 import { countCompletePatternGroups, countPatternMatchesForAlliance } from './pattern.js';
 import { validateRules, DECODE_RULES } from './rules-loader.js';
 import { DecodeRulesEngine } from './rules-engine.js';
@@ -141,6 +142,68 @@ describe('DECODE rules', () => {
     ];
     expect(countPatternMatchesForAlliance(ramp, '21')).toBe(3);
     expect(countCompletePatternGroups(ramp, '21')).toBe(1);
+  });
+
+  it('scores third ramp triplet (indices 7–9) independently for motif 21', () => {
+    const ramp: (ArtifactColor | null)[] = [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'green',
+      'purple',
+      'purple',
+    ];
+    expect(countPatternMatchesForAlliance(ramp, '21')).toBe(3);
+    expect(countPatternMatchesForAlliance(ramp, '21') * DECODE_RULES.scoring.patternPerArtifact).toBe(6);
+  });
+
+  it('matches manual Figure 10-5 GPP example (five scored indices)', () => {
+    const ramp: (ArtifactColor | null)[] = [
+      'purple',
+      'green',
+      'purple',
+      'green',
+      'purple',
+      'purple',
+      'purple',
+      'purple',
+      'green',
+    ];
+    expect(countPatternMatchesForAlliance(ramp, '21')).toBe(5);
+  });
+
+  it('uses setRampOccupancy for pattern assessment (ignores ghost ledger slots)', () => {
+    const engine = new DecodeRulesEngine({ field: getDecodeField(), alliance: 'blue', motif: '21' });
+    engine.syncPhase('auto', 5);
+    engine.getState().rampOccupancy.blue = [
+      'green',
+      'purple',
+      'purple',
+      'purple',
+      null,
+      null,
+      null,
+      null,
+      null,
+    ];
+    engine.setRampOccupancy('blue', [
+      'green',
+      'purple',
+      'purple',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    engine.evaluatePattern('auto');
+    const after = engine.getState();
+    expect(after.byAlliance.blue.autoScore.pattern).toBe(6);
+    expect(after.byAlliance.blue.autoScore.patternMatches).toBe(3);
   });
 
   it('scores parking for every alliance robot and awards both-full bonus', () => {

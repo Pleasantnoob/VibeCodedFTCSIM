@@ -29,7 +29,7 @@ window.ftcLauncher = {
       internetAddress: localStorage.getItem('ftc-sim.internet-address') || '',
       publicIp: null,
       suggestedInternetAddress: '203.0.113.50:5191',
-      appVersion: '1.2.1',
+      appVersion: '1.2.2',
     }),
   onState: () => () => {},
   onUpdateAvailable: () => () => {},
@@ -85,7 +85,7 @@ window.ftcLauncher = {
   checkForUpdates: () =>
     Promise.resolve({
       status: 'current',
-      current: '1.2.1',
+      current: '1.2.2',
     }),
   copyLan: () => Promise.resolve('127.0.0.1:5191'),
   copyInternet: (address) => {
@@ -116,7 +116,7 @@ export default defineConfig({
 
   define: {
 
-    __APP_VERSION__: JSON.stringify('1.2.1'),
+    __APP_VERSION__: JSON.stringify('1.2.2'),
 
   },
 

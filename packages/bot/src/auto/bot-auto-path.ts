@@ -3,13 +3,52 @@ import type { Alliance } from '@ftc-sim/game-decode';
 import {
   AutoSequenceRunner,
   autoSequenceForAlliance,
+  getPathStartPose,
   pathChainForAlliance,
   pathChainToPoints,
   type AutoSequence,
   type PathChain,
 } from '@ftc-sim/pedro';
 import type { HolonomicInput, KinematicLimits } from '@ftc-sim/robot';
-import type { BotAutoPath } from '../types.js';
+import type { BotAutoPath, BotDebugState, BotRobotId, BotSlotConfig } from '../types.js';
+import { BOT_AI_VERSION } from '../types.js';
+
+export function allianceForBotRobotId(robotId: BotRobotId): Alliance {
+  return robotId === 'red-far' || robotId === 'red-near' ? 'red' : 'blue';
+}
+
+export function botAutoStartPose(autoPath: BotAutoPath, robotId: BotRobotId): Pose {
+  const alliance = allianceForBotRobotId(robotId);
+  const chain = pathChainForAlliance(autoPath.basePathChain, alliance);
+  return getPathStartPose(chain);
+}
+
+/** Static AUTO path overlays for setup/init (before the match loop ticks bots). */
+export function buildBotPathPreviewStates(slots: BotSlotConfig[]): BotDebugState[] {
+  return slots
+    .filter((slot) => slot.enabled && slot.runAuto && slot.autoPath)
+    .map((slot) => {
+      const alliance = allianceForBotRobotId(slot.robotId);
+      const path = pathOverlayPoints(slot.autoPath!, alliance);
+      const target = path.length > 0 ? path[path.length - 1]! : null;
+      return {
+        robotId: slot.robotId,
+        alliance,
+        aiVersion: BOT_AI_VERSION,
+        driveFrame: 'robot',
+        task: 'auto_hold',
+        target: target ? { x: target.x, y: target.y } : null,
+        storedCount: 0,
+        inLaunchZone: false,
+        aligned: true,
+        atGoal: false,
+        stuckPhase: 'normal',
+        pathLength: path.length,
+        path,
+        reactionMsRemaining: 0,
+      };
+    });
+}
 
 export function alliancePathForBot(
   autoPath: BotAutoPath,

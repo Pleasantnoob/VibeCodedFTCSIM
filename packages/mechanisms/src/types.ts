@@ -47,6 +47,8 @@ export interface GateReleaseItem {
   targetAlliance: Alliance;
   openedByAlliance: Alliance;
   slotIndex: number;
+  /** Rules ramp slot reserved at classification (cleared if sim slot differs). */
+  classifiedRampSlot: number;
   releaseAt: number;
   velocity: { x: number; y: number };
   spawnPose: { x: number; y: number; heading: number };

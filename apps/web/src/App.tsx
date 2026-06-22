@@ -10,9 +10,9 @@ import {
   pathChainToPoints,
   parsePathFileText,
 } from '@ftc-sim/pedro';
-import type { Vector2 } from '@ftc-sim/field';
+import type { Pose, Vector2 } from '@ftc-sim/field';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
-import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, type BotAutoPath, type BotRobotId, type BotSlotConfig, type Difficulty } from '@ftc-sim/bot';
+import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, botAutoStartPose, buildBotPathPreviewStates, type BotAutoPath, type BotDebugState, type BotRobotId, type BotSlotConfig, type Difficulty } from '@ftc-sim/bot';
 import { netConfigFromBotSlots } from '@ftc-sim/session';
 import { usePhysicsRobot } from './robot/usePhysicsRobot';
 
@@ -23,7 +23,7 @@ const PRACTICE_BOT_LABELS: Record<BotRobotId, string> = {
   'red-far': 'Red far',
   'red-near': 'Red near',
 };
-import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, type SoloSpawnSlot } from './robot/match-robots';
+import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, humanOccupiedRobotIds, type SoloSpawnSlot } from './robot/match-robots';
 import { DEFAULT_ARTIFACT_FRICTION } from './artifacts/artifact-world';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
@@ -87,6 +87,8 @@ const BUILTIN_PATHS = [
   { id: 'really-good', label: 'Really Good Path Test', file: '/examples/really-good-path-test.pp' },
   { id: 'super-duo-far12', label: 'Super Duo Far 12', file: '/examples/super-duo-far12.pp' },
   { id: 'super-duo-near12', label: 'Super Duo Near 12', file: '/examples/super-duo-near12.pp' },
+  { id: 'simple-duo-far', label: 'Simple Duo Far', file: '/examples/simple-duo-far.pp' },
+  { id: 'super-simple-far', label: 'Super Simple Far', file: '/examples/super-simple-far.pp' },
 ] as const;
 
 type BuiltinPathId = (typeof BUILTIN_PATHS)[number]['id'];
@@ -224,6 +226,7 @@ export function App() {
   const autoPhasePrevRef = useRef<MatchSnapshot['phase']>('setup');
   const followerRef = useRef(new AutoSequenceRunner());
   const resetRobotRef = useRef<(pose?: { x: number; y: number; heading: number }) => void>(() => {});
+  const resetNpcPosesRef = useRef<(poses: ReadonlyMap<string, Pose>) => void>(() => {});
   const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(savedPlayer.robot);
   const robotConfigRef = useRef(robotConfig);
   robotConfigRef.current = robotConfig;
@@ -240,9 +243,30 @@ export function App() {
   const botManagerRef = useRef(new BotManager());
   const botPathLoadIdRef = useRef(1);
   const botAutoPathTextRef = useRef(new Map<string, string>());
+  const [botSpawnOverrides, setBotSpawnOverrides] = useState<Map<BotRobotId, Pose>>(() => new Map());
+  const botPathPreviewRef = useRef<BotDebugState[]>([]);
   botsEnabledRef.current = botsEnabled;
   botDifficultyRef.current = botDifficulty;
   botSlotConfigsRef.current = botSlotConfigs;
+
+  const computeBotSpawnOverrides = useCallback((slots: BotSlotConfig[]) => {
+    const overrides = new Map<BotRobotId, Pose>();
+    for (const slot of slots) {
+      if (!slot.enabled || !slot.runAuto || !slot.autoPath) continue;
+      overrides.set(slot.robotId, botAutoStartPose(slot.autoPath, slot.robotId));
+    }
+    return overrides;
+  }, []);
+
+  const applyBotAutoStarts = useCallback(
+    (slots: BotSlotConfig[]) => {
+      if (!botsEnabledRef.current) return;
+      const overrides = computeBotSpawnOverrides(slots);
+      setBotSpawnOverrides(overrides);
+      resetNpcPosesRef.current(overrides);
+    },
+    [computeBotSpawnOverrides],
+  );
 
   const updateBotSlot = useCallback(
     (robotId: BotRobotId, patch: Partial<BotSlotConfig>) => {
@@ -293,6 +317,12 @@ export function App() {
     (robotId: BotRobotId) => {
       botAutoPathTextRef.current.delete(robotId);
       updateBotSlot(robotId, { autoPath: null, runAuto: false });
+      setBotSpawnOverrides((prev) => {
+        if (!prev.has(robotId)) return prev;
+        const next = new Map(prev);
+        next.delete(robotId);
+        return next;
+      });
     },
     [updateBotSlot],
   );
@@ -316,8 +346,13 @@ export function App() {
   }, [botsEnabled, botSlotConfigs]);
   const practiceRobots = useMemo(() => {
     if (!botsEnabled) return [] as ReturnType<typeof practiceFieldRobots>;
-    return practiceFieldRobots(simRobotFootprint(robotConfig));
-  }, [botsEnabled, robotConfig]);
+    const base = practiceFieldRobots(simRobotFootprint(robotConfig));
+    if (botSpawnOverrides.size === 0) return base;
+    return base.map((robot) => {
+      const override = botSpawnOverrides.get(robot.id as BotRobotId);
+      return override ? { ...robot, pose: override } : robot;
+    });
+  }, [botsEnabled, robotConfig, botSpawnOverrides]);
   const practiceRobotsRef = useRef(practiceRobots);
   practiceRobotsRef.current = practiceRobots;
 
@@ -328,6 +363,12 @@ export function App() {
     if (!pathChain) return [];
     return pathChainToPoints(pathChain, 80).map((p) => ({ x: p.x, y: p.y }));
   }, [pathChain]);
+
+  const botPathPreview = useMemo(
+    () => (botsEnabled ? buildBotPathPreviewStates(botSlotConfigs) : []),
+    [botsEnabled, botSlotConfigs],
+  );
+  botPathPreviewRef.current = botPathPreview;
 
   useEffect(() => {
     followerRef.current.updateConstants({ mass: robotConfig.mass });
@@ -536,6 +577,17 @@ export function App() {
   const driveBlockedRef = useRef(editBarriers || editZones);
   driveBlockedRef.current = editBarriers || editZones;
 
+  const humanInputRobotIds = useMemo(
+    () =>
+      humanOccupiedRobotIds({
+        spawnSlot: isNetSession ? undefined : spawnSlot,
+        netRobotId: isNetActive ? net.robotId : null,
+      }),
+    [spawnSlot, isNetSession, isNetActive, net.robotId],
+  );
+  const humanInputRobotIdsRef = useRef(humanInputRobotIds);
+  humanInputRobotIdsRef.current = humanInputRobotIds;
+
   const getMatchState = useCallback(() => getMatchStateRef.current(), []);
 
   const driveEnabled =
@@ -605,6 +657,7 @@ export function App() {
     angularSpeed,
     ready: physicsReady,
     reset: resetRobot,
+    resetNpcPoses,
     physicsEvents,
     getTelemetry,
     liveArtifacts,
@@ -648,6 +701,7 @@ export function App() {
       botsEnabledRef,
       botSlotConfigsRef,
       botsEnabled,
+      humanInputRobotIdsRef,
     },
   );
 
@@ -676,6 +730,7 @@ export function App() {
   });
 
   resetRobotRef.current = resetRobot;
+  resetNpcPosesRef.current = resetNpcPoses;
 
   useEffect(() => {
     netArtifactsRef.current = net.liveArtifacts;
@@ -991,6 +1046,7 @@ export function App() {
     autoPhasePrevRef.current = 'setup';
     followerRef.current.cancelPath();
     match.reset();
+    setBotSpawnOverrides(new Map());
     resetRobot(effectiveStartPose);
     setBarriers(initEditableBarriers(field));
     setZones(initEditableZones(field));
@@ -1002,11 +1058,13 @@ export function App() {
   const handleInit = () => {
     if (isNetActive && net.role === 'host') {
       tapMatchAudio();
+      applyBotAutoStarts(botSlotConfigsRef.current);
       net.sendHostCommand('init');
       return;
     }
     const prevSnap = match.clockRef.current!.snapshot();
     playSoloMatchAudio(prevSnap, () => {
+      applyBotAutoStarts(botSlotConfigsRef.current);
       randomizeMotif();
       match.initMatch();
     });
@@ -1152,6 +1210,15 @@ export function App() {
   const showPathOnField =
     showPlannedPath &&
     plannedPathPoints.length >= 2 &&
+    (displayMatchSnap.phase === 'setup' ||
+      displayMatchSnap.phase === 'init' ||
+      displayMatchSnap.phase === 'auto' ||
+      displayMatchSnap.phase === 'transition');
+
+  const showBotAutoPathPreview =
+    botsEnabled &&
+    showBotFieldDebug &&
+    botPathPreview.some((entry: BotDebugState) => entry.path.length >= 2) &&
     (displayMatchSnap.phase === 'setup' ||
       displayMatchSnap.phase === 'init' ||
       displayMatchSnap.phase === 'auto' ||
@@ -1442,14 +1509,18 @@ export function App() {
                   botSlotConfigs.find((entry) => entry.robotId === robotId) ??
                   defaultPracticeBotSlots(botDifficulty).find((entry) => entry.robotId === robotId)!;
                 const autoPath = slot.autoPath;
+                const humanDrivesSlot = humanInputRobotIds.has(robotId);
                 return (
                   <div key={robotId} className="bot-slot-config">
                     <div className="bot-slot-config__title">{PRACTICE_BOT_LABELS[robotId]}</div>
+                    {humanDrivesSlot ? (
+                      <p className="hint">You drive this slot — bot AI disabled.</p>
+                    ) : null}
                     <label className="panel-check">
                       <input
                         type="checkbox"
-                        checked={slot.enabled}
-                        disabled={!botsEnabled}
+                        checked={slot.enabled && !humanDrivesSlot}
+                        disabled={!botsEnabled || humanDrivesSlot}
                         onChange={(e) => updateBotSlot(robotId, { enabled: e.target.checked })}
                       />
                       Bot enabled
@@ -1924,6 +1995,9 @@ export function App() {
               ownedPoseRef={ownedPoseRef}
               showBotDebug={!isNetSession && botsEnabled && showBotFieldDebug}
               botDebugRef={!isNetSession && botsEnabled ? botDebugRef : undefined}
+              botAutoPathPreviewRef={
+                !isNetSession && showBotAutoPathPreview ? botPathPreviewRef : undefined
+              }
               robotSkinId={robotSkinId}
             />
             <MatchResultsCeremony

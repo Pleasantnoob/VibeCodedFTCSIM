@@ -5,7 +5,7 @@ import {
   startBotAutoRunner,
   tickBotAutoRunner,
 } from './auto/bot-auto-path.js';
-import { pickGateAssignees } from './coordination.js';
+import { pickEndgameRoles, pickGateAssignees } from './coordination.js';
 import {
   applyBotAvoidance,
   detectOpponentInSecretTunnel,
@@ -30,6 +30,10 @@ import { BOT_AI_VERSION } from './types.js';
 interface BotAutoRunnerState {
   runner: AutoSequenceRunner;
   loadId: number;
+}
+
+function idleHoldInput(): import('@ftc-sim/robot').HolonomicInput {
+  return { forward: 0, strafe: 0, turn: 0 };
 }
 
 export class BotManager {
@@ -98,6 +102,31 @@ export class BotManager {
       world.match.infiniteMode ? undefined : world.match.timeRemainingInPhase,
     );
 
+    const endgameRoles = pickEndgameRoles(world, this.slots, allyTasks);
+
+    const allyLaunchZones = new Map<string, 'near' | 'far'>();
+    const allyArtifactIds = new Map<string, string>();
+    for (const [id, debug] of this.lastDebugStates) {
+      const goalNode = debug.nav?.goalNode ?? '';
+      if (debug.task === 'score' && goalNode.startsWith('launch_')) {
+        const zone = goalNode.replace('launch_', '') as 'near' | 'far';
+        if (zone === 'near' || zone === 'far') {
+          allyLaunchZones.set(id, zone);
+        }
+      }
+      if (debug.artifactId && (debug.task === 'collect' || debug.task === 'idle')) {
+        allyArtifactIds.set(id, debug.artifactId);
+      }
+    }
+
+    const collectorCtx = {
+      gateAssignees,
+      allyLaunchZones,
+      allyArtifactIds,
+      endgameRoles,
+      allyTasks,
+    };
+
     for (const slot of this.slots) {
       if (!slot.enabled) continue;
       if (world.humanInputRobotIds.has(slot.robotId)) continue;
@@ -119,29 +148,33 @@ export class BotManager {
       } else if (inAutoPeriod) {
         result = this.matchPhaseHoldResult(slot, robot, slot.autoPath);
       } else {
-        result = tickSimpleCollector(world, slot, state, { gateAssignees });
+        result = tickSimpleCollector(world, slot, state, collectorCtx);
       }
       if (robot) {
-        const avoidedInput = applyBotAvoidance(
-          result.sample.input,
-          robot.pose,
-          world.robots,
-          slot.robotId,
-          robot.alliance,
-          world.field,
-          result.debug.task,
-          detectOpponentInSecretTunnel(world.robots, robot.alliance, world.field),
-          result.sample.driveFrame ?? 'field',
-          allyTasks,
-        );
-        result.sample.input = avoidedInput;
-        if (result.debug.nav) {
-          result.debug.nav.driveAvoid = {
-            f: avoidedInput.forward,
-            s: avoidedInput.strafe,
-            t: avoidedInput.turn,
-          };
-          result.debug.nav.driveFinal = result.debug.nav.driveAvoid;
+        const task = result.debug.task;
+        if (task !== 'auto_drive' && task !== 'auto_hold') {
+          const avoidedInput = applyBotAvoidance(
+            result.sample.input,
+            robot.pose,
+            world.robots,
+            slot.robotId,
+            robot.alliance,
+            world.field,
+            task,
+            detectOpponentInSecretTunnel(world.robots, robot.alliance, world.field),
+            result.sample.driveFrame ?? 'field',
+            allyTasks,
+            gateAssignees,
+          );
+          result.sample.input = avoidedInput;
+          if (result.debug.nav) {
+            result.debug.nav.driveAvoid = {
+              f: avoidedInput.forward,
+              s: avoidedInput.strafe,
+              t: avoidedInput.turn,
+            };
+            result.debug.nav.driveFinal = result.debug.nav.driveAvoid;
+          }
         }
       }
 
@@ -203,6 +236,7 @@ export class BotManager {
 
     const runner = entry.runner;
     const input = tickBotAutoRunner(runner, robot.pose, robot.linear, dt, world.limits);
+
     const running = runner.isRunning();
     const pathPoints = pathOverlayPoints(autoPath, robot.alliance);
     const targetPose = runner.getTargetPose();
@@ -227,7 +261,7 @@ export class BotManager {
         alliance: robot.alliance,
         aiVersion: BOT_AI_VERSION,
         driveFrame: 'robot',
-        task: 'auto_hold',
+        task: 'auto_drive',
         target: targetPose ? { x: targetPose.x, y: targetPose.y } : null,
         storedCount: robot.stored.length,
         inLaunchZone: false,
@@ -254,7 +288,7 @@ export class BotManager {
       autoPath && robot ? pathOverlayPoints(autoPath, robot.alliance) : [];
     return {
       sample: {
-        input: { forward: 0, strafe: 0, turn: 0, brake: true },
+        input: idleHoldInput(),
         driveFrame: 'robot',
         mechanism: {
           command: {},
@@ -293,7 +327,7 @@ export class BotManager {
     const target = pathPoints[pathPoints.length - 1] ?? null;
     return {
       sample: {
-        input: { forward: 0, strafe: 0, turn: 0, brake: true },
+        input: idleHoldInput(),
         driveFrame: 'robot',
         mechanism: {
           command: {},

@@ -109,6 +109,7 @@ export type BotTaskKind =
   | 'gate'
   | 'park'
   | 'defend'
+  | 'auto_drive'
   | 'auto_hold';
 
 export type BotReplanReason = 'task_change' | 'interval' | 'stuck' | 'goal_moved';

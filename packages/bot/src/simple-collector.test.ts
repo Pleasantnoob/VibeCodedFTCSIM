@@ -401,4 +401,46 @@ describe('simple collector', () => {
     expect(result.logLines.some((line) => line.startsWith('WAIT'))).toBe(true);
     expect(scanCollectibleArtifacts(world.robots[0]!, [], world.robots).collectible).toBe(0);
   });
+
+  it('fires gateEdge when in the gate zone', () => {
+    const state = createCollectorState();
+    const world = baseWorld({
+      match: {
+        phase: 'teleop',
+        timeElapsed: 60,
+        timeRemainingInPhase: 60,
+        infiniteMode: true,
+        allowsDrive: true,
+        controlSource: 'teleop',
+        running: true,
+        paused: false,
+      } as BotWorldSnapshot['match'],
+      gameState: {
+        gateOpen: { blue: false, red: false },
+        rampOccupancy: {
+          blue: ['g', 'g', 'p', 'p', 'g', 'p'],
+          red: ['g', 'g', 'p', 'p', 'g', 'p'],
+        },
+      } as BotWorldSnapshot['gameState'],
+      robots: [
+        {
+          id: 'blue-near',
+          alliance: 'blue',
+          pose: { x: 0, y: 69, heading: 0 },
+          linear: { x: 0, y: 0 },
+          angular: 0,
+          stored: [],
+        },
+      ],
+    });
+    const result = tickSimpleCollector(world, slot, state, {
+      gateAssignees: new Set(['blue-near']),
+      allyLaunchZones: new Map(),
+      allyArtifactIds: new Map(),
+      endgameRoles: new Map(),
+      allyTasks: new Map(),
+    });
+    expect(result.debug.task).toBe('gate');
+    expect(result.sample.mechanism.gateEdge).toBe(true);
+  });
 });

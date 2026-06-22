@@ -388,14 +388,34 @@ export class ArtifactSimulation {
   }
 
   evaluateEndOfAuto(robots: MatchRobotSnapshot[]): number {
+    this.syncRampOccupancyForPatternScoring();
     this.rules.evaluateAutoLeave(robots);
     return this.rules.evaluatePattern('auto');
   }
 
   evaluateEndOfMatch(robots: MatchRobotSnapshot[]): number {
+    this.syncRampOccupancyForPatternScoring();
     const matches = this.rules.evaluatePattern('teleop');
     this.rules.evaluateMatchParking(robots);
     return matches;
+  }
+
+  /**
+   * G10.5.2 — PATTERN only counts artifacts directly on the ramp at assessment time.
+   * Rules ledger can retain colors after gate rolls; sim slot occupancy is authoritative.
+   */
+  private syncRampOccupancyForPatternScoring(): void {
+    for (const alliance of ['red', 'blue'] as const) {
+      const occupancy: (ArtifactColor | null)[] = Array(9).fill(null);
+      for (let slotIndex = 0; slotIndex < 9; slotIndex++) {
+        const artifactId = this.rampSlots[alliance][slotIndex];
+        if (!artifactId) continue;
+        const artifact = this.artifacts.get(artifactId);
+        if (!artifact || artifact.phase !== 'onRamp') continue;
+        occupancy[slotIndex] = artifact.color;
+      }
+      this.rules.setRampOccupancy(alliance, occupancy);
+    }
   }
 
   tick(
@@ -778,8 +798,8 @@ export class ArtifactSimulation {
     if (!artifact) return;
 
     if (this.isGateReleaseActive(basinAlliance)) {
-      this.rules.classifyArtifact(basinAlliance, color, true);
-      this.enqueueGateReleaseDuringRoll(basinAlliance, artifactId, color, physics);
+      const rampSlot = this.rules.classifyArtifact(basinAlliance, color, true);
+      this.enqueueGateReleaseDuringRoll(basinAlliance, artifactId, color, physics, rampSlot);
       return;
     }
 
@@ -839,11 +859,15 @@ export class ArtifactSimulation {
     artifactId: string,
     color: ArtifactColor,
     physics: PhysicsAdapter,
+    classifiedRampSlot: number,
   ): void {
     const artifact = this.artifacts.get(artifactId);
     if (!artifact) return;
 
-    const slotIndex = this.findNewlyClassifiedRampSlot(alliance);
+    const slotIndex =
+      classifiedRampSlot >= 0 && this.rampSlots[alliance][classifiedRampSlot] === null
+        ? classifiedRampSlot
+        : this.findNewlyClassifiedRampSlot(alliance);
     const positions = rampSlotPositions(alliance);
     const startPose =
       slotIndex >= 0
@@ -861,6 +885,7 @@ export class ArtifactSimulation {
       targetAlliance: alliance,
       openedByAlliance: alliance,
       slotIndex,
+      classifiedRampSlot,
       releaseAt,
       velocity: gateReleaseVelocity(),
       spawnPose: rampSouthExitPose(alliance),
@@ -1015,6 +1040,7 @@ export class ArtifactSimulation {
         targetAlliance,
         openedByAlliance,
         slotIndex: i,
+        classifiedRampSlot: i,
         releaseAt: this.simTime + delayIndex * 0.15,
         velocity,
         spawnPose,
@@ -1044,6 +1070,8 @@ export class ArtifactSimulation {
       if (item.slotIndex >= 0) {
         this.rampSlots[item.targetAlliance][item.slotIndex] = null;
         this.rules.removeFromRamp(item.targetAlliance, item.slotIndex);
+      } else if (item.classifiedRampSlot >= 0) {
+        this.rules.removeFromRamp(item.targetAlliance, item.classifiedRampSlot);
       }
 
       const rollDistance = Math.hypot(

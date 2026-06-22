@@ -1,6 +1,6 @@
 {
   "name": "@ftc-sim/desktop-mac",
-  "version": "1.1.0",
+  "version": "1.2.2",
   "private": true,
   "description": "FTC Sim Player — Mac join-only desktop launcher",
   "main": "dist/main.js",

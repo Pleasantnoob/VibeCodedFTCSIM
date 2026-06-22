@@ -34,6 +34,8 @@ export interface MultiRobotDriveParams {
   driveFrame: DriveFrame;
   maxAcceleration: number;
   maxAngularAcceleration: number;
+  /** NPCs yield separation / momentum during AUTO so practice bots do not wall off the player. */
+  playerPriority?: boolean;
 }
 
 export interface MultiRobotDriveResult {
@@ -108,7 +110,11 @@ export function stepMultiRobotDrive(params: MultiRobotDriveParams): MultiRobotDr
     })),
   ];
 
-  resolveMutualRobotCollisions(bodies);
+  resolveMutualRobotCollisions(bodies, 8, {
+    playerIndex: params.playerPriority ? 0 : -1,
+    npcSeparationShare: 0.88,
+    dampExchangeForStatic: params.playerPriority,
+  });
 
   return {
     player: {

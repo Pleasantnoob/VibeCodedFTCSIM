@@ -151,6 +151,7 @@ export interface FieldCanvasProps {
   ownedPoseRef?: RefObject<Pose | null>;
   showBotDebug?: boolean;
   botDebugRef?: RefObject<BotDebugState[] | null>;
+  botAutoPathPreviewRef?: RefObject<BotDebugState[] | null>;
   robotSkinId?: RobotSkinId;
 }
 
@@ -315,6 +316,7 @@ export function FieldCanvas({
   ownedPoseRef,
   showBotDebug = false,
   botDebugRef,
+  botAutoPathPreviewRef,
   robotSkinId = 'transparent',
 }: FieldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -460,14 +462,22 @@ export function FieldCanvas({
   }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion, ownedRobotId, ownedPoseRef]);
 
   useEffect(() => {
-    if (!showBotDebug || !botDebugRef || !fieldRobotsRef) return;
+    if (!showBotDebug || !fieldRobotsRef) return;
+    if (!botDebugRef && !botAutoPathPreviewRef) return;
     const pathsLayer = botDebugPathsLayerRef.current;
     const labelsLayer = botDebugLabelsLayerRef.current;
     if (!pathsLayer || !labelsLayer) return;
 
     let frame = 0;
     const tick = () => {
-      const debugEntries = botDebugRef.current ?? [];
+      const merged = new Map<string, BotDebugState>();
+      for (const entry of botAutoPathPreviewRef?.current ?? []) {
+        merged.set(entry.robotId, entry);
+      }
+      for (const entry of botDebugRef?.current ?? []) {
+        merged.set(entry.robotId, entry);
+      }
+      const debugEntries = [...merged.values()];
       const robots = fieldRobotsRef.current ?? [];
       const seen = new Set<string>();
 
@@ -692,7 +702,7 @@ export function FieldCanvas({
       botPursuitSignatureRef.current.clear();
       botLabelTextRef.current.clear();
     };
-  }, [showBotDebug, botDebugRef, fieldRobotsRef, fieldRobotCatalog, viewport, smoothNetMotion]);
+  }, [showBotDebug, botDebugRef, botAutoPathPreviewRef, fieldRobotsRef, fieldRobotCatalog, viewport, smoothNetMotion]);
 
   useEffect(() => {
     if (!showArtifacts || !liveArtifactsRef) return;
