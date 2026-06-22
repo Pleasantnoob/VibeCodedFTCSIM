@@ -199,9 +199,6 @@ importers:
       '@ftc-sim/season-decode':
         specifier: workspace:*
         version: link:../season-decode
-      '@ftc-sim/session':
-        specifier: workspace:*
-        version: link:../session
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

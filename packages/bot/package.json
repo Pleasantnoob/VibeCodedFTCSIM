@@ -25,7 +25,6 @@
   },
   "devDependencies": {
     "@ftc-sim/season-decode": "workspace:*",
-    "@ftc-sim/session": "workspace:*",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }
