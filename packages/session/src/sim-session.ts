@@ -6,6 +6,7 @@ import type { MechanismLogEntry, MechanismSnapshot, SimArtifactState } from '@ft
 import {
   BotManager,
   type BotDebugState,
+  type BotRobotId,
   type BotSlotConfig,
 } from '@ftc-sim/bot';
 import {
@@ -118,7 +119,7 @@ export class SimSession {
   private humanInputRobotIds = new Set<string>();
   private botAutoActive = new Set<string>();
   /** Slots claimed only for practice bots (not human players). */
-  private botOnlyClaims = new Set<string>();
+  private botOnlyClaims = new Set<BotRobotId>();
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -280,7 +281,13 @@ export class SimSession {
     }
   }
 
-  private releaseBotClaim(robotId: string): void {
+  private clearBotOnlyClaim(robotId: string): void {
+    if (robotId === 'blue-near' || robotId === 'red-far' || robotId === 'red-near') {
+      this.botOnlyClaims.delete(robotId);
+    }
+  }
+
+  private releaseBotClaim(robotId: BotRobotId): void {
     this.botOnlyClaims.delete(robotId);
     if (!this.claimedRobotIds.delete(robotId)) return;
     this.world.setRobotSlotActive(
@@ -386,7 +393,7 @@ export class SimSession {
 
   claimRobotSlot(robotId: string, teamLabel?: string): void {
     if (!isClaimableRobotId(robotId)) return;
-    this.botOnlyClaims.delete(robotId);
+    this.clearBotOnlyClaim(robotId);
     const pose = spawnPoseForClaimableSlot(robotId);
     const footprint = simRobotFootprint(this.robotConfig);
     this.claimedRobotIds.add(robotId);
@@ -418,7 +425,7 @@ export class SimSession {
   }
 
   releaseRobotSlot(robotId: string): void {
-    this.botOnlyClaims.delete(robotId);
+    this.clearBotOnlyClaim(robotId);
     if (!this.claimedRobotIds.delete(robotId)) return;
     this.clearRobotTeamLabel(robotId);
     this.world.setRobotSlotActive(robotId, false, { x: -64, y: -64, heading: 0 }, simRobotFootprint(this.robotConfig));
