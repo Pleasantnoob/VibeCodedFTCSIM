@@ -711,9 +711,14 @@ export function FieldCanvas({
 
     const diameterPx = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
     const radiusPx = diameterPx / 2;
+    const artifactDisplayRef = { current: new Map<string, Pose>() };
 
     let frame = 0;
-    const tick = () => {
+    let lastNow = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastNow) / 1000));
+      lastNow = now;
+      const alpha = smoothNetMotion ? smoothAlpha(dt, 28) : 1;
       const artifacts = liveArtifactsRef.current ?? [];
       const seen = new Set<string>();
 
@@ -734,7 +739,13 @@ export function FieldCanvas({
           artifactElsRef.current.set(artifact.id, img);
         }
 
-        const px = pedroToFieldPx(artifact.pose, viewport);
+        const target = artifact.pose;
+        const prev = artifactDisplayRef.current.get(artifact.id) ?? target;
+        const display =
+          alpha >= 0.99 ? target : smoothPose(prev, target, alpha);
+        artifactDisplayRef.current.set(artifact.id, display);
+
+        const px = pedroToFieldPx(display, viewport);
         img.style.left = `${px.x - radiusPx}px`;
         img.style.top = `${px.y - radiusPx}px`;
         img.style.opacity = String(artifact.opacity);
@@ -744,6 +755,7 @@ export function FieldCanvas({
         if (!seen.has(id)) {
           img.remove();
           artifactElsRef.current.delete(id);
+          artifactDisplayRef.current.delete(id);
         }
       }
 
@@ -758,7 +770,7 @@ export function FieldCanvas({
       }
       artifactElsRef.current.clear();
     };
-  }, [liveArtifactsRef, showArtifacts, viewport]);
+  }, [liveArtifactsRef, showArtifacts, viewport, smoothNetMotion]);
 
   const onSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (dragRef.current) {

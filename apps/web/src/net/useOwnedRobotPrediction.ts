@@ -26,6 +26,9 @@ export type DriveSampleInput = () => {
     brake?: boolean;
     endpointBrake?: boolean;
   };
+  mechanism?: {
+    command?: { intake?: number };
+  };
 };
 
 export function useOwnedRobotPrediction(options: {
@@ -57,7 +60,9 @@ export function useOwnedRobotPrediction(options: {
   });
   const lastSnapshotTickRef = useRef(snapshotTick);
   const robotConfigRef = useRef(robotConfig);
+  const authoritativePoseRef = useRef(authoritativePose);
   robotConfigRef.current = robotConfig;
+  authoritativePoseRef.current = authoritativePose;
 
   useEffect(() => {
     if (lastSnapshotTickRef.current !== snapshotTick) {
@@ -100,6 +105,18 @@ export function useOwnedRobotPrediction(options: {
 
       const sample = sampleInputRef.current?.();
       if (!sample) {
+        frame = requestAnimationFrame(loop);
+        return;
+      }
+
+      const intakeActive = (sample.mechanism?.command?.intake ?? 0) >= 0.05;
+      const serverPose = authoritativePoseRef.current;
+      if (intakeActive && serverPose) {
+        const motion = motionRef.current;
+        motion.pose = smoothPose(motion.pose, serverPose, 0.55);
+        motion.linear = { x: 0, y: 0 };
+        motion.angular = 0;
+        poseRef.current = { ...motion.pose };
         frame = requestAnimationFrame(loop);
         return;
       }

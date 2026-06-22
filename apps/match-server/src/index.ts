@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -79,13 +79,30 @@ function logLatencySummary(clients: Map<WebSocket, ClientRecord>): void {
 }
 
 function readAppVersion(): string {
-  try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'desktop', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-    return pkg.version ?? '1.0.0';
-  } catch {
-    return '1.0.0';
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fromEnv = process.env.FTC_SIM_APP_VERSION?.trim();
+  if (fromEnv) return fromEnv;
+
+  const bundledVersion = join(here, 'app-version.txt');
+  if (existsSync(bundledVersion)) {
+    const text = readFileSync(bundledVersion, 'utf8').trim();
+    if (text) return text;
   }
+
+  const candidates = [
+    join(here, '..', '..', 'web', 'package.json'),
+    join(here, '..', '..', 'desktop', 'package.json'),
+    join(here, '..', 'package.json'),
+  ];
+  for (const pkgPath of candidates) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+      if (pkg.version) return pkg.version;
+    } catch {
+      /* try next */
+    }
+  }
+  return '0.0.0';
 }
 
 function lanAddress(port: number): string {

@@ -450,6 +450,11 @@ export class ArtifactWorld {
     this.applyArtifactFriction();
   }
 
+  /** Widen front-edge intake tolerance (multiplayer latency compensation). */
+  setIntakeEdgeEpsilon(epsilon: number): void {
+    this.sim.setIntakeEdgeEpsilon(epsilon);
+  }
+
   private applyArtifactFriction(): void {
     if (!this.initialized) return;
     for (const bodyId of this.artifactBodyIds) {

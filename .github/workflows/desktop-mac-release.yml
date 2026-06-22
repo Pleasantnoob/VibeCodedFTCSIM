@@ -37,11 +37,16 @@ jobs:
         working-directory: apps/desktop-mac
         env:
           CI: true
-          CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           pnpm prepare:resources
           pnpm build
           pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never
+          # Belt-and-suspenders ad-hoc sign (helps Gatekeeper; identity "-" in package.json)
+          APP=$(find release -maxdepth 3 -name "FTC Sim Player.app" -type d | head -1)
+          if [ -n "$APP" ]; then
+            codesign --force --deep --sign - "$APP"
+            echo "Signed: $APP"
+          fi
 
       - name: Write latest-mac.yml
         working-directory: apps/desktop-mac
@@ -90,6 +95,8 @@ jobs:
         run: |
           mkdir -p bundle
           cp apps/desktop-mac/build/INSTALL-MAC.txt bundle/
+          cp apps/desktop-mac/build/fix-mac-gatekeeper.command bundle/
+          chmod +x bundle/fix-mac-gatekeeper.command
           find artifacts -name '*.dmg' -exec cp {} bundle/ \;
           cd bundle
           zip -r "../FTC-Sim-Player-mac-${{ steps.version.outputs.version }}.zip" .
@@ -122,7 +129,16 @@ jobs:
 
             **Install:** open the `.dmg` → drag **FTC Sim Player** to **Applications** → open from Applications.
 
-            First launch may show a Gatekeeper warning (unsigned build). Right-click → **Open** → **Open** again.
+            ### "App is damaged"?
+
+            This is macOS quarantine on downloaded apps — **not** real corruption. After installing to Applications:
+
+            1. Double-click **`fix-mac-gatekeeper.command`** from the bundle zip, **or**
+            2. Terminal: `xattr -cr "/Applications/FTC Sim Player.app"` then `codesign --force --deep --sign - "/Applications/FTC Sim Player.app"`
+
+            Then open the app (right-click → **Open** if macOS still warns).
+
+            Full Apple notarization requires a paid Developer ID (future).
 
             ### Join a match
 

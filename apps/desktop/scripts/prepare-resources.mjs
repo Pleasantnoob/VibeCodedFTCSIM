@@ -85,3 +85,9 @@ if (deployMb > 50) {
 }
 
 console.log('[prepare] Done. Resources ready in apps/desktop/resources/');
+
+const appVersion = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, 'apps/web/package.json'), 'utf8'),
+).version;
+fs.writeFileSync(path.join(serverOut, 'app-version.txt'), `${appVersion}\n`, 'utf8');
+console.log('[prepare] Wrote match-server app-version.txt:', appVersion);

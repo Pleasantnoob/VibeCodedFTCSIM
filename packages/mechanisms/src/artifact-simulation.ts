@@ -117,12 +117,17 @@ export class ArtifactSimulation {
   private logger = new MechanismLogger();
   private reserveVisible = false;
   private stationSimActive = false;
+  private intakeEdgeEpsilon = 0.35;
 
   constructor(
     private field: FieldDefinition,
     private rules: DecodeRulesEngine,
     private alliance: Alliance,
   ) {}
+
+  setIntakeEdgeEpsilon(epsilon: number): void {
+    this.intakeEdgeEpsilon = epsilon;
+  }
 
   init(staging: StagedArtifactLayout[]): void {
     this.artifacts.clear();
@@ -607,7 +612,7 @@ export class ArtifactSimulation {
       if (heldIds.has(artifact.id)) continue;
 
       const center = { x: artifact.pose.x, y: artifact.pose.y };
-      if (!artifactTouchesFrontEdge(center, robotPose, footprint)) continue;
+      if (!artifactTouchesFrontEdge(center, robotPose, footprint, undefined, this.intakeEdgeEpsilon)) continue;
 
       const slot = state.stored.length as 0 | 1 | 2;
       state.stored.push({ id: artifact.id, color: artifact.color, slot });

@@ -30,7 +30,7 @@ import { buildWsUrl } from './session-mode';
 
 declare const __APP_VERSION__: string;
 
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.2';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.3';
 const CONNECT_TIMEOUT_MS = 12_000;
 const HUD_UPDATE_MS = 1000 / 12;
 const DEFAULT_ROBOT_FOOTPRINT = 18;
@@ -130,6 +130,16 @@ const EMPTY: SessionClientState = {
   versionWarning: null,
   roomConfig: null,
 };
+
+function appVersionsCompatible(client: string, server: string): boolean {
+  if (client === server) return true;
+  // Bundled match-server used to report 1.0.0 when version file was missing.
+  if (server === '1.0.0' || server === '0.0.0') return true;
+  const parse = (value: string) => value.split('.').map((part) => Number(part) || 0);
+  const [cMajor, cMinor = 0] = parse(client);
+  const [sMajor, sMinor = 0] = parse(server);
+  return cMajor === sMajor && cMinor === sMinor;
+}
 
 function snapshotToArtifacts(snapshot: StateSnapshot): SimArtifactState[] {
   return snapshot.artifacts.map((artifact) => ({
@@ -342,7 +352,7 @@ export function useSessionClient() {
           robotIdRef.current = message.robotId ?? null;
           const serverVersion = message.serverAppVersion?.trim();
           const versionWarning =
-            serverVersion && serverVersion !== APP_VERSION
+            serverVersion && !appVersionsCompatible(APP_VERSION, serverVersion)
               ? `Client v${APP_VERSION} / Host v${serverVersion} — update recommended`
               : null;
           setState((prev) => ({
@@ -436,12 +446,16 @@ export function useSessionClient() {
             setState((prev) => ({ ...prev, error: message.message }));
             return;
           }
+          const errorText =
+            message.code === 'version_mismatch'
+              ? `Network protocol mismatch — update host and client to the same release (${message.message}).`
+              : message.message;
           handshakeDone = true;
           window.clearInterval(helloRetry);
           clearConnectTimeout();
           setState((prev) => ({
             ...prev,
-            error: message.message,
+            error: errorText,
             connecting: false,
             connected: false,
           }));

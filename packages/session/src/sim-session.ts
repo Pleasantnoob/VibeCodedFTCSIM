@@ -117,6 +117,8 @@ export class SimSession {
   private botSlots: BotSlotConfig[] = [];
   private humanInputRobotIds = new Set<string>();
   private botAutoActive = new Set<string>();
+  /** Slots claimed only for practice bots (not human players). */
+  private botOnlyClaims = new Set<string>();
 
   constructor(config: SimSessionConfig) {
     this.config = config;
@@ -133,6 +135,9 @@ export class SimSession {
     this.follower = this.autoFollower;
     if (config.botSlots?.length) {
       this.setBotSlots(config.botSlots);
+    }
+    if (config.onlyClaimedRobots) {
+      this.world.setIntakeEdgeEpsilon(1.1);
     }
   }
 
@@ -249,6 +254,42 @@ export class SimSession {
       this.botManager = new BotManager();
     }
     this.botManager.setSlots(slots);
+    this.syncBotSlotClaims(slots);
+    this.applyPracticeBotPreloads();
+  }
+
+  /** Activate unclaimed practice slots on the server when bots fill empty seats. */
+  private syncBotSlotClaims(slots: BotSlotConfig[]): void {
+    if (!this.config.onlyClaimedRobots) return;
+
+    const enabledIds = new Set(slots.filter((slot) => slot.enabled).map((slot) => slot.robotId));
+
+    for (const robotId of [...this.botOnlyClaims]) {
+      if (enabledIds.has(robotId)) continue;
+      this.botOnlyClaims.delete(robotId);
+      if (this.claimedRobotIds.has(robotId)) {
+        this.releaseBotClaim(robotId);
+      }
+    }
+
+    for (const slot of slots) {
+      if (!slot.enabled) continue;
+      if (this.claimedRobotIds.has(slot.robotId)) continue;
+      this.claimRobotSlot(slot.robotId);
+      this.botOnlyClaims.add(slot.robotId);
+    }
+  }
+
+  private releaseBotClaim(robotId: string): void {
+    this.botOnlyClaims.delete(robotId);
+    if (!this.claimedRobotIds.delete(robotId)) return;
+    this.world.setRobotSlotActive(
+      robotId,
+      false,
+      { x: -64, y: -64, heading: 0 },
+      simRobotFootprint(this.robotConfig),
+    );
+    this.refreshFieldRobots();
   }
 
   getBotSlots(): BotSlotConfig[] {
@@ -345,6 +386,7 @@ export class SimSession {
 
   claimRobotSlot(robotId: string, teamLabel?: string): void {
     if (!isClaimableRobotId(robotId)) return;
+    this.botOnlyClaims.delete(robotId);
     const pose = spawnPoseForClaimableSlot(robotId);
     const footprint = simRobotFootprint(this.robotConfig);
     this.claimedRobotIds.add(robotId);
@@ -376,6 +418,7 @@ export class SimSession {
   }
 
   releaseRobotSlot(robotId: string): void {
+    this.botOnlyClaims.delete(robotId);
     if (!this.claimedRobotIds.delete(robotId)) return;
     this.clearRobotTeamLabel(robotId);
     this.world.setRobotSlotActive(robotId, false, { x: -64, y: -64, heading: 0 }, simRobotFootprint(this.robotConfig));

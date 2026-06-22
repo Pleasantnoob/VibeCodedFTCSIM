@@ -27,7 +27,7 @@ function gameUrl(joinAddress: string, name = 'Driver'): string {
     mode: 'join',
     addr,
     name,
-    v: '1.2.2',
+    v: '1.2.3',
   });
   return `http://127.0.0.1:${UI_PORT}/?${params.toString()}`;
 }

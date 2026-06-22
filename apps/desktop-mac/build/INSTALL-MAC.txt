@@ -19,3 +19,19 @@ Which .dmg?
   • Intel Mac: use *-mac-x64.dmg
 
 You cannot host matches from Mac — join only.
+
+
+"App is damaged" — this is NOT corruption
+=========================================
+
+macOS shows this when a downloaded app is quarantined. The app is fine.
+
+Option A (easiest): double-click  fix-mac-gatekeeper.command  in this folder
+  (after you drag the app to Applications).
+
+Option B (Terminal): paste this and press Enter:
+
+  xattr -cr "/Applications/FTC Sim Player.app"
+  codesign --force --deep --sign - "/Applications/FTC Sim Player.app"
+
+Then open FTC Sim Player from Applications (right-click → Open if needed).
