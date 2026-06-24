@@ -93,7 +93,8 @@ export function fieldDriveToCollect(
   const err = Math.abs(headingError(pose, face));
   return fieldDriveToward(pose, target, {
     faceHeading: face,
-    maxSpeed: err > 0.45 ? 0.55 : 0.75,
+    maxSpeed: err > 0.45 ? 0.5 : 0.7,
+    arriveIn: 3,
     difficulty,
   });
 }
@@ -142,7 +143,7 @@ export function fieldDriveAlignShoot(
   return { forward, strafe, turn, brake: true };
 }
 
-/** Drive toward launch while rotating; only slow/brake when close enough to shoot. */
+/** Drive toward launch while rotating; slow early to avoid overshooting the goal line. */
 export function fieldDriveScoreApproach(
   pose: Pose,
   target: Vector2,
@@ -157,13 +158,15 @@ export function fieldDriveScoreApproach(
   const dist = Math.hypot(dx, dy);
   const turn = clampTurn(err, gain);
 
-  if (dist < 1.5 && absErr < 0.08) {
-    return { ...ZERO, brake: true };
+  if (dist < 2 && absErr < 0.1) {
+    return { ...ZERO, brake: true, endpointBrake: true };
   }
 
-  const nearShoot = dist < 10;
-  const alignSlow = nearShoot && absErr < 0.2 ? Math.max(0.35, absErr / 0.2) : 1;
-  const speed = Math.min(0.75, dist / 16) * alignSlow;
+  const nearShoot = dist < 12;
+  const alignSlow = nearShoot && absErr < 0.25 ? Math.max(0.3, absErr / 0.25) : 1;
+  const distSlow = dist < 18 ? Math.max(0.35, dist / 18) : 1;
+  const misalignSlow = absErr > 0.15 ? Math.max(0.25, 1 - absErr * 2.5) : 1;
+  const speed = Math.min(0.62, dist / 20) * alignSlow * distSlow * misalignSlow;
   const nx = dist > 0.01 ? dx / dist : 0;
   const ny = dist > 0.01 ? dy / dist : 0;
 
@@ -171,7 +174,8 @@ export function fieldDriveScoreApproach(
     forward: ny * speed,
     strafe: -nx * speed,
     turn,
-    brake: nearShoot && absErr < 0.12,
+    brake: nearShoot && (absErr < 0.12 || dist < 4),
+    endpointBrake: dist < 3 && absErr < 0.14,
   };
 }
 

@@ -49,3 +49,6 @@ apps/desktop/apps/
 apps/desktop/release2/
 apps/desktop-mac/resources/
 apps/desktop-mac/release/
+
+# Local unpacked Windows release copy (use scripts/fetch-release.ps1 or pnpm build:desktop)
+release/

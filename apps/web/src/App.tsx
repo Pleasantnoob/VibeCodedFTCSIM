@@ -52,12 +52,14 @@ import {
 } from './field/zone-editor';
 import { useDriveInput } from './input/useDriveInput';
 import { DriveControlsPanel } from './input/DriveControlsPanel';
-import { loadPlayerSettings, patchPlayerSettings } from './input/player-settings';
+import { loadPlayerSettings, patchPlayerSettings, type PracticeBotId, type SavedAutoPathId } from './input/player-settings';
+import { useMatchGamepad } from './input/useMatchGamepad';
 import type { DriveFrame } from '@ftc-sim/robot';
 import { useMatchClock } from './match/useMatchClock';
 import type { MatchSnapshot } from '@ftc-sim/match';
 import { MatchFieldOverlay } from './match/MatchFieldOverlay';
 import { MatchResultsCeremony } from './match/MatchResultsCeremony';
+import { useMatchFullscreen } from './match/useMatchFullscreen';
 import { useMatchAudio, playMatchAudioCue, unlockMatchAudio, emitMatchAudioCues, getMatchAudioCache } from './match/useMatchAudio';
 import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
 import { DevToolsDrawer } from './components/DevToolsDrawer';
@@ -92,7 +94,25 @@ const BUILTIN_PATHS = [
 ] as const;
 
 type BuiltinPathId = (typeof BUILTIN_PATHS)[number]['id'];
-type LoadedPathId = BuiltinPathId | 'upload' | null;
+type LoadedPathId = SavedAutoPathId;
+
+function initialBotSlotConfigs(
+  saved: ReturnType<typeof loadPlayerSettings>,
+  difficulty: Difficulty,
+): BotSlotConfig[] {
+  return defaultPracticeBotSlots(difficulty).map((slot) => ({
+    ...slot,
+    enabled: saved.practiceBotSlots[slot.robotId as PracticeBotId] ?? false,
+  }));
+}
+
+function persistPracticeBotSlots(slots: BotSlotConfig[]): void {
+  const practiceBotSlots: Partial<Record<PracticeBotId, boolean>> = {};
+  for (const slot of slots) {
+    practiceBotSlots[slot.robotId as PracticeBotId] = slot.enabled;
+  }
+  patchPlayerSettings({ practiceBotSlots });
+}
 
 function clampMapSelection(
   barriers: ReturnType<typeof initEditableBarriers>,
@@ -159,6 +179,7 @@ export function App() {
   }, [urlSession, net.connect, savedPlayer]);
   const netArtifactsRef = useRef<SimArtifactState[]>([]);
   const fieldCenterRef = useRef<HTMLElement>(null);
+  const matchFullscreen = useMatchFullscreen(fieldCenterRef);
   const [barriers, setBarriers] = useState(() => initEditableBarriers(field));
   const [zones, setZones] = useState(() => initEditableZones(field));
   const [editBarriers, setEditBarriers] = useState(false);
@@ -231,10 +252,10 @@ export function App() {
   const robotConfigRef = useRef(robotConfig);
   robotConfigRef.current = robotConfig;
   const [robotSkinId, setRobotSkinId] = useState<RobotSkinId>(savedPlayer.robotSkinId);
-  const [botsEnabled, setBotsEnabled] = useState(false);
+  const [botsEnabled, setBotsEnabled] = useState(savedPlayer.practiceBotsEnabled);
   const [botDifficulty, setBotDifficulty] = useState<Difficulty>('normal');
   const [botSlotConfigs, setBotSlotConfigs] = useState<BotSlotConfig[]>(() =>
-    defaultPracticeBotSlots('normal'),
+    initialBotSlotConfigs(savedPlayer, 'normal'),
   );
   const [showBotFieldDebug, setShowBotFieldDebug] = useState(true);
   const botsEnabledRef = useRef(false);
@@ -270,9 +291,11 @@ export function App() {
 
   const updateBotSlot = useCallback(
     (robotId: BotRobotId, patch: Partial<BotSlotConfig>) => {
-      setBotSlotConfigs((prev) =>
-        prev.map((slot) => (slot.robotId === robotId ? { ...slot, ...patch } : slot)),
-      );
+      setBotSlotConfigs((prev) => {
+        const next = prev.map((slot) => (slot.robotId === robotId ? { ...slot, ...patch } : slot));
+        persistPracticeBotSlots(next);
+        return next;
+      });
     },
     [],
   );
@@ -346,13 +369,19 @@ export function App() {
   }, [botsEnabled, botSlotConfigs]);
   const practiceRobots = useMemo(() => {
     if (!botsEnabled) return [] as ReturnType<typeof practiceFieldRobots>;
-    const base = practiceFieldRobots(simRobotFootprint(robotConfig));
+    const enabledIds = new Set(
+      botSlotConfigs.filter((slot) => slot.enabled).map((slot) => slot.robotId),
+    );
+    if (enabledIds.size === 0) return [] as ReturnType<typeof practiceFieldRobots>;
+    const base = practiceFieldRobots(simRobotFootprint(robotConfig)).filter((robot) =>
+      enabledIds.has(robot.id as BotRobotId),
+    );
     if (botSpawnOverrides.size === 0) return base;
     return base.map((robot) => {
       const override = botSpawnOverrides.get(robot.id as BotRobotId);
       return override ? { ...robot, pose: override } : robot;
     });
-  }, [botsEnabled, robotConfig, botSpawnOverrides]);
+  }, [botsEnabled, botSlotConfigs, robotConfig, botSpawnOverrides]);
   const practiceRobotsRef = useRef(practiceRobots);
   practiceRobotsRef.current = practiceRobots;
 
@@ -437,6 +466,13 @@ export function App() {
         ? autoSequenceForAlliance(parsed.autoSequence, alliance)
         : null;
       resetRobotRef.current(getPathStartPose(chain));
+      const textToSave = pathText ?? lastPathTextRef.current;
+      if (textToSave) {
+        patchPlayerSettings({
+          lastAutoPathText: textToSave,
+          lastAutoPathId: source ?? 'upload',
+        });
+      }
       if (pathText && isNetActive && net.role === 'host') {
         net.sendAutoPath(pathText);
       }
@@ -448,12 +484,14 @@ export function App() {
     followerRef.current.cancelPath();
     pathChainRef.current = null;
     autoSequenceRef.current = null;
+    lastPathTextRef.current = null;
     setBasePathChain(null);
     setBaseAutoSequence(null);
     setPathFormat(null);
     setPathWarnings([]);
     setPathError(null);
     setLoadedPathId(null);
+    patchPlayerSettings({ lastAutoPathText: null, lastAutoPathId: null });
     resetRobotRef.current(playerSpawnPose(spawnSlot));
   }, [spawnSlot]);
 
@@ -468,6 +506,8 @@ export function App() {
       followerRef.current.followPath(pathChainRef.current);
     }
   }, []);
+
+  const savedPathRestoredRef = useRef(false);
 
   const loadPathFromText = useCallback(
     (text: string, source: LoadedPathId = 'upload') => {
@@ -731,6 +771,16 @@ export function App() {
 
   resetRobotRef.current = resetRobot;
   resetNpcPosesRef.current = resetNpcPoses;
+
+  useEffect(() => {
+    if (!physicsReady || savedPathRestoredRef.current || !savedPlayer.lastAutoPathText) return;
+    savedPathRestoredRef.current = true;
+    try {
+      loadPathFromText(savedPlayer.lastAutoPathText, savedPlayer.lastAutoPathId ?? 'upload');
+    } catch (e) {
+      setPathError(e instanceof Error ? e.message : String(e));
+    }
+  }, [physicsReady, loadPathFromText, savedPlayer.lastAutoPathId, savedPlayer.lastAutoPathText]);
 
   useEffect(() => {
     netArtifactsRef.current = net.liveArtifacts;
@@ -1052,7 +1102,6 @@ export function App() {
     setZones(initEditableZones(field));
     setSelectedVertex(null);
     setFollowerHud(null);
-    clearPath();
   };
 
   const handleInit = () => {
@@ -1194,6 +1243,20 @@ export function App() {
       !(displayMatchSnap.infiniteMode && displayMatchSnap.phase === 'teleop');
   }
 
+  useMatchGamepad(
+    {
+      locked: matchControlsLocked,
+      canInit,
+      canStartAuto,
+      canPause,
+      onInit: handleInit,
+      onStartAuto: handleStartAuto,
+      onPauseToggle: handlePause,
+      onReset: resetField,
+    },
+    true,
+  );
+
   const displayPose = isNetActive && net.pose ? net.pose : pose;
   const headingDeg = (displayPose.heading * 180) / Math.PI;
   const coordLabel = hover
@@ -1225,7 +1288,11 @@ export function App() {
       displayMatchSnap.phase === 'transition');
 
   return (
-    <div className={`shell alliance-${alliance}${showMatchNav ? ' shell--match-nav' : ''}`}>
+    <div
+      className={`shell alliance-${alliance}${showMatchNav ? ' shell--match-nav' : ''}${
+        matchFullscreen.immersive ? ' shell--match-fullscreen' : ''
+      }`}
+    >
       <LobbyScreen
         initialMode={sessionMode}
         initialAddress={urlSession.address ?? '127.0.0.1:5191'}
@@ -1398,6 +1465,13 @@ export function App() {
         </div>
 
         <div className="panels-nav__actions">
+          <PanelsButton
+            variant={matchFullscreen.isActive ? 'primary' : 'default'}
+            onClick={() => void matchFullscreen.toggle()}
+            title="Fullscreen match view (F11). Press Esc to exit."
+          >
+            {matchFullscreen.isActive ? 'Exit fullscreen' : 'Fullscreen'}
+          </PanelsButton>
           {(isNetJoinPlayer || isNetHost) && !isNetSpectator && (
             <PanelsButton
               variant={controlsDrawerOpen ? 'primary' : 'default'}
@@ -1476,16 +1550,21 @@ export function App() {
               defaultOpen
             >
               <p className="hint">
-                Simple collectors: preload 3 balls, collect until full, score at nearest launch, repeat.
+                Enable bots, then pick which NPC slots spawn on the field. Collectors preload 3 balls,
+                score at launch, repeat.
                 {isHostSession ? ' Unclaimed robot slots are filled on the match server.' : ''}
               </p>
               <label className="panel-check">
                 <input
                   type="checkbox"
                   checked={botsEnabled}
-                  onChange={(e) => setBotsEnabled(e.target.checked)}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setBotsEnabled(enabled);
+                    patchPlayerSettings({ practiceBotsEnabled: enabled });
+                  }}
                 />
-                Fill NPCs with bots
+                Enable practice bots
               </label>
               <label className="panel-field">
                 Difficulty
@@ -1523,7 +1602,7 @@ export function App() {
                         disabled={!botsEnabled || humanDrivesSlot}
                         onChange={(e) => updateBotSlot(robotId, { enabled: e.target.checked })}
                       />
-                      Bot enabled
+                      Spawn on field
                     </label>
                     <label className="panel-check">
                       <input
@@ -1947,11 +2026,30 @@ export function App() {
 
         <main
           ref={fieldCenterRef}
-          className="panel-center"
+          className={`panel-center${matchFullscreen.isActive ? ' panel-center--fullscreen' : ''}`}
           aria-label="Field view"
           tabIndex={0}
           onPointerDown={() => fieldCenterRef.current?.focus()}
+          onDoubleClick={() => void matchFullscreen.toggle()}
         >
+          {matchFullscreen.isActive ? (
+            <div className="match-fullscreen-exit-hint" aria-hidden>
+              Esc to exit fullscreen
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="match-fullscreen-toggle"
+              onClick={(event) => {
+                event.stopPropagation();
+                void matchFullscreen.enter();
+              }}
+              title="Fullscreen match + overlay (F11 or PS4 touchpad). Press Esc to exit."
+              aria-label="Fullscreen match view"
+            >
+              ⛶
+            </button>
+          )}
           {!displayFieldReady && isNetSession && !net.connected && (
             <div className="field-loading">Connecting to match server…</div>
           )}
@@ -1976,6 +2074,7 @@ export function App() {
               fieldRobotsRef={displayFieldReady ? displayFieldRobotsRef : undefined}
               fieldRobotCatalog={displayFieldReady ? displayFieldRobotCatalog : []}
               plannedPath={plannedPathPoints}
+              plannedPathAlliance={alliance}
               showPlannedPath={showPathOnField}
               followerTarget={displayFollowerTarget}
               showFollowerOverlay={showAutoFollowerOverlay}

@@ -152,7 +152,7 @@ export class BotManager {
       }
       if (robot) {
         const task = result.debug.task;
-        if (task !== 'auto_drive' && task !== 'auto_hold') {
+        if (task !== 'auto_drive' && task !== 'auto_hold' && task !== 'gate') {
           const avoidedInput = applyBotAvoidance(
             result.sample.input,
             robot.pose,

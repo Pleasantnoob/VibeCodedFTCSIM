@@ -28,6 +28,7 @@ import type { DriveTelemetryFrame } from '../dev/inject-drive';
 import type { EditableBarrier } from '../field/barrier-editor';
 import type { DriveInputSamplerState } from '../input/drive-input-sampler';
 import { sampleDriveInput } from '../input/drive-input-sampler';
+import { applyGoalHoming } from '../input/goal-homing';
 import type { SimRobotConfig } from './robot-config';
 import { DEFAULT_SIM_ROBOT_CONFIG } from './robot-config';
 import {
@@ -126,6 +127,8 @@ export function usePhysicsRobot(
   const botDebugRef = useRef<BotDebugState[]>([]);
   const simTickIndexRef = useRef(0);
   const advanceSimulationRef = useRef<(steps: number) => void>(() => {});
+  /** World is created once; pose/path changes use reset(), not destroy()+init(). */
+  const worldInitPoseRef = useRef(startPose);
 
   const allowsDriveRef = simOptions?.allowsDriveRef;
   const matchActiveRef = simOptions?.matchActiveRef;
@@ -135,6 +138,7 @@ export function usePhysicsRobot(
   const robotConfigRef = simOptions?.robotConfigRef;
   const onSimHudTick = simOptions?.onSimHudTick;
   const alliance = simOptions?.alliance ?? 'blue';
+  const worldInitKeyRef = useRef(`${field.id ?? 'field'}:${alliance}`);
   const artifactStaging = simOptions?.artifactStaging ?? [];
   const artifactFrictionRef = simOptions?.artifactFrictionRef;
   const getMatchStateRef = simOptions?.getMatchStateRef;
@@ -302,12 +306,18 @@ export function usePhysicsRobot(
       return;
     }
 
+    const initKey = `${field.id ?? 'field'}:${alliance}`;
+    if (worldInitKeyRef.current !== initKey) {
+      worldInitKeyRef.current = initKey;
+      worldInitPoseRef.current = startPose;
+    }
+
     let cancelled = false;
     const world = new ArtifactWorld(field, alliance);
     artifactWorldRef.current = world;
     const robotConfig = robotConfigRef?.current ?? DEFAULT_SIM_ROBOT_CONFIG;
     const footprint = simRobotFootprint(robotConfig);
-    const spawnPose = startPose;
+    const spawnPose = worldInitPoseRef.current;
     const initialBarriers = barriers;
     const npcLayouts = practiceRobotsRef?.current ?? [];
     npcMotionRef.current = createNpcMotionStates(npcLayouts);
@@ -315,7 +325,10 @@ export function usePhysicsRobot(
 
     void world.init(artifactStaging, initialBarriers, spawnPose, footprint, buildNpcSync(), layoutOptions())
       .then(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          world.destroy();
+          return;
+        }
         poseRef.current = spawnPose;
         linearRef.current = { x: 0, y: 0 };
         angularRef.current = 0;
@@ -340,11 +353,17 @@ export function usePhysicsRobot(
 
     return () => {
       cancelled = true;
+      if (loopRef.current !== null) {
+        cancelAnimationFrame(loopRef.current);
+        loopRef.current = null;
+      }
+      if (artifactWorldRef.current === world) {
+        artifactWorldRef.current = null;
+      }
       world.destroy();
-      artifactWorldRef.current = null;
       setReady(false);
     };
-  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld, layoutOptions, startPose, applyPracticeBotPreloads]);
+  }, [field, alliance, artifactStaging, practiceRobotsRef, buildNpcSync, initFieldRobotCatalog, refreshFieldRobotsRef, initWorld, layoutOptions, applyPracticeBotPreloads]);
 
   useEffect(() => {
     if (!ready) {
@@ -381,6 +400,9 @@ export function usePhysicsRobot(
     };
 
     const runSimulationSteps = (steps: number, dt: number) => {
+      const world = artifactWorldRef.current;
+      if (!world) return;
+
       const sample =
         sampleInputRef.current?.() ??
         ({
@@ -405,6 +427,7 @@ export function usePhysicsRobot(
             shootHeld: false,
           },
           source: 'none' as const,
+          goalHoming: false,
         } satisfies ReturnType<typeof sampleDriveInput>);
 
       const injected = samplerRef.current?.injectInput;
@@ -437,7 +460,7 @@ export function usePhysicsRobot(
         const controlSource = matchSnapNow?.controlSource ?? 'none';
         const follower = followerRef?.current ?? null;
 
-        const { input: driveInput, driveFrame } = resolveDriveInput(
+        let { input: driveInput, driveFrame } = resolveDriveInput(
           {
             input: sample.input,
             driveFrame: simOptions?.teleopDriveFrameRef?.current ?? 'field',
@@ -454,6 +477,10 @@ export function usePhysicsRobot(
           dt,
           limits,
         );
+        if (allowsDrive && sample.goalHoming) {
+          driveInput = applyGoalHoming(poseRef.current, alliance, driveInput);
+          driveFrame = 'field';
+        }
         lastDriveInputRef.current = driveInput;
 
         const botSamples = new Map<string, ReturnType<typeof botSampleToDriveSample>>();

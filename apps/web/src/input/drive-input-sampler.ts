@@ -162,6 +162,7 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
   debug: DriveInputDebug;
   mechanism: MechanismSample;
   source: ControlSource;
+  goalHoming: boolean;
 } {
   const pad = readActiveGamepad();
   state.gamepadConnected = pad !== null;
@@ -173,6 +174,7 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
       input,
       mechanism,
       source: 'gamepad',
+      goalHoming: false,
       debug: {
         padAxes: [0, 0, 0, 0],
         rawForward: input.forward,
@@ -197,13 +199,14 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
       turn: applyDeadzone(mapped.turn, TURN_DEADZONE),
     };
     state.smoothed = smoothInput(state.smoothed, target);
-    const brake = Boolean(pad.buttons[4]?.pressed);
-    const input = { ...state.smoothed, brake };
+    const goalHoming = Boolean(pad.buttons[5]?.pressed);
+    const input = { ...state.smoothed };
 
     return {
       input,
       mechanism,
       source: 'gamepad',
+      goalHoming,
       debug: {
         padAxes: mapped.padAxes,
         rawForward: mapped.forward,
@@ -227,6 +230,7 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
     input: hasKb || kb.brake ? kb : ZERO_INPUT,
     mechanism,
     source: hasKb ? 'keyboard' : 'none',
+    goalHoming: false,
     debug: {
       padAxes: [0, 0, 0, 0],
       rawForward: kb.forward,

@@ -4,6 +4,21 @@ import { DEFAULT_SIM_ROBOT_CONFIG, type SimRobotConfig } from '../robot/robot-co
 import { DEFAULT_ROBOT_SKIN_ID, parseRobotSkinId, type RobotSkinId } from '../robot/robot-skins';
 import { DEFAULT_DRIVE_KEYBINDS, type DriveKeybinds } from './drive-keybind-defaults';
 
+import type { BotRobotId } from '@ftc-sim/bot';
+
+export type SavedAutoPathId =
+  | 'decode-pp'
+  | 'decode-json'
+  | 'really-good'
+  | 'super-duo-far12'
+  | 'super-duo-near12'
+  | 'simple-duo-far'
+  | 'super-simple-far'
+  | 'upload'
+  | null;
+
+export type PracticeBotId = Extract<BotRobotId, 'blue-near' | 'red-far' | 'red-near'>;
+
 export interface PlayerSettings {
   playerName: string;
   robotTeamName: string;
@@ -13,9 +28,14 @@ export interface PlayerSettings {
   robotPreload: boolean;
   robotSkinId: RobotSkinId;
   spawnSlot: SoloSpawnSlot;
+  lastAutoPathText: string | null;
+  lastAutoPathId: SavedAutoPathId;
+  practiceBotsEnabled: boolean;
+  practiceBotSlots: Partial<Record<PracticeBotId, boolean>>;
 }
 
-const STORAGE_KEY = 'ftc-sim.player-settings.v1';
+const STORAGE_KEY = 'ftc-sim.player-settings.v2';
+const LEGACY_STORAGE_KEY = 'ftc-sim.player-settings.v1';
 const LEGACY_DRIVE_KEY = 'ftc-sim.drive-settings.v1';
 const LEGACY_KEYBINDS_KEY = 'ftc-sim.drive-keybinds.v1';
 
@@ -30,6 +50,10 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   robotPreload: true,
   robotSkinId: DEFAULT_ROBOT_SKIN_ID,
   spawnSlot: 'blue-far',
+  lastAutoPathText: null,
+  lastAutoPathId: null,
+  practiceBotsEnabled: false,
+  practiceBotSlots: {},
 };
 
 function clampRobotConfig(raw: Partial<SimRobotConfig> | undefined): SimRobotConfig {
@@ -66,6 +90,72 @@ function parseSpawnSlot(value: unknown): SoloSpawnSlot {
     return value as SoloSpawnSlot;
   }
   return DEFAULT_PLAYER_SETTINGS.spawnSlot;
+}
+
+function parseSavedAutoPathId(value: unknown): SavedAutoPathId {
+  const allowed: SavedAutoPathId[] = [
+    'decode-pp',
+    'decode-json',
+    'really-good',
+    'super-duo-far12',
+    'super-duo-near12',
+    'simple-duo-far',
+    'super-simple-far',
+    'upload',
+    null,
+  ];
+  if (value === null) return null;
+  return allowed.includes(value as SavedAutoPathId) ? (value as SavedAutoPathId) : null;
+}
+
+function parsePracticeBotSlots(
+  raw: Partial<Record<PracticeBotId, boolean>> | undefined,
+): Partial<Record<PracticeBotId, boolean>> {
+  if (!raw || typeof raw !== 'object') return {};
+  const next: Partial<Record<PracticeBotId, boolean>> = {};
+  for (const id of ['blue-near', 'red-far', 'red-near'] as const) {
+    if (typeof raw[id] === 'boolean') next[id] = raw[id];
+  }
+  return next;
+}
+
+function readStoredSettingsRaw(): Partial<PlayerSettings> | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Partial<PlayerSettings>;
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) return JSON.parse(legacy) as Partial<PlayerSettings>;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSettings(parsed: Partial<PlayerSettings>): PlayerSettings {
+  return {
+    playerName:
+      typeof parsed.playerName === 'string' && parsed.playerName.trim()
+        ? parsed.playerName.trim().slice(0, 32)
+        : DEFAULT_PLAYER_SETTINGS.playerName,
+    robotTeamName:
+      typeof parsed.robotTeamName === 'string' && parsed.robotTeamName.trim()
+        ? parsed.robotTeamName.trim().slice(0, 12)
+        : DEFAULT_PLAYER_SETTINGS.robotTeamName,
+    driveFrame: parsed.driveFrame === 'robot' ? 'robot' : 'field',
+    keybinds: mergeKeybinds(parsed.keybinds),
+    robot: clampRobotConfig(parsed.robot),
+    robotPreload: parsed.robotPreload !== false,
+    robotSkinId: parseRobotSkinId(parsed.robotSkinId),
+    spawnSlot: parseSpawnSlot(parsed.spawnSlot),
+    lastAutoPathText:
+      typeof parsed.lastAutoPathText === 'string' && parsed.lastAutoPathText.length > 0
+        ? parsed.lastAutoPathText
+        : null,
+    lastAutoPathId: parseSavedAutoPathId(parsed.lastAutoPathId ?? null),
+    practiceBotsEnabled: parsed.practiceBotsEnabled === true,
+    practiceBotSlots: parsePracticeBotSlots(parsed.practiceBotSlots),
+  };
 }
 
 function mergeKeybinds(raw: Partial<DriveKeybinds> | undefined): DriveKeybinds {
@@ -119,8 +209,8 @@ export function loadPlayerSettings(): PlayerSettings {
   }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
+    const stored = readStoredSettingsRaw();
+    if (!stored) {
       const migrated = migrateLegacySettings();
       if (migrated) {
         savePlayerSettings(migrated);
@@ -133,23 +223,7 @@ export function loadPlayerSettings(): PlayerSettings {
       };
     }
 
-    const parsed = JSON.parse(raw) as Partial<PlayerSettings>;
-    return {
-      playerName:
-        typeof parsed.playerName === 'string' && parsed.playerName.trim()
-          ? parsed.playerName.trim().slice(0, 32)
-          : DEFAULT_PLAYER_SETTINGS.playerName,
-      robotTeamName:
-        typeof parsed.robotTeamName === 'string' && parsed.robotTeamName.trim()
-          ? parsed.robotTeamName.trim().slice(0, 12)
-          : DEFAULT_PLAYER_SETTINGS.robotTeamName,
-      driveFrame: parsed.driveFrame === 'robot' ? 'robot' : 'field',
-      keybinds: mergeKeybinds(parsed.keybinds),
-      robot: clampRobotConfig(parsed.robot),
-      robotPreload: parsed.robotPreload !== false,
-      robotSkinId: parseRobotSkinId(parsed.robotSkinId),
-      spawnSlot: parseSpawnSlot(parsed.spawnSlot),
-    };
+    return normalizeSettings(stored);
   } catch {
     return {
       ...DEFAULT_PLAYER_SETTINGS,
@@ -183,6 +257,15 @@ export function patchPlayerSettings(patch: Partial<PlayerSettings>): PlayerSetti
   }
   if (patch.robotSkinId !== undefined) {
     next.robotSkinId = parseRobotSkinId(patch.robotSkinId);
+  }
+  if (patch.lastAutoPathId !== undefined) {
+    next.lastAutoPathId = parseSavedAutoPathId(patch.lastAutoPathId);
+  }
+  if (patch.practiceBotSlots !== undefined) {
+    next.practiceBotSlots = parsePracticeBotSlots({
+      ...current.practiceBotSlots,
+      ...patch.practiceBotSlots,
+    });
   }
   savePlayerSettings(next);
   return next;

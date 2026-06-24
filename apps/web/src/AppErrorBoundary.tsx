@@ -16,6 +16,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    document.getElementById('boot-msg')?.remove();
     console.error('[FTC Sim]', error, info.componentStack);
   }
 

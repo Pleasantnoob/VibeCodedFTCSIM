@@ -130,6 +130,7 @@ export interface FieldCanvasProps {
   fieldRobotCatalog?: FieldRobotCatalogEntry[];
   plannedPath?: Vector2[];
   showPlannedPath?: boolean;
+  plannedPathAlliance?: 'blue' | 'red';
   followerTarget?: Pose | null;
   showFollowerOverlay?: boolean;
   debugZones?: FieldZoneDefinition[];
@@ -298,6 +299,7 @@ export function FieldCanvas({
   fieldRobotCatalog = [],
   plannedPath = [],
   showPlannedPath = false,
+  plannedPathAlliance = 'blue',
   followerTarget = null,
   showFollowerOverlay = false,
   debugZones = [],
@@ -1028,7 +1030,7 @@ export function FieldCanvas({
 
           {showPlannedPath && plannedPath.length >= 2 && (
             <polyline
-              className="field-planned-path"
+              className={`field-planned-path field-planned-path--${plannedPathAlliance}`}
               points={plannedPath
                 .map((pt) => {
                   const px = pedroToFieldPx(pt, viewport);

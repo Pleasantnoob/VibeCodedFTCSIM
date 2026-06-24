@@ -140,7 +140,8 @@ export function DriveControlsPanel({ onSettingsChange }: DriveControlsPanelProps
       </div>
 
       <p className="hint hint--compact">
-        Gamepad: left stick move, right stick turn, LB brake, LT intake, RT shoot.
+        Gamepad drive: left stick move, right stick turn, LT intake, RT shoot. Hold RB to aim at
+        the goal while driving. Touchpad click toggles fullscreen; Start/Options = match flow; Share/Select = reset.
       </p>
     </div>
   );

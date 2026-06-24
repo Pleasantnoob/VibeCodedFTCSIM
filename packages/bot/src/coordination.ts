@@ -12,6 +12,18 @@ const GATE_APPROACH: Record<Alliance, { x: number; y: number }> = {
   red: { x: 135, y: 69 },
 };
 
+/** Safe standoff before creeping into the gate zone (avoids corner wedging). */
+const GATE_STANDOFF: Record<Alliance, { x: number; y: number }> = {
+  blue: { x: 26, y: 69 },
+  red: { x: 118, y: 69 },
+};
+
+/** Shallow in-zone point for the gate tap (not the gate lip). */
+const GATE_TAP: Record<Alliance, { x: number; y: number }> = {
+  blue: { x: 15, y: 69 },
+  red: { x: 129, y: 69 },
+};
+
 const GATE_ENROUTE_DIST_IN = 48;
 const GATE_ENROUTE_AIM_RAD = 0.55;
 const GATE_ENROUTE_MIN_SPEED = 4;
@@ -154,6 +166,20 @@ export function pickGateAssignees(
 
 export function gateApproachPoint(alliance: Alliance): { x: number; y: number } {
   return { ...GATE_APPROACH[alliance] };
+}
+
+export function gateStandoffPoint(alliance: Alliance): { x: number; y: number } {
+  return { ...GATE_STANDOFF[alliance] };
+}
+
+export function gateTapPoint(alliance: Alliance): { x: number; y: number } {
+  return { ...GATE_TAP[alliance] };
+}
+
+/** Retreat toward own field when wedged on the gate structure. */
+export function gateRetreatPoint(pose: Pose, alliance: Alliance): { x: number; y: number } {
+  const inset = alliance === 'blue' ? 22 : -22;
+  return { x: pose.x + inset, y: pose.y };
 }
 
 export function opponentGatePoint(alliance: Alliance): Vector2 {

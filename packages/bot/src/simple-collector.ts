@@ -12,6 +12,7 @@ import { pickCollectTarget, scanCollectibleArtifacts } from './artifacts.js';
 import {
   ENDGAME_FORCE_PARK_SEC,
   ENDGAME_NO_NEW_TASKS_SEC,
+  artifactTooCloseToOpponentGate,
   gateApproachPoint,
   isGateOpen,
   isRampFull,
@@ -29,6 +30,7 @@ import {
   fieldDriveScoreApproach,
   fieldDriveToCollect,
   fieldDriveToward,
+  intakeFaceHeading,
   intakeHeadingError,
   zeroDrive,
 } from './drive/field-drive.js';
@@ -79,6 +81,21 @@ export function createCollectorState(): CollectorRobotState {
     lastStoredCount: 0,
     lastStatusLogAt: -Infinity,
     stuck: createStuckTracker(),
+  };
+}
+
+function flankedArtifactStandoff(
+  artifact: { x: number; y: number },
+  alliance: 'blue' | 'red',
+): { x: number; y: number } {
+  const gate = alliance === 'blue' ? { x: 135, y: 69 } : { x: 9, y: 69 };
+  const dx = artifact.x - gate.x;
+  const dy = artifact.y - gate.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const standoff = 12;
+  return {
+    x: artifact.x + (dx / len) * standoff,
+    y: artifact.y + (dy / len) * standoff,
   };
 }
 
@@ -296,9 +313,14 @@ function tickCollectPhase(
   }
 
   const { artifact, dist, cluster, mode } = pick;
-  const target = { x: artifact.pose.x, y: artifact.pose.y };
-  const facing = Math.abs(intakeHeadingError(robot.pose, target)) <= 0.15;
-  const path = [{ x: robot.pose.x, y: robot.pose.y }, target];
+  const artifactPos = { x: artifact.pose.x, y: artifact.pose.y };
+  const nearOpponentGate = artifactTooCloseToOpponentGate(artifact.pose, robot.alliance);
+  const target = nearOpponentGate
+    ? flankedArtifactStandoff(artifactPos, robot.alliance)
+    : artifactPos;
+  const approachDist = Math.hypot(target.x - robot.pose.x, target.y - robot.pose.y);
+  const facing = Math.abs(intakeHeadingError(robot.pose, artifactPos)) <= 0.15;
+  const path = [{ x: robot.pose.x, y: robot.pose.y }, target, artifactPos];
 
   if (artifact.id !== state.lastArtifactId) {
     logLines.push(
@@ -319,7 +341,13 @@ function tickCollectPhase(
   }
 
   let input = canDrive
-    ? fieldDriveToCollect(robot.pose, target, slot.difficulty)
+    ? nearOpponentGate && approachDist > 3
+      ? fieldDriveToward(robot.pose, target, {
+          faceHeading: intakeFaceHeading(robot.pose, artifactPos),
+          maxSpeed: 0.55,
+          difficulty: slot.difficulty,
+        })
+      : fieldDriveToCollect(robot.pose, artifactPos, slot.difficulty)
     : zeroDrive();
 
   const stuck = updateStuckTracker(
@@ -444,12 +472,7 @@ function tickScorePhase(
   let input = canDrive
     ? inLaunch && !aligned
       ? fieldDriveAlignShoot(robot.pose, shootHeading, slot.difficulty, launchTarget)
-      : !inLaunch
-        ? fieldDriveToward(robot.pose, launchTarget, {
-            maxSpeed: 0.75,
-            difficulty: slot.difficulty,
-          })
-        : fieldDriveScoreApproach(robot.pose, launchTarget, shootHeading, slot.difficulty)
+      : fieldDriveScoreApproach(robot.pose, launchTarget, shootHeading, slot.difficulty)
     : zeroDrive();
 
   const stuck = updateStuckTracker(
@@ -505,7 +528,9 @@ function tickGatePhase(
 
   if (logLines.length === 0 && elapsedSec - state.lastStatusLogAt >= STATUS_LOG_INTERVAL_SEC) {
     state.lastStatusLogAt = elapsedSec;
-    logLines.push(`GATE tap dist=${dist.toFixed(1)}in inZone=${inZone ? 'yes' : 'no'}`);
+    logLines.push(
+      `GATE dist=${dist.toFixed(1)}in pos=(${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) inZone=${inZone ? 'yes' : 'no'}`,
+    );
   }
 
   if (inZone) {
@@ -533,9 +558,12 @@ function tickGatePhase(
     });
   }
 
+  // Creep into the narrow gate zone — default arriveIn stops ~2.5" short and never overlaps the zone.
+  const arriveIn = dist < 14 ? 0.35 : 2.5;
   let input = canDrive
     ? fieldDriveToward(robot.pose, gateTarget, {
         maxSpeed: dist < 6 ? 0.35 : 0.75,
+        arriveIn,
         difficulty: slot.difficulty,
       })
     : zeroDrive();
@@ -548,7 +576,9 @@ function tickGatePhase(
     elapsedSec,
   );
   if (stuck) {
-    logLines.push('STUCK gate approach backing off');
+    logLines.push(
+      `STUCK gate at (${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) dist=${dist.toFixed(1)} — pause`,
+    );
     input = zeroDrive();
   }
 
