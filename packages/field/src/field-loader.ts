@@ -36,10 +36,40 @@ export function rectangleVertices(center: Vector2, width: number, height: number
   ];
 }
 
+/**
+ * Bevel the sharp gate-mouth lip on goal barriers so robot OBB corners slide along
+ * an edge instead of wedging on a re-entrant vertex. Idempotent — skips if already chamfered.
+ */
+export function chamferGoalGateCorner(vertices: Vector2[], goalId: string): Vector2[] {
+  if (goalId === 'blue_goal') {
+    const sharpIdx = vertices.findIndex((v) => v.x === 6 && v.y === 70);
+    if (sharpIdx >= 0) {
+      const out = vertices.map((v) => ({ x: v.x, y: v.y }));
+      out.splice(sharpIdx, 1, { x: 6, y: 72 });
+      return out;
+    }
+    return vertices;
+  }
+  if (goalId === 'red_goal') {
+    const sharpIdx = vertices.findIndex((v) => v.x === 138 && v.y === 70);
+    if (sharpIdx >= 0) {
+      const out = vertices.map((v) => ({ x: v.x, y: v.y }));
+      out.splice(sharpIdx, 1, { x: 138, y: 72 });
+      return out;
+    }
+    return vertices;
+  }
+  return vertices;
+}
+
 /** Polygon outline for any static body (Pedro inches). */
 export function getBodyOutline(body: FieldBodyDefinition): Vector2[] {
   if (body.shape === 'polygon' && body.vertices?.length) {
-    return body.vertices;
+    const verts = body.vertices.map((v) => ({ x: v.x, y: v.y }));
+    if (body.id === 'blue_goal' || body.id === 'red_goal') {
+      return chamferGoalGateCorner(verts, body.id);
+    }
+    return verts;
   }
   if (body.shape === 'rectangle' && body.center && body.width != null && body.height != null) {
     return rectangleVertices(body.center, body.width, body.height);

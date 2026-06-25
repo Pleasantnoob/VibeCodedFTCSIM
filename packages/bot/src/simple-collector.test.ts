@@ -468,7 +468,7 @@ describe('simple collector', () => {
         {
           id: 'blue-near',
           alliance: 'blue',
-          pose: { x: 14, y: 69, heading: 0 },
+          pose: { x: 20, y: 71, heading: 0 },
           linear: { x: 0, y: 0 },
           angular: 0,
           stored: [],
@@ -483,6 +483,7 @@ describe('simple collector', () => {
       allyTasks: new Map(),
     });
     expect(result.debug.task).toBe('gate');
+    expect(result.debug.gatePhase).toBe('creep');
     expect(result.sample.mechanism.gateEdge).toBe(false);
     const speed = Math.hypot(
       result.sample.input.forward ?? 0,

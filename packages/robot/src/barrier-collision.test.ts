@@ -3,6 +3,7 @@ import {
   buildObb,
   obbClearOfPolygon,
   obbSurfaceSamples,
+  obbVsPolygonContacts,
   pointInPolygon,
   rotateLocalOffset,
 } from './obb-sat.js';
@@ -23,7 +24,16 @@ const BLUE_GOAL = [
   { x: 25, y: 144 },
   { x: 0, y: 144 },
   { x: 0, y: 70 },
-  { x: 7, y: 70 },
+  { x: 6, y: 72 },
+];
+
+/** Legacy sharp gate lip — regression for vertex-wedge escape. */
+const BLUE_GOAL_SHARP_GATE = [
+  { x: 6, y: 119 },
+  { x: 25, y: 144 },
+  { x: 0, y: 144 },
+  { x: 0, y: 70 },
+  { x: 6, y: 70 },
 ];
 
 const RED_GOAL = [
@@ -31,7 +41,8 @@ const RED_GOAL = [
   { x: 144, y: 144 },
   { x: 120, y: 144 },
   { x: 138, y: 119 },
-  { x: 138, y: 70 },
+  { x: 138, y: 72 },
+  { x: 144, y: 72 },
 ];
 
 const SPAWN_POSE = { x: 56, y: 8, heading: Math.PI / 2 };
@@ -295,6 +306,55 @@ describe('barrier collision SAT', () => {
 
     expect(maxJump).toBeLessThan(2.5);
     assertObbOutsideGoal(pose, RED_GOAL);
+  });
+
+  it('chamfered goal lip avoids sharp gate vertex contact', () => {
+    const pose = { x: 14.5, y: 78.5, heading: Math.PI };
+    const footprint = DEFAULT_KINEMATIC_ROBOT.footprint;
+    const sharp = obbVsPolygonContacts(buildObb(pose, footprint), BLUE_GOAL_SHARP_GATE).filter(
+      (c) => c.type === 'vertex',
+    );
+    const chamfered = obbVsPolygonContacts(buildObb(pose, footprint), BLUE_GOAL).filter(
+      (c) => c.type === 'vertex',
+    );
+    expect(sharp.length).toBeGreaterThan(0);
+    expect(chamfered.length).toBe(0);
+  });
+
+  it('dead vertex pivot skips hinge lock on sharp gate lip', () => {
+    const pose = { x: 14.5, y: 78.5, heading: Math.PI };
+    const footprint = DEFAULT_KINEMATIC_ROBOT.footprint;
+    const pivot = findPinnedCornerPivot(pose, footprint, [BLUE_GOAL_SHARP_GATE], -36, 0, 0);
+    expect(pivot).toBeNull();
+  });
+
+  it('sharp gate lip drive still advances along wall', () => {
+    let pose = { x: 14.5, y: 78.5, heading: Math.PI };
+    let linear = { x: 0, y: 0 };
+    let angular = 0;
+    let totalMove = 0;
+
+    for (let i = 0; i < 240; i++) {
+      const prev = pose;
+      const next = stepVelocityDrive({
+        pose,
+        linear,
+        angular,
+        input: { forward: 0.85, strafe: 0, turn: 0 },
+        dt: 1 / 120,
+        limits: DEFAULT_KINEMATIC_ROBOT.limits,
+        footprint: DEFAULT_KINEMATIC_ROBOT.footprint,
+        barriers: [BLUE_GOAL_SHARP_GATE],
+        fieldSizeInches: 144,
+      });
+      totalMove += Math.hypot(next.pose.x - prev.x, next.pose.y - prev.y);
+      pose = next.pose;
+      linear = next.linear;
+      angular = next.angular;
+    }
+
+    expect(totalMove).toBeGreaterThan(0.2);
+    assertObbOutsideGoal(pose, BLUE_GOAL_SHARP_GATE);
   });
 });
 

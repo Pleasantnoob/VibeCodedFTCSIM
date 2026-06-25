@@ -14,8 +14,12 @@ import {
   ENDGAME_NO_NEW_TASKS_SEC,
   artifactTooCloseToOpponentGate,
   gateApproachPoint,
+  gateCreepHeading,
+  gateLanePoint,
+  gateRetreatPoint,
   isGateOpen,
   isRampFull,
+  opponentGatePoint,
   parkReturnStatus,
   pickLaunchZoneForScorer,
   staggeredParkTarget,
@@ -45,12 +49,15 @@ import {
 } from './launch-helpers.js';
 import {
   createStuckTracker,
+  resetStuckTracker,
   updateStuckTracker,
   type StuckTracker,
 } from './navigation/stuck-tracker.js';
 
 const TARGET_STORED = 3;
 const STATUS_LOG_INTERVAL_SEC = 1.5;
+
+type GatePhase = 'lane' | 'creep' | 'engage';
 
 export interface CollectorRobotState {
   commitScoring: boolean;
@@ -60,6 +67,8 @@ export interface CollectorRobotState {
   lastLaunchZone: string | null;
   lastStoredCount: number;
   lastStatusLogAt: number;
+  gatePhase: GatePhase;
+  gateStuckNudges: number;
   stuck: StuckTracker;
 }
 
@@ -80,6 +89,8 @@ export function createCollectorState(): CollectorRobotState {
     lastLaunchZone: null,
     lastStoredCount: 0,
     lastStatusLogAt: -Infinity,
+    gatePhase: 'lane',
+    gateStuckNudges: 0,
     stuck: createStuckTracker(),
   };
 }
@@ -88,7 +99,7 @@ function flankedArtifactStandoff(
   artifact: { x: number; y: number },
   alliance: 'blue' | 'red',
 ): { x: number; y: number } {
-  const gate = alliance === 'blue' ? { x: 135, y: 69 } : { x: 9, y: 69 };
+  const gate = opponentGatePoint(alliance);
   const dx = artifact.x - gate.x;
   const dy = artifact.y - gate.y;
   const len = Math.hypot(dx, dy) || 1;
@@ -206,6 +217,11 @@ export function tickSimpleCollector(
   const storedCount = robot.stored.length;
   const canDrive = allowsBotDrive(world);
   const task = selectTask(world, slot, robot, state, ctx);
+  if (state.currentTask === 'gate' && task !== 'gate') {
+    state.gatePhase = 'lane';
+    state.gateStuckNudges = 0;
+    resetStuckTracker(state.stuck);
+  }
   state.currentTask = task;
 
   if (storedCount !== state.lastStoredCount) {
@@ -522,14 +538,33 @@ function tickGatePhase(
   elapsedSec: number,
   logLines: string[],
 ): CollectorTickResult {
-  const gateTarget = gateApproachPoint(robot.alliance);
+  const lane = gateLanePoint(robot.alliance);
+  const approach = gateApproachPoint(robot.alliance);
   const inZone = checkInGateZone(robot.pose, world.footprint, world.field, robot.alliance);
-  const dist = Math.hypot(gateTarget.x - robot.pose.x, gateTarget.y - robot.pose.y);
+  const distLane = Math.hypot(lane.x - robot.pose.x, lane.y - robot.pose.y);
+  const distApproach = Math.hypot(approach.x - robot.pose.x, approach.y - robot.pose.y);
+
+  if (isGateOpen(world, robot.alliance)) {
+    if (state.gatePhase !== 'lane' || state.gateStuckNudges > 0) {
+      logLines.push('GATE open — leaving gate task');
+    }
+    state.gatePhase = 'lane';
+    state.gateStuckNudges = 0;
+    resetStuckTracker(state.stuck);
+  }
+
+  if (inZone) {
+    state.gatePhase = 'engage';
+  } else if (distLane > 7) {
+    state.gatePhase = 'lane';
+  } else {
+    state.gatePhase = 'creep';
+  }
 
   if (logLines.length === 0 && elapsedSec - state.lastStatusLogAt >= STATUS_LOG_INTERVAL_SEC) {
     state.lastStatusLogAt = elapsedSec;
     logLines.push(
-      `GATE dist=${dist.toFixed(1)}in pos=(${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) inZone=${inZone ? 'yes' : 'no'}`,
+      `GATE phase=${state.gatePhase} lane=${distLane.toFixed(1)}in approach=${distApproach.toFixed(1)}in pos=(${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) inZone=${inZone ? 'yes' : 'no'}`,
     );
   }
 
@@ -538,7 +573,7 @@ function tickGatePhase(
       slot,
       robot,
       task: 'gate',
-      target: gateTarget,
+      target: approach,
       storedCount: robot.stored.length,
       input: zeroDrive(),
       mechanism: {
@@ -547,26 +582,30 @@ function tickGatePhase(
         gateEdge: true,
         shootHeld: false,
       },
-      path: [{ x: robot.pose.x, y: robot.pose.y }, gateTarget],
+      path: [{ x: robot.pose.x, y: robot.pose.y }, lane, approach],
       aligned: true,
       atGoal: true,
       inLaunchZone: false,
       canDrive,
       logLines,
       goalNode: 'gate',
-      dist,
+      dist: distApproach,
+      gatePhase: state.gatePhase,
     });
   }
 
-  // Creep into the narrow gate zone — default arriveIn stops ~2.5" short and never overlaps the zone.
-  const arriveIn = dist < 14 ? 0.35 : 2.5;
-  let input = canDrive
-    ? fieldDriveToward(robot.pose, gateTarget, {
-        maxSpeed: dist < 6 ? 0.35 : 0.75,
-        arriveIn,
-        difficulty: slot.difficulty,
-      })
-    : zeroDrive();
+  const target = state.gatePhase === 'lane' ? lane : approach;
+  const distTarget = state.gatePhase === 'lane' ? distLane : distApproach;
+
+  let input = zeroDrive();
+  if (canDrive) {
+    input = fieldDriveToward(robot.pose, target, {
+      maxSpeed: state.gatePhase === 'lane' ? 0.72 : 0.48,
+      arriveIn: state.gatePhase === 'creep' ? 0.3 : 2.5,
+      faceHeading: state.gatePhase === 'creep' ? gateCreepHeading(robot.alliance) : undefined,
+      difficulty: slot.difficulty,
+    });
+  }
 
   const stuck = updateStuckTracker(
     state.stuck,
@@ -576,29 +615,43 @@ function tickGatePhase(
     elapsedSec,
   );
   if (stuck) {
+    state.gateStuckNudges += 1;
+    const retreat = gateRetreatPoint(robot.pose, robot.alliance);
     logLines.push(
-      `STUCK gate at (${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) dist=${dist.toFixed(1)} — pause`,
+      `GATE stuck phase=${state.gatePhase} nudge=${state.gateStuckNudges} pos=(${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) dist=${distTarget.toFixed(1)}`,
     );
-    input = zeroDrive();
+    resetStuckTracker(state.stuck);
+    if (state.gateStuckNudges % 2 === 1) {
+      input = fieldDriveToward(robot.pose, retreat, {
+        maxSpeed: 0.55,
+        arriveIn: 6,
+        difficulty: slot.difficulty,
+      });
+      state.gatePhase = 'lane';
+    } else {
+      const strafe = robot.alliance === 'blue' ? 0.45 : -0.45;
+      input = { forward: 0.15, strafe, turn: 0 };
+    }
   }
 
   return buildResult({
     slot,
     robot,
     task: 'gate',
-    target: gateTarget,
+    target,
     storedCount: robot.stored.length,
     input,
     mechanism: IDLE_MECHANISM,
-    path: [{ x: robot.pose.x, y: robot.pose.y }, gateTarget],
+    path: [{ x: robot.pose.x, y: robot.pose.y }, lane, approach],
     aligned: false,
     atGoal: false,
     inLaunchZone: false,
     canDrive,
     logLines,
     goalNode: 'gate',
-    dist,
+    dist: distTarget,
     stuckPhase: stuck ? 'recovery' : 'normal',
+    gatePhase: state.gatePhase,
   });
 }
 
@@ -711,6 +764,7 @@ interface BuildResultArgs {
   dist?: number;
   stuckPhase?: BotDebugState['stuckPhase'];
   collectScan?: BotDebugState['collectScan'];
+  gatePhase?: string;
 }
 
 function buildResult(args: BuildResultArgs): CollectorTickResult {
@@ -736,6 +790,7 @@ function buildResult(args: BuildResultArgs): CollectorTickResult {
       : 0,
     stuckPhase = 'normal',
     collectScan,
+    gatePhase,
   } = args;
 
   return {
@@ -757,6 +812,7 @@ function buildResult(args: BuildResultArgs): CollectorTickResult {
       aligned,
       atGoal,
       stuckPhase,
+      gatePhase,
       pathLength: path.length,
       path,
       reactionMsRemaining: 0,
@@ -791,7 +847,10 @@ function buildResult(args: BuildResultArgs): CollectorTickResult {
         driveAvoid: { f: input.forward, s: input.strafe, t: input.turn },
         driveBarrier: { f: input.forward, s: input.strafe, t: input.turn },
         driveFinal: { f: input.forward, s: input.strafe, t: input.turn },
-        flags: canDrive ? [] : ['drive_blocked'],
+        flags: [
+          ...(canDrive ? [] : ['drive_blocked']),
+          ...(gatePhase ? [`gate_${gatePhase}`] : []),
+        ],
       },
     },
     logLines,

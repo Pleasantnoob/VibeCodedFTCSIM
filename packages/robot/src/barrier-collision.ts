@@ -73,6 +73,10 @@ const PIVOT_PIN_DIST = 0.83;
 const SLIP_BREAK_INTO = 5;
 const SLIP_TANGENT_GAIN = 0.45;
 const KINETIC_INTO_FRACTION = 0.12;
+/** Pivot hinge cannot rotate enough to satisfy desired drive — treat as wedge, not revolute lock. */
+const DEAD_PIVOT_OMEGA = 0.5;
+const DEAD_PIVOT_MIN_SPEED = 1.5;
+const VERTEX_ESCAPE_PUSH = 0.45;
 
 function cornerWorldVelocity(
   vx: number,
@@ -184,6 +188,15 @@ export function findPinnedCornerPivot(
       const into = vDesired.x * contact.normal.x + vDesired.y * contact.normal.y;
       if (into >= -0.05) continue;
 
+      const desiredSpeed = Math.hypot(desiredVx, desiredVy);
+      const pivotOmega = omegaForPivotAboutCorner(desiredVx, desiredVy, cornerLocal, pose.heading);
+      if (
+        desiredSpeed > DEAD_PIVOT_MIN_SPEED &&
+        Math.abs(pivotOmega) < DEAD_PIVOT_OMEGA
+      ) {
+        continue;
+      }
+
       const score = contactConstraintScore(obb, contact, desiredVx, desiredVy, desiredOmega);
       if (!best || score > best.score) {
         best = {
@@ -197,6 +210,43 @@ export function findPinnedCornerPivot(
   }
 
   return best ? { contact: best.contact, cornerLocal: best.cornerLocal, pivot: best.pivot } : null;
+}
+
+/** Push robot off a vertex wedge when revolute pivot cannot satisfy desired motion. */
+function tryEscapeVertexWedge(
+  pose: Pose,
+  footprint: RobotFootprint,
+  barriers: Vector2[][],
+  desiredVx: number,
+  desiredVy: number,
+): Pose | null {
+  const obb = buildObb(pose, footprint);
+  const desiredSpeed = Math.hypot(desiredVx, desiredVy);
+  if (desiredSpeed < DEAD_PIVOT_MIN_SPEED) return null;
+
+  for (const polygon of barriers) {
+    for (const contact of obbVsPolygonContacts(obb, polygon)) {
+      if (contact.type !== 'vertex') continue;
+      if (contactPinDistance(obb, contact) > PIVOT_PIN_DIST) continue;
+
+      const cornerLocal = obb.locals[contact.cornerIndex];
+      const pivotOmega = omegaForPivotAboutCorner(desiredVx, desiredVy, cornerLocal, pose.heading);
+      if (Math.abs(pivotOmega) >= DEAD_PIVOT_OMEGA) continue;
+
+      const push = deepestObbSeparationPush(obb, polygon);
+      if (!push) continue;
+
+      const len = Math.hypot(push.x, push.y);
+      if (len < 1e-6) continue;
+      const step = Math.min(len, VERTEX_ESCAPE_PUSH);
+      return {
+        x: pose.x + (push.x / len) * step,
+        y: pose.y + (push.y / len) * step,
+        heading: pose.heading,
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -576,6 +626,51 @@ export function resolveBarrierPhysics(
         pivot.cornerLocal,
         nextPose.heading,
       );
+      const desiredSpeed = Math.hypot(desired.x, desired.y);
+      const pivotDead =
+        desiredSpeed > DEAD_PIVOT_MIN_SPEED && Math.abs(omega) < DEAD_PIVOT_OMEGA;
+
+      if (pivotDead) {
+        const escaped = tryEscapeVertexWedge(
+          nextPose,
+          footprint,
+          barriers,
+          desired.x,
+          desired.y,
+        );
+        if (escaped) {
+          nextPose = escaped;
+        }
+
+        const vel = resolveBarrierVelocity(
+          nextPose,
+          { x: nextVx, y: nextVy },
+          nextOmega,
+          barriers,
+          footprint,
+          subDt,
+          desired,
+          desiredOm,
+        );
+        nextVx = vel.linear.x;
+        nextVy = vel.linear.y;
+        nextOmega = vel.angular;
+
+        nextPose = {
+          x: nextPose.x + nextVx * subDt,
+          y: nextPose.y + nextVy * subDt,
+          heading: normalizeAngle(nextPose.heading + nextOmega * subDt),
+        };
+
+        if (isPenetrating(nextPose, footprint, barriers) || isSkinOverlap(nextPose, footprint, barriers)) {
+          nextPose = resolveBarrierPosition(nextPose, barriers, footprint, {
+            maxPasses: posPasses,
+            maxTotalCorrection: posBudget / substeps,
+          });
+        }
+        continue;
+      }
+
       const stepped = stepPivotAboutCorner(
         nextPose,
         pivot.cornerLocal,

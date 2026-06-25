@@ -83,7 +83,8 @@ function clampHolonomic(input: HolonomicInput): HolonomicInput {
   };
 }
 
-export const PEDRO_SEGMENT_END_THRESHOLD = 2.5;
+/** Center must reach within this distance of a segment corner / endpoint (18" robot). */
+export const PEDRO_SEGMENT_END_THRESHOLD = 5.0;
 
 export class PedroFollower {
   /** Center must reach within this distance of the path endpoint. */
@@ -293,18 +294,8 @@ export class PedroFollower {
     const distToEnd = distance(this.pose, endPose);
     const speed = Math.hypot(this.velocity.x, this.velocity.y);
 
-    if (this.activePathIndex === lastIndex && this.currentT >= 0.99) {
-      if (speed < PedroFollower.END_STOP_SPEED) {
-        this.busy = false;
-      }
-      return clampHolonomic({
-        forward: 0,
-        strafe: 0,
-        turn: 0,
-        brake: true,
-        endpointBrake: true,
-      });
-    }
+    // Do not brake on t alone — at sharp corners closestT hits 1 while the center is still
+    // inches from the vertex, which freezes tracking and blocks the next segment.
 
     const overshot =
       this.activePathIndex === lastIndex && driveError > 0.15 && this.currentT >= 0.85;

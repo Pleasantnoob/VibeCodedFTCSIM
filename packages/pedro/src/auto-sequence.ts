@@ -70,9 +70,6 @@ export class AutoSequenceRunner {
     return step?.kind === 'path' ? step : null;
   }
 
-  private static readonly PINNED_SEGMENT_END_DIST = 4.0;
-  private static readonly PINNED_SEGMENT_END_SPEED = 2.5;
-
   private atCurrentSegmentEnd(pose: Pose): boolean {
     const step = this.currentPathStep();
     if (!step || step.chain.paths.length === 0) return false;
@@ -80,11 +77,12 @@ export class AutoSequenceRunner {
     const dist = distance(pose, end);
     const v = this.follower.getVelocity();
     const speed = Math.hypot(v.x, v.y);
-    if (speed >= AutoSequenceRunner.PINNED_SEGMENT_END_SPEED) return false;
+    const { tValue } = this.follower.getProgress();
+
     if (dist <= PEDRO_SEGMENT_END_THRESHOLD) return true;
-    if (dist > AutoSequenceRunner.PINNED_SEGMENT_END_DIST) return false;
-    const { completion, tValue } = this.follower.getProgress();
-    return completion >= 0.88 || tValue >= 0.88;
+    if (dist <= 8 && tValue >= 0.92 && speed < 8) return true;
+    if (!this.follower.isBusy() && dist <= 10) return true;
+    return false;
   }
 
   setPose(pose: Pose): void {

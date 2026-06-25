@@ -33,10 +33,12 @@ describe('decode field', () => {
     expect(getBodyOutline(redGoal).length).toBeGreaterThanOrEqual(4);
   });
 
-  it('blue goal uses x=6 vertex on goal inner edge', () => {
+  it('blue goal gate lip is chamfered to reduce corner wedging', () => {
     const field = getDecodeField();
     const blueGoal = field.bodies.find((b) => b.id === 'blue_goal')!;
-    expect(blueGoal.vertices?.some((v) => v.x === 6 && v.y === 70)).toBe(true);
+    expect(blueGoal.vertices?.some((v) => v.x === 6 && v.y === 70)).toBe(false);
+    expect(blueGoal.vertices?.some((v) => v.x === 6 && v.y === 72)).toBe(true);
+    expect(blueGoal.vertices?.some((v) => v.x === 0 && v.y === 70)).toBe(true);
   });
 
   it('includes scoring debug zones with ramp capacity', () => {

@@ -8,8 +8,8 @@ import type { BotRobotSnapshot, BotSlotConfig, BotTaskKind, BotWorldSnapshot } f
 const RAMP_FULL_SLOTS = 6;
 
 const GATE_APPROACH: Record<Alliance, { x: number; y: number }> = {
-  blue: { x: 9, y: 69 },
-  red: { x: 135, y: 69 },
+  blue: { x: 15, y: 69 },
+  red: { x: 129, y: 69 },
 };
 
 /** Safe standoff before creeping into the gate zone (avoids corner wedging). */
@@ -22,6 +22,12 @@ const GATE_STANDOFF: Record<Alliance, { x: number; y: number }> = {
 const GATE_TAP: Record<Alliance, { x: number; y: number }> = {
   blue: { x: 15, y: 69 },
   red: { x: 129, y: 69 },
+};
+
+/** Wide lane before turning into the gate (avoids goal-wall corner wedge). */
+const GATE_LANE: Record<Alliance, { x: number; y: number }> = {
+  blue: { x: 24, y: 72 },
+  red: { x: 120, y: 72 },
 };
 
 const GATE_ENROUTE_DIST_IN = 48;
@@ -174,6 +180,15 @@ export function gateStandoffPoint(alliance: Alliance): { x: number; y: number } 
 
 export function gateTapPoint(alliance: Alliance): { x: number; y: number } {
   return { ...GATE_TAP[alliance] };
+}
+
+export function gateLanePoint(alliance: Alliance): { x: number; y: number } {
+  return { ...GATE_LANE[alliance] };
+}
+
+/** Heading while creeping into the gate zone (intake faces the gate structure). */
+export function gateCreepHeading(alliance: Alliance): number {
+  return alliance === 'blue' ? Math.PI : 0;
 }
 
 /** Retreat toward own field when wedged on the gate structure. */

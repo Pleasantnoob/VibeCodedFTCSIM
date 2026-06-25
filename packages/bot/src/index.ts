@@ -17,6 +17,8 @@ export {
   gateApproachPoint,
   gateStandoffPoint,
   gateTapPoint,
+  gateLanePoint,
+  gateCreepHeading,
   gateRetreatPoint,
   opponentInOurSecretTunnel,
   pickEndgameRoles,

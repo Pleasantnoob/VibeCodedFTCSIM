@@ -164,6 +164,7 @@ export interface BotDebugState {
   aligned: boolean;
   atGoal: boolean;
   stuckPhase: string;
+  gatePhase?: string;
   pathLength: number;
   path: Vector2[];
   reactionMsRemaining: number;

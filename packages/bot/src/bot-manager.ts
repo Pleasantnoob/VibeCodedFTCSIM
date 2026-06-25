@@ -32,6 +32,13 @@ interface BotAutoRunnerState {
   loadId: number;
 }
 
+interface AutoStallWatch {
+  completion: number;
+  distToTarget: number;
+  ticks: number;
+  lastLogSec: number;
+}
+
 function idleHoldInput(): import('@ftc-sim/robot').HolonomicInput {
   return { forward: 0, strafe: 0, turn: 0 };
 }
@@ -40,6 +47,7 @@ export class BotManager {
   private slots: BotSlotConfig[] = [];
   private collectorState = new Map<string, CollectorRobotState>();
   private autoRunners = new Map<string, BotAutoRunnerState>();
+  private autoStallWatch = new Map<string, AutoStallWatch>();
   private lastDebugStates = new Map<string, BotDebugState>();
   private debugLog = new BotDebugLog(400, true);
   private lastMatchPhase: BotWorldSnapshot['match']['phase'] = 'setup';
@@ -62,6 +70,9 @@ export class BotManager {
     }
     for (const id of [...this.autoRunners.keys()]) {
       if (!enabledIds.has(id as BotSlotConfig['robotId'])) this.autoRunners.delete(id);
+    }
+    for (const id of [...this.autoStallWatch.keys()]) {
+      if (!enabledIds.has(id as BotSlotConfig['robotId'])) this.autoStallWatch.delete(id);
     }
   }
 
@@ -152,7 +163,10 @@ export class BotManager {
       }
       if (robot) {
         const task = result.debug.task;
-        if (task !== 'auto_drive' && task !== 'auto_hold' && task !== 'gate') {
+        const gateInLane = task === 'gate' && result.debug.gatePhase === 'lane';
+        const skipAvoidance =
+          task === 'auto_drive' || task === 'auto_hold' || (task === 'gate' && !gateInLane);
+        if (!skipAvoidance) {
           const avoidedInput = applyBotAvoidance(
             result.sample.input,
             robot.pose,
@@ -240,8 +254,45 @@ export class BotManager {
     const running = runner.isRunning();
     const pathPoints = pathOverlayPoints(autoPath, robot.alliance);
     const targetPose = runner.getTargetPose();
+    const progress = runner.getProgress();
+    const errors = runner.getErrors();
+    const distToTarget = targetPose
+      ? Math.hypot(targetPose.x - robot.pose.x, targetPose.y - robot.pose.y)
+      : 0;
+    const logLines: string[] = [];
+
+    let stall = this.autoStallWatch.get(slot.robotId);
+    if (!stall) {
+      stall = {
+        completion: progress.completion,
+        distToTarget,
+        ticks: 0,
+        lastLogSec: -Infinity,
+      };
+      this.autoStallWatch.set(slot.robotId, stall);
+    }
+    const completionDelta = Math.abs(progress.completion - stall.completion);
+    const distDelta = Math.abs(distToTarget - stall.distToTarget);
+    if (running && completionDelta < 0.002 && distDelta < 0.15) {
+      stall.ticks += 1;
+    } else {
+      stall.ticks = 0;
+      stall.completion = progress.completion;
+      stall.distToTarget = distToTarget;
+    }
+    if (
+      stall.ticks >= 90 &&
+      stall.lastLogSec < world.match.timeElapsed - 2 &&
+      distToTarget > 2.5
+    ) {
+      stall.lastLogSec = world.match.timeElapsed;
+      logLines.push(
+        `AUTO hold target=(${targetPose?.x.toFixed(1) ?? '?'},${targetPose?.y.toFixed(1) ?? '?'}) dist=${distToTarget.toFixed(1)} t=${progress.tValue.toFixed(2)} transErr=${errors.translational.toFixed(1)} brake=${input.brake ? 'yes' : 'no'}`,
+      );
+    }
 
     if (!running) {
+      this.autoStallWatch.delete(slot.robotId);
       return this.autoHoldResult(slot, robot, autoPath, 'auto_done');
     }
 
@@ -272,7 +323,7 @@ export class BotManager {
         path: pathPoints,
         reactionMsRemaining: 0,
       },
-      logLines: [],
+      logLines,
     };
   }
 
