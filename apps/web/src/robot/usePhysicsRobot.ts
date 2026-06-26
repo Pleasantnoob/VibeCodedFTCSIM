@@ -138,7 +138,7 @@ export function usePhysicsRobot(
   const robotConfigRef = simOptions?.robotConfigRef;
   const onSimHudTick = simOptions?.onSimHudTick;
   const alliance = simOptions?.alliance ?? 'blue';
-  const worldInitKeyRef = useRef(`${field.id ?? 'field'}:${alliance}`);
+  const worldInitKeyRef = useRef(`${field.season}:${field.version}:${alliance}`);
   const artifactStaging = simOptions?.artifactStaging ?? [];
   const artifactFrictionRef = simOptions?.artifactFrictionRef;
   const getMatchStateRef = simOptions?.getMatchStateRef;
@@ -306,7 +306,7 @@ export function usePhysicsRobot(
       return;
     }
 
-    const initKey = `${field.id ?? 'field'}:${alliance}`;
+    const initKey = `${field.season}:${field.version}:${alliance}`;
     if (worldInitKeyRef.current !== initKey) {
       worldInitKeyRef.current = initKey;
       worldInitPoseRef.current = startPose;

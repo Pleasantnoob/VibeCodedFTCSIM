@@ -1,5 +1,5 @@
 import type { Pose } from '@ftc-sim/field';
-import { normalizeAngle } from '@ftc-sim/field';
+import { distance, normalizeAngle } from '@ftc-sim/field';
 import type { Curve } from './geometry.js';
 
 export interface HeadingInterpolator {
@@ -71,17 +71,49 @@ export class Path {
     return pose;
   }
 
-  closestT(robotPose: Pose, iterations = 10): number {
-    let t = 0.5;
-    for (let i = 0; i < iterations; i++) {
+  /**
+   * Nearest point on the curve to the robot. Uses `hintT` so hairpin / loop-back beziers
+   * do not jump to the wrong branch (common at Super Duo home at 57,12).
+   */
+  closestT(robotPose: Pose, hintT = 0): number {
+    const lo = hintT < 0.08 ? 0 : Math.max(0, hintT - 0.15);
+    const hi = 1;
+
+    const coarseSteps = 40;
+    let bestT = lo;
+    let bestDist = Infinity;
+    for (let i = 0; i <= coarseSteps; i++) {
+      const t = lo + (i / coarseSteps) * (hi - lo);
       const p = this.curve.getPose(t);
-      const tan = this.curve.getTangent(t);
-      const dx = robotPose.x - p.x;
-      const dy = robotPose.y - p.y;
-      const dot = dx * tan.x + dy * tan.y;
-      t = Math.max(0, Math.min(1, t + dot * 0.01));
+      const d = distance(robotPose, p);
+      if (d < bestDist) {
+        bestDist = d;
+        bestT = t;
+      }
     }
-    return t;
+
+    let left = Math.max(lo, bestT - 0.22);
+    let right = Math.min(hi, bestT + 0.22);
+    for (let i = 0; i < 14; i++) {
+      const t1 = left + (right - left) / 3;
+      const t2 = right - (right - left) / 3;
+      const d1 = distance(robotPose, this.curve.getPose(t1));
+      const d2 = distance(robotPose, this.curve.getPose(t2));
+      if (d1 < d2) right = t2;
+      else left = t1;
+    }
+
+    let result = (left + right) / 2;
+
+    if (hintT > 0.12 && result < hintT - 0.18) {
+      const hintDist = distance(robotPose, this.curve.getPose(hintT));
+      const resultDist = distance(robotPose, this.curve.getPose(result));
+      if (hintDist <= resultDist + 1.5) {
+        result = hintT;
+      }
+    }
+
+    return Math.max(0, Math.min(1, result));
   }
 }
 

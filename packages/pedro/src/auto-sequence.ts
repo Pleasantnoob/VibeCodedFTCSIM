@@ -1,5 +1,5 @@
 import type { Pose } from '@ftc-sim/field';
-import { distance } from '@ftc-sim/field';
+import { distance, normalizeAngle } from '@ftc-sim/field';
 import type { HolonomicInput, KinematicLimits } from '@ftc-sim/robot';
 import {
   DEFAULT_FOLLOWER_CONSTANTS,
@@ -73,16 +73,39 @@ export class AutoSequenceRunner {
   private atCurrentSegmentEnd(pose: Pose): boolean {
     const step = this.currentPathStep();
     if (!step || step.chain.paths.length === 0) return false;
-    const end = step.chain.paths[step.chain.paths.length - 1]!.curve.getEnd();
+    const path = step.chain.paths[step.chain.paths.length - 1]!;
+    const end = path.curve.getEnd();
     const dist = distance(pose, end);
-    const v = this.follower.getVelocity();
-    const speed = Math.hypot(v.x, v.y);
-    const { tValue } = this.follower.getProgress();
+
+    if (path.length() < 0.5) {
+      return Math.abs(normalizeAngle(pose.heading - end.heading)) < 0.05;
+    }
 
     if (dist <= PEDRO_SEGMENT_END_THRESHOLD) return true;
-    if (dist <= 8 && tValue >= 0.92 && speed < 8) return true;
-    if (!this.follower.isBusy() && dist <= 10) return true;
     return false;
+  }
+
+  /** Debug snapshot for bot overlay / logs. */
+  getRunnerDebug(): {
+    phase: RunnerPhase;
+    stepIndex: number;
+    stepCount: number;
+    waitRemainingSec: number;
+    segmentEndDist: number | null;
+  } {
+    const step = this.currentPathStep();
+    let segmentEndDist: number | null = null;
+    if (step && step.chain.paths.length > 0) {
+      const end = step.chain.paths[step.chain.paths.length - 1]!.curve.getEnd();
+      segmentEndDist = distance(this.follower.getPose(), end);
+    }
+    return {
+      phase: this.phase,
+      stepIndex: this.stepIndex,
+      stepCount: this.steps.length,
+      waitRemainingSec: this.waitRemainingSec,
+      segmentEndDist,
+    };
   }
 
   setPose(pose: Pose): void {

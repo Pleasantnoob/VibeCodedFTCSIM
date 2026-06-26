@@ -8,6 +8,7 @@ import {
 import { pickEndgameRoles, pickGateAssignees } from './coordination.js';
 import {
   applyBotAvoidance,
+  applyBotAutoDriveAvoidance,
   detectOpponentInSecretTunnel,
 } from './navigation/avoidance.js';
 import {
@@ -48,6 +49,7 @@ export class BotManager {
   private collectorState = new Map<string, CollectorRobotState>();
   private autoRunners = new Map<string, BotAutoRunnerState>();
   private autoStallWatch = new Map<string, AutoStallWatch>();
+  private autoStepWatch = new Map<string, number>();
   private lastDebugStates = new Map<string, BotDebugState>();
   private debugLog = new BotDebugLog(400, true);
   private lastMatchPhase: BotWorldSnapshot['match']['phase'] = 'setup';
@@ -73,6 +75,9 @@ export class BotManager {
     }
     for (const id of [...this.autoStallWatch.keys()]) {
       if (!enabledIds.has(id as BotSlotConfig['robotId'])) this.autoStallWatch.delete(id);
+    }
+    for (const id of [...this.autoStepWatch.keys()]) {
+      if (!enabledIds.has(id as BotSlotConfig['robotId'])) this.autoStepWatch.delete(id);
     }
   }
 
@@ -164,30 +169,42 @@ export class BotManager {
       if (robot) {
         const task = result.debug.task;
         const gateInLane = task === 'gate' && result.debug.gatePhase === 'lane';
-        const skipAvoidance =
-          task === 'auto_drive' || task === 'auto_hold' || (task === 'gate' && !gateInLane);
-        if (!skipAvoidance) {
-          const avoidedInput = applyBotAvoidance(
+        if (task === 'auto_drive' || task === 'auto_hold') {
+          const avoidedInput = applyBotAutoDriveAvoidance(
             result.sample.input,
             robot.pose,
             world.robots,
             slot.robotId,
             robot.alliance,
-            world.field,
-            task,
-            detectOpponentInSecretTunnel(world.robots, robot.alliance, world.field),
-            result.sample.driveFrame ?? 'field',
+            result.sample.driveFrame ?? 'robot',
             allyTasks,
-            gateAssignees,
           );
           result.sample.input = avoidedInput;
-          if (result.debug.nav) {
-            result.debug.nav.driveAvoid = {
-              f: avoidedInput.forward,
-              s: avoidedInput.strafe,
-              t: avoidedInput.turn,
-            };
-            result.debug.nav.driveFinal = result.debug.nav.driveAvoid;
+        } else {
+          const skipAvoidance = task === 'gate' && !gateInLane;
+          if (!skipAvoidance) {
+            const avoidedInput = applyBotAvoidance(
+              result.sample.input,
+              robot.pose,
+              world.robots,
+              slot.robotId,
+              robot.alliance,
+              world.field,
+              task,
+              detectOpponentInSecretTunnel(world.robots, robot.alliance, world.field),
+              result.sample.driveFrame ?? 'field',
+              allyTasks,
+              gateAssignees,
+            );
+            result.sample.input = avoidedInput;
+            if (result.debug.nav) {
+              result.debug.nav.driveAvoid = {
+                f: avoidedInput.forward,
+                s: avoidedInput.strafe,
+                t: avoidedInput.turn,
+              };
+              result.debug.nav.driveFinal = result.debug.nav.driveAvoid;
+            }
           }
         }
       }
@@ -252,6 +269,8 @@ export class BotManager {
     const input = tickBotAutoRunner(runner, robot.pose, robot.linear, dt, world.limits);
 
     const running = runner.isRunning();
+    const inWait = runner.shouldAutoShoot();
+    const runnerDebug = runner.getRunnerDebug();
     const pathPoints = pathOverlayPoints(autoPath, robot.alliance);
     const targetPose = runner.getTargetPose();
     const progress = runner.getProgress();
@@ -260,6 +279,20 @@ export class BotManager {
       ? Math.hypot(targetPose.x - robot.pose.x, targetPose.y - robot.pose.y)
       : 0;
     const logLines: string[] = [];
+
+    const lastStep = this.autoStepWatch.get(slot.robotId) ?? -1;
+    if (runnerDebug.stepIndex !== lastStep) {
+      this.autoStepWatch.set(slot.robotId, runnerDebug.stepIndex);
+      if (runnerDebug.phase === 'wait') {
+        logLines.push(
+          `AUTO wait step=${runnerDebug.stepIndex + 1}/${runnerDebug.stepCount} shoot ${runnerDebug.waitRemainingSec.toFixed(2)}s @ (${robot.pose.x.toFixed(0)},${robot.pose.y.toFixed(0)})`,
+        );
+      } else if (runnerDebug.phase === 'path') {
+        logLines.push(
+          `AUTO path step=${runnerDebug.stepIndex + 1}/${runnerDebug.stepCount} endDist=${runnerDebug.segmentEndDist?.toFixed(1) ?? '?'}`,
+        );
+      }
+    }
 
     let stall = this.autoStallWatch.get(slot.robotId);
     if (!stall) {
@@ -273,7 +306,7 @@ export class BotManager {
     }
     const completionDelta = Math.abs(progress.completion - stall.completion);
     const distDelta = Math.abs(distToTarget - stall.distToTarget);
-    if (running && completionDelta < 0.002 && distDelta < 0.15) {
+    if (running && !inWait && runnerDebug.phase === 'path' && completionDelta < 0.002 && distDelta < 0.15) {
       stall.ticks += 1;
     } else {
       stall.ticks = 0;
@@ -287,7 +320,7 @@ export class BotManager {
     ) {
       stall.lastLogSec = world.match.timeElapsed;
       logLines.push(
-        `AUTO hold target=(${targetPose?.x.toFixed(1) ?? '?'},${targetPose?.y.toFixed(1) ?? '?'}) dist=${distToTarget.toFixed(1)} t=${progress.tValue.toFixed(2)} transErr=${errors.translational.toFixed(1)} brake=${input.brake ? 'yes' : 'no'}`,
+        `AUTO stuck step=${runnerDebug.stepIndex + 1}/${runnerDebug.stepCount} pose=(${robot.pose.x.toFixed(1)},${robot.pose.y.toFixed(1)}) target=(${targetPose?.x.toFixed(1) ?? '?'},${targetPose?.y.toFixed(1) ?? '?'}) segEnd=${runnerDebug.segmentEndDist?.toFixed(1) ?? '?'} t=${progress.tValue.toFixed(2)} transErr=${errors.translational.toFixed(1)} drive=${(Math.abs(input.forward) + Math.abs(input.strafe) + Math.abs(input.turn)).toFixed(2)} brake=${input.brake ? 'yes' : 'no'}`,
       );
     }
 
@@ -318,7 +351,11 @@ export class BotManager {
         inLaunchZone: false,
         aligned: false,
         atGoal: false,
-        stuckPhase: 'normal',
+        stuckPhase: inWait ? 'auto-wait' : 'normal',
+        autoPhase: runnerDebug.phase === 'wait' ? 'wait' : runnerDebug.phase === 'path' ? 'path' : 'idle',
+        autoStep: runnerDebug.stepIndex + 1,
+        autoStepCount: runnerDebug.stepCount,
+        autoSegmentEndDist: runnerDebug.segmentEndDist,
         pathLength: pathPoints.length,
         path: pathPoints,
         reactionMsRemaining: 0,
@@ -427,6 +464,8 @@ export class BotManager {
       entry.runner.cancelPath();
     }
     this.autoRunners.clear();
+    this.autoStallWatch.clear();
+    this.autoStepWatch.clear();
     this.lastDebugStates.clear();
     this.debugLog.clear();
     this.lastMatchPhase = 'setup';

@@ -72,18 +72,18 @@
       "id": "mkuigvbw-txz18t",
       "name": "Path 5",
       "endPoint": {
-        "x": 8,
-        "y": 50,
+        "x": 10,
+        "y": 10,
         "heading": "linear",
         "reverse": false,
         "degrees": 180,
         "startDeg": 110,
-        "endDeg": 90
+        "endDeg": 180
       },
       "controlPoints": [
         {
-          "x": 9,
-          "y": 9
+          "x": 12,
+          "y": 15
         }
       ],
       "color": "#C7A6C9",
@@ -102,7 +102,7 @@
         "reverse": false,
         "degrees": 180,
         "endDeg": 110,
-        "startDeg": 90
+        "startDeg": 180
       },
       "controlPoints": [],
       "color": "#5765C7",
@@ -134,15 +134,20 @@
       "id": "mkuil5a7-qkbe5n",
       "name": "Path 10",
       "endPoint": {
-        "x": 9,
-        "y": 9,
+        "x": 11,
+        "y": 26,
         "heading": "linear",
         "reverse": false,
         "degrees": 180,
         "startDeg": 110,
         "endDeg": 180
       },
-      "controlPoints": [],
+      "controlPoints": [
+        {
+          "x": 41,
+          "y": 27
+        }
+      ],
       "color": "#D67C8D",
       "waitBeforeMs": 0,
       "waitAfterMs": 0,
@@ -160,7 +165,12 @@
         "startDeg": 180,
         "endDeg": 110
       },
-      "controlPoints": [],
+      "controlPoints": [
+        {
+          "x": 24,
+          "y": 26
+        }
+      ],
       "color": "#99D698",
       "waitBeforeMs": 0,
       "waitAfterMs": 0,
@@ -171,17 +181,17 @@
       "id": "mqnmmpb5-ghlkyh",
       "name": "Path 9",
       "endPoint": {
-        "x": 8,
-        "y": 50,
+        "x": 11,
+        "y": 38,
         "heading": "linear",
         "reverse": false,
         "startDeg": 110,
-        "endDeg": 90
+        "endDeg": 180
       },
       "controlPoints": [
         {
-          "x": 9,
-          "y": 10
+          "x": 45,
+          "y": 36
         }
       ],
       "color": "#76D898",
@@ -198,7 +208,7 @@
         "y": 12,
         "heading": "linear",
         "reverse": false,
-        "startDeg": 90,
+        "startDeg": 180,
         "endDeg": 110
       },
       "controlPoints": [],
@@ -209,18 +219,64 @@
       "waitAfterName": ""
     },
     {
-      "id": "mqnmoh2u-m6bghx",
-      "name": "Path 11",
+      "id": "mqug0jwm-6pjz94",
+      "name": "Path 13",
+      "endPoint": {
+        "x": 9,
+        "y": 31,
+        "heading": "linear",
+        "reverse": false,
+        "startDeg": 110,
+        "endDeg": 90
+      },
+      "controlPoints": [
+        {
+          "x": 10,
+          "y": 16
+        }
+      ],
+      "color": "#ABD99D",
+      "waitBeforeMs": 0,
+      "waitAfterMs": 0,
+      "waitBeforeName": "",
+      "waitAfterName": ""
+    },
+    {
+      "id": "mqufz935-r9mef1",
+      "name": "Path 12",
+      "endPoint": {
+        "x": 57,
+        "y": 12,
+        "heading": "linear",
+        "reverse": false,
+        "startDeg": 90,
+        "endDeg": 110
+      },
+      "controlPoints": [
+        {
+          "x": 31,
+          "y": 16
+        }
+      ],
+      "color": "#7AD9D5",
+      "waitBeforeMs": 0,
+      "waitAfterMs": 0,
+      "waitBeforeName": "",
+      "waitAfterName": ""
+    },
+    {
+      "id": "mqug76l9-tg5ne5",
+      "name": "Path 13",
       "endPoint": {
         "x": 10,
-        "y": 11,
+        "y": 13,
         "heading": "linear",
         "reverse": false,
         "startDeg": 110,
         "endDeg": 180
       },
       "controlPoints": [],
-      "color": "#DC78BA",
+      "color": "#BBB7CA",
       "waitBeforeMs": 0,
       "waitAfterMs": 0,
       "waitBeforeName": "",
@@ -294,7 +350,7 @@
       "kind": "wait",
       "id": "mkuijad7-2gp9pa",
       "name": "Wait",
-      "durationMs": 1000,
+      "durationMs": 500,
       "locked": false
     },
     {
@@ -309,7 +365,7 @@
       "kind": "wait",
       "id": "mkuig6gg-5i0sig",
       "name": "Wait",
-      "durationMs": 1000,
+      "durationMs": 500,
       "locked": false
     },
     {
@@ -324,7 +380,7 @@
       "kind": "wait",
       "id": "mkuii28i-jwrb70",
       "name": "Wait",
-      "durationMs": 1000,
+      "durationMs": 500,
       "locked": false
     },
     {
@@ -343,7 +399,7 @@
       "kind": "wait",
       "id": "mqnmm1sr-2bp9qg",
       "name": "Wait",
-      "durationMs": 1000,
+      "durationMs": 500,
       "locked": false
     },
     {
@@ -358,12 +414,27 @@
       "kind": "wait",
       "id": "mqnmod4o-9by8ws",
       "name": "Wait",
-      "durationMs": 1000,
+      "durationMs": 500,
       "locked": false
     },
     {
       "kind": "path",
-      "lineId": "mqnmoh2u-m6bghx"
+      "lineId": "mqug0jwm-6pjz94"
+    },
+    {
+      "kind": "path",
+      "lineId": "mqufz935-r9mef1"
+    },
+    {
+      "kind": "wait",
+      "id": "mqug0fmx-17obo4",
+      "name": "Wait",
+      "durationMs": 500,
+      "locked": false
+    },
+    {
+      "kind": "path",
+      "lineId": "mqug76l9-tg5ne5"
     }
   ],
   "settings": {
@@ -387,5 +458,5 @@
     "onionNextPointOnly": false
   },
   "version": "1.2.1",
-  "timestamp": "2026-06-21T10:35:28.720Z"
+  "timestamp": "2026-06-26T04:46:06.453Z"
 }

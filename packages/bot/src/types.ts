@@ -165,6 +165,11 @@ export interface BotDebugState {
   atGoal: boolean;
   stuckPhase: string;
   gatePhase?: string;
+  /** Pedro AUTO: wait (shoot pause), path (following), idle (done). */
+  autoPhase?: 'wait' | 'path' | 'idle';
+  autoStep?: number;
+  autoStepCount?: number;
+  autoSegmentEndDist?: number | null;
   pathLength: number;
   path: Vector2[];
   reactionMsRemaining: number;

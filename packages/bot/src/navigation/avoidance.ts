@@ -371,6 +371,24 @@ export function applyBotAvoidance(
   return fieldVelToInput(input, vel, pose.heading, driveFrame);
 }
 
+/** Light avoidance during Pedro AUTO — yield to player/robots without gate-wall repulsion. */
+export function applyBotAutoDriveAvoidance(
+  input: HolonomicInput,
+  pose: Pose,
+  robots: BotRobotSnapshot[],
+  selfId: string,
+  selfAlliance: Alliance,
+  driveFrame: DriveFrame = 'robot',
+  allyTasks?: ReadonlyMap<string, BotTaskKind>,
+): HolonomicInput {
+  let vel = inputToFieldVel(input, pose.heading, driveFrame);
+  const playerRep = playerAutoRepulsion(pose, robots, 'auto_drive');
+  vel.x += playerRep.x;
+  vel.y += playerRep.y;
+  vel = applyRobotSeparation(vel, pose, robots, selfId, selfAlliance, 'auto_drive', allyTasks);
+  return fieldVelToInput(input, vel, pose.heading, driveFrame);
+}
+
 export function detectOpponentInSecretTunnel(
   robots: BotRobotSnapshot[],
   selfAlliance: Alliance,

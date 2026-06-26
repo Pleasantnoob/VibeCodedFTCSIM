@@ -193,7 +193,7 @@ export class PedroFollower {
       accumulated += this.pathChain.paths[i].length();
     }
     const path = this.pathChain.paths[this.activePathIndex];
-    const t = path.closestT(pose);
+    const t = path.closestT(pose, this.currentT);
     return Math.min(1, (accumulated + t * path.length()) / total);
   }
 
@@ -208,7 +208,7 @@ export class PedroFollower {
   getErrors(): FollowerErrors {
     if (!this.pathChain) return { translational: 0, heading: 0, drive: 0 };
     const path = this.activePath();
-    const t = path.closestT(this.pose);
+    const t = path.closestT(this.pose, this.currentT);
     const target = path.getPose(t);
     const trans = distance(this.pose, target);
     const head = Math.abs(normalizeAngle(this.pose.heading - target.heading));
@@ -235,7 +235,7 @@ export class PedroFollower {
 
     const path = this.activePath();
     this.currentPathIndex = this.activePathIndex;
-    this.currentT = path.closestT(this.pose);
+    this.currentT = path.closestT(this.pose, this.currentT);
     const closestPose = path.getPose(this.currentT);
     this.lastTargetPose = closestPose;
 
@@ -293,12 +293,36 @@ export class PedroFollower {
     const endPose = path.curve.getEnd();
     const distToEnd = distance(this.pose, endPose);
     const speed = Math.hypot(this.velocity.x, this.velocity.y);
+    const segmentLen = path.length();
 
-    // Do not brake on t alone — at sharp corners closestT hits 1 while the center is still
-    // inches from the vertex, which freezes tracking and blocks the next segment.
+    // Turn-in-place for zero-length Pedro segments (heading-only lines).
+    if (segmentLen < 0.5) {
+      if (Math.abs(headingError) < 0.04) {
+        if (this.activePathIndex === lastIndex) {
+          this.busy = false;
+        }
+        return clampHolonomic({
+          forward: 0,
+          strafe: 0,
+          turn: 0,
+          brake: true,
+          endpointBrake: true,
+        });
+      }
+      return clampHolonomic({
+        forward: 0,
+        strafe: 0,
+        turn: headCorr / limits.maxAngularVelocity,
+      });
+    }
 
+    // Only brake on overshoot when the center is actually near the segment end — high t alone
+    // at sharp corners freezes tracking while the robot is still inches from the vertex.
     const overshot =
-      this.activePathIndex === lastIndex && driveError > 0.15 && this.currentT >= 0.85;
+      this.activePathIndex === lastIndex &&
+      driveError > 0.15 &&
+      this.currentT >= 0.85 &&
+      distToEnd <= PEDRO_SEGMENT_END_THRESHOLD;
 
     if (overshot) {
       if (distToEnd < PedroFollower.END_ARRIVE_IN && speed < PedroFollower.END_STOP_SPEED) {

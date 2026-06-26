@@ -254,6 +254,11 @@ function botLabelLines(entry: BotDebugState): string[] {
     `${version.toUpperCase()} · ${entry.task.toUpperCase()} · stored ${entry.storedCount}`,
     `drive ${drive} · replans ${entry.replanCount ?? 0} · wp ${nav?.waypointIndex ?? 0}/${nav?.pathLength ?? entry.pathLength}`,
   ];
+  if (entry.autoPhase) {
+    lines.push(
+      `AUTO ${entry.autoPhase} step ${entry.autoStep ?? '?'}/${entry.autoStepCount ?? '?'} · segEnd ${entry.autoSegmentEndDist?.toFixed(0) ?? '?'}`,
+    );
+  }
   if (nav) {
     lines.push(
       `dist task ${nav.distTask.toFixed(0)} · goal ${nav.distGoal.toFixed(0)} · pursuit ${nav.distPursuit.toFixed(0)}`,
