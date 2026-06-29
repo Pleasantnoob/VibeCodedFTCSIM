@@ -1,4 +1,5 @@
 import type { Pose } from '@ftc-sim/field';
+import type { AutoSequence } from './auto-sequence.js';
 import { BezierCurve, BezierLine } from './geometry.js';
 import {
   constantHeading,
@@ -137,6 +138,24 @@ export function pathChainToPoints(chain: PathChain, samplesPerPath = 50): Pose[]
     }
   }
   return points;
+}
+
+/** Field overlay points that follow sequence order (no spurious connectors across waits). */
+export function autoSequenceOverlayPoints(
+  sequence: AutoSequence,
+  samplesPerPath = 80,
+): Array<{ x: number; y: number }> {
+  const points: Pose[] = [];
+  for (const step of sequence.steps) {
+    if (step.kind !== 'path') continue;
+    const segPoints = pathChainToPoints(step.chain, samplesPerPath);
+    if (points.length > 0 && segPoints.length > 0) {
+      points.push(...segPoints.slice(1));
+    } else {
+      points.push(...segPoints);
+    }
+  }
+  return points.map((point) => ({ x: point.x, y: point.y }));
 }
 
 export function findSegmentGaps(data: PedroJsonFile): string[] {

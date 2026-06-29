@@ -1,8 +1,8 @@
 import type { Vector2 } from './types.js';
-import { FIELD_SIZE_INCHES, VISUAL_FIELD_SIZE_INCHES, VISUAL_SCALE } from './coordinates.js';
+import { FIELD_SIZE_INCHES } from './coordinates.js';
 
 export interface FieldViewport {
-  /** Pixels per drawable field inch (141.5 in image space). */
+  /** Pixels per Pedro field inch (0–144). */
   scalePxPerInch: number;
   widthPx: number;
   heightPx: number;
@@ -10,7 +10,7 @@ export interface FieldViewport {
 
 export function createSquareFieldViewport(sizePx: number): FieldViewport {
   return {
-    scalePxPerInch: sizePx / VISUAL_FIELD_SIZE_INCHES,
+    scalePxPerInch: sizePx / FIELD_SIZE_INCHES,
     widthPx: sizePx,
     heightPx: sizePx,
   };
@@ -18,21 +18,17 @@ export function createSquareFieldViewport(sizePx: number): FieldViewport {
 
 /** Pedro inches (0–144, origin bottom-left) → field canvas pixels (origin top-left). */
 export function pedroToFieldPx(point: Vector2, viewport: FieldViewport): Vector2 {
-  const visualX = point.x * VISUAL_SCALE;
-  const visualY = point.y * VISUAL_SCALE;
   return {
-    x: visualX * viewport.scalePxPerInch,
-    y: viewport.heightPx - visualY * viewport.scalePxPerInch,
+    x: point.x * viewport.scalePxPerInch,
+    y: viewport.heightPx - point.y * viewport.scalePxPerInch,
   };
 }
 
 /** Field canvas pixels → Pedro inches. */
 export function fieldPxToPedro(point: Vector2, viewport: FieldViewport): Vector2 {
-  const visualX = point.x / viewport.scalePxPerInch;
-  const visualY = (viewport.heightPx - point.y) / viewport.scalePxPerInch;
   return {
-    x: visualX / VISUAL_SCALE,
-    y: visualY / VISUAL_SCALE,
+    x: point.x / viewport.scalePxPerInch,
+    y: (viewport.heightPx - point.y) / viewport.scalePxPerInch,
   };
 }
 

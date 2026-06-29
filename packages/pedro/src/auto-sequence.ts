@@ -22,21 +22,63 @@ export interface AutoSequence {
   startPose: Pose;
 }
 
+export const AUTO_STORED_FULL_COUNT = 3;
+
+export const DEFAULT_SEQUENCE_WAIT_TIMEOUTS = {
+  intakeFullWaitTimeoutSec: 2.5,
+  shootEmptyWaitTimeoutSec: 4.0,
+} as const;
+
+export interface AutoSequenceContext {
+  storedCount: number;
+  inLaunchZone: boolean;
+}
+
+export interface AutoSequenceWaitTimeouts {
+  intakeFullWaitTimeoutSec?: number;
+  shootEmptyWaitTimeoutSec?: number;
+}
+
 type RunnerPhase = 'idle' | 'path' | 'wait';
+type WaitMode = 'intake' | 'shoot';
+
+function classifyWaitStep(step: Extract<AutoSequenceStep, { kind: 'wait' }>, inLaunchZone: boolean): WaitMode {
+  const name = step.name?.toLowerCase() ?? '';
+  if (/shoot|score|fire|launch|empty/.test(name)) return 'shoot';
+  if (/intake|collect|full/.test(name)) return 'intake';
+  return inLaunchZone ? 'shoot' : 'intake';
+}
+
+function waitConditionMet(mode: WaitMode, storedCount: number): boolean {
+  if (mode === 'shoot') return storedCount <= 0;
+  return storedCount >= AUTO_STORED_FULL_COUNT;
+}
 
 /**
  * Executes Pedro auto paths with explicit wait steps.
- * During waits the robot holds position and {@link shouldAutoShoot} is true.
+ * Waits are state-based by default: intake until 3 stored, shoot until empty (with timeout fallback).
  */
 export class AutoSequenceRunner {
   private follower: PedroFollower;
   private steps: AutoSequenceStep[] = [];
   private stepIndex = 0;
   private phase: RunnerPhase = 'idle';
-  private waitRemainingSec = 0;
+  private waitMode: WaitMode = 'intake';
+  private waitElapsedSec = 0;
+  private waitTimeoutSec = 0;
+  private context: AutoSequenceContext = { storedCount: 0, inLaunchZone: false };
+  private waitTimeouts: AutoSequenceWaitTimeouts = { ...DEFAULT_SEQUENCE_WAIT_TIMEOUTS };
 
   constructor(constants: FollowerConstants = DEFAULT_FOLLOWER_CONSTANTS) {
     this.follower = new PedroFollower(constants);
+  }
+
+  setContext(ctx: Partial<AutoSequenceContext>): void {
+    this.context = { ...this.context, ...ctx };
+  }
+
+  setWaitTimeouts(timeouts: Partial<AutoSequenceWaitTimeouts>): void {
+    this.waitTimeouts = { ...this.waitTimeouts, ...timeouts };
   }
 
   /** Legacy single-chain start (no waits). */
@@ -48,7 +90,8 @@ export class AutoSequenceRunner {
     this.steps = steps;
     this.stepIndex = 0;
     this.phase = 'idle';
-    this.waitRemainingSec = 0;
+    this.waitElapsedSec = 0;
+    this.waitTimeoutSec = 0;
     this.follower.cancelPath();
     this.beginCurrentStep();
   }
@@ -57,7 +100,8 @@ export class AutoSequenceRunner {
     this.steps = [];
     this.stepIndex = 0;
     this.phase = 'idle';
-    this.waitRemainingSec = 0;
+    this.waitElapsedSec = 0;
+    this.waitTimeoutSec = 0;
     this.follower.cancelPath();
   }
 
@@ -68,6 +112,11 @@ export class AutoSequenceRunner {
   private currentPathStep(): Extract<AutoSequenceStep, { kind: 'path' }> | null {
     const step = this.steps[this.stepIndex];
     return step?.kind === 'path' ? step : null;
+  }
+
+  private currentWaitStep(): Extract<AutoSequenceStep, { kind: 'wait' }> | null {
+    const step = this.steps[this.stepIndex];
+    return step?.kind === 'wait' ? step : null;
   }
 
   private atCurrentSegmentEnd(pose: Pose): boolean {
@@ -91,6 +140,7 @@ export class AutoSequenceRunner {
     stepIndex: number;
     stepCount: number;
     waitRemainingSec: number;
+    waitMode: WaitMode | null;
     segmentEndDist: number | null;
   } {
     const step = this.currentPathStep();
@@ -99,11 +149,14 @@ export class AutoSequenceRunner {
       const end = step.chain.paths[step.chain.paths.length - 1]!.curve.getEnd();
       segmentEndDist = distance(this.follower.getPose(), end);
     }
+    const waitRemainingSec =
+      this.phase === 'wait' ? Math.max(0, this.waitTimeoutSec - this.waitElapsedSec) : 0;
     return {
       phase: this.phase,
       stepIndex: this.stepIndex,
       stepCount: this.steps.length,
-      waitRemainingSec: this.waitRemainingSec,
+      waitRemainingSec,
+      waitMode: this.phase === 'wait' ? this.waitMode : null,
       segmentEndDist,
     };
   }
@@ -129,9 +182,20 @@ export class AutoSequenceRunner {
     return this.phase !== 'idle';
   }
 
-  /** True while the runner is paused on a wait step (auto should fire balls). */
-  shouldAutoShoot(): boolean {
-    return this.phase === 'wait' && this.waitRemainingSec > 0;
+  /** True while paused on a wait step before the state condition or timeout is met. */
+  isInAutoWait(): boolean {
+    if (this.phase !== 'wait') return false;
+    return !waitConditionMet(this.waitMode, this.context.storedCount) && this.waitElapsedSec < this.waitTimeoutSec;
+  }
+
+  /** True during a shoot wait when part of the robot is inside a launch zone. */
+  shouldAutoShoot(inLaunchZone: boolean): boolean {
+    return this.isInAutoWait() && this.waitMode === 'shoot' && inLaunchZone;
+  }
+
+  /** True during an intake wait — hold intake until storage is full. */
+  shouldAutoIntake(): boolean {
+    return this.isInAutoWait() && this.waitMode === 'intake';
   }
 
   getTargetPose(): Pose | null {
@@ -148,13 +212,18 @@ export class AutoSequenceRunner {
 
   updateHolonomic(dt: number, limits: KinematicLimits): HolonomicInput {
     if (this.phase === 'wait') {
-      this.waitRemainingSec -= dt;
-      if (this.waitRemainingSec > 0) {
+      this.waitElapsedSec += dt;
+      if (
+        waitConditionMet(this.waitMode, this.context.storedCount) ||
+        this.waitElapsedSec >= this.waitTimeoutSec
+      ) {
+        this.waitElapsedSec = 0;
+        this.waitTimeoutSec = 0;
+        this.stepIndex++;
+        this.beginCurrentStep();
+      } else {
         return { forward: 0, strafe: 0, turn: 0, brake: true };
       }
-      this.waitRemainingSec = 0;
-      this.stepIndex++;
-      this.beginCurrentStep();
     }
 
     if (this.phase === 'path') {
@@ -167,8 +236,12 @@ export class AutoSequenceRunner {
         }
         this.stepIndex++;
         this.beginCurrentStep();
-        if (this.phase === 'path' && this.follower.isBusy()) {
+        const phaseAfter = this.phase as RunnerPhase;
+        if (phaseAfter === 'path' && this.follower.isBusy()) {
           return this.follower.updateHolonomic(dt, limits);
+        }
+        if (phaseAfter === 'wait') {
+          return { forward: 0, strafe: 0, turn: 0, brake: true };
         }
         return { forward: 0, strafe: 0, turn: 0, brake: true, endpointBrake: true };
       }
@@ -183,8 +256,20 @@ export class AutoSequenceRunner {
       const step = this.steps[this.stepIndex]!;
       if (step.kind === 'wait') {
         this.phase = 'wait';
-        this.waitRemainingSec = step.durationSec;
+        this.waitMode = classifyWaitStep(step, this.context.inLaunchZone);
+        this.waitElapsedSec = 0;
+        const configTimeout =
+          this.waitMode === 'shoot'
+            ? (this.waitTimeouts.shootEmptyWaitTimeoutSec ??
+              DEFAULT_SEQUENCE_WAIT_TIMEOUTS.shootEmptyWaitTimeoutSec)
+            : (this.waitTimeouts.intakeFullWaitTimeoutSec ??
+              DEFAULT_SEQUENCE_WAIT_TIMEOUTS.intakeFullWaitTimeoutSec);
+        this.waitTimeoutSec = Math.max(step.durationSec, configTimeout);
         this.follower.cancelPath();
+        if (waitConditionMet(this.waitMode, this.context.storedCount)) {
+          this.stepIndex++;
+          continue;
+        }
         return;
       }
 

@@ -1,10 +1,16 @@
 import type { DriveFrame } from '@ftc-sim/robot';
 import type { SoloSpawnSlot } from '../robot/match-robots';
-import { DEFAULT_SIM_ROBOT_CONFIG, type SimRobotConfig } from '../robot/robot-config';
+import {
+  DEFAULT_MECHANISM_TIMING,
+  DEFAULT_SIM_ROBOT_CONFIG,
+  type MechanismTimingConfig,
+  type PerformancePresetId,
+  type SimRobotConfig,
+} from '../robot/robot-config';
 import { DEFAULT_ROBOT_SKIN_ID, parseRobotSkinId, type RobotSkinId } from '../robot/robot-skins';
 import { DEFAULT_DRIVE_KEYBINDS, type DriveKeybinds } from './drive-keybind-defaults';
 
-import type { BotRobotId } from '@ftc-sim/bot';
+import type { BotRobotId, Difficulty } from '@ftc-sim/bot';
 
 export type SavedAutoPathId =
   | 'decode-pp'
@@ -14,10 +20,11 @@ export type SavedAutoPathId =
   | 'super-duo-near12'
   | 'simple-duo-far'
   | 'super-simple-far'
+  | 'duo-cycle-leave'
   | 'upload'
   | null;
 
-export type PracticeBotId = Extract<BotRobotId, 'blue-near' | 'red-far' | 'red-near'>;
+export type AutoMode = 'simple' | 'program';
 
 export interface PlayerSettings {
   playerName: string;
@@ -28,11 +35,19 @@ export interface PlayerSettings {
   robotPreload: boolean;
   robotSkinId: RobotSkinId;
   spawnSlot: SoloSpawnSlot;
+  autoMode: AutoMode;
   lastAutoPathText: string | null;
   lastAutoPathId: SavedAutoPathId;
+  lastAutoProgramText: string | null;
+  lastAutoProgramId: SavedAutoPathId;
   practiceBotsEnabled: boolean;
   practiceBotSlots: Partial<Record<PracticeBotId, boolean>>;
+  botDifficulty: Difficulty;
+  artifactFriction: number;
+  showBotFieldDebug: boolean;
 }
+
+export type PracticeBotId = Extract<BotRobotId, 'blue-near' | 'red-far' | 'red-near'>;
 
 const STORAGE_KEY = 'ftc-sim.player-settings.v2';
 const LEGACY_STORAGE_KEY = 'ftc-sim.player-settings.v1';
@@ -50,34 +65,72 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   robotPreload: true,
   robotSkinId: DEFAULT_ROBOT_SKIN_ID,
   spawnSlot: 'blue-far',
+  autoMode: 'simple',
   lastAutoPathText: null,
   lastAutoPathId: null,
+  lastAutoProgramText: null,
+  lastAutoProgramId: null,
   practiceBotsEnabled: false,
   practiceBotSlots: {},
+  botDifficulty: 'normal',
+  artifactFriction: 0.25,
+  showBotFieldDebug: true,
 };
+
+function clampMechanismTiming(raw: Partial<MechanismTimingConfig> | undefined): MechanismTimingConfig {
+  const base = { ...DEFAULT_MECHANISM_TIMING, ...raw };
+  return {
+    shootHoldIntervalSec: clampNum(base.shootHoldIntervalSec, 0.05, 0.5, DEFAULT_MECHANISM_TIMING.shootHoldIntervalSec),
+    intakeFullWaitTimeoutSec: clampNum(base.intakeFullWaitTimeoutSec, 0.5, 8, DEFAULT_MECHANISM_TIMING.intakeFullWaitTimeoutSec),
+    shootEmptyWaitTimeoutSec: clampNum(base.shootEmptyWaitTimeoutSec, 1, 10, DEFAULT_MECHANISM_TIMING.shootEmptyWaitTimeoutSec),
+    leaveSafetyMarginSec: clampNum(base.leaveSafetyMarginSec, 0.5, 6, DEFAULT_MECHANISM_TIMING.leaveSafetyMarginSec),
+  };
+}
 
 function clampRobotConfig(raw: Partial<SimRobotConfig> | undefined): SimRobotConfig {
   const base = { ...DEFAULT_SIM_ROBOT_CONFIG, ...raw };
+  const migrated = migrateLegacyTurnSpeed(base);
+  const performancePreset: PerformancePresetId =
+    migrated.performancePreset === 'competitive' || migrated.performancePreset === 'custom'
+      ? migrated.performancePreset
+      : 'stock';
   return {
-    presetId: base.presetId || DEFAULT_SIM_ROBOT_CONFIG.presetId,
-    maxVelocity: clampNum(base.maxVelocity, 10, 80, DEFAULT_SIM_ROBOT_CONFIG.maxVelocity),
+    presetId: migrated.presetId || DEFAULT_SIM_ROBOT_CONFIG.presetId,
+    performancePreset,
+    maxVelocity: clampNum(migrated.maxVelocity, 10, 80, DEFAULT_SIM_ROBOT_CONFIG.maxVelocity),
     maxAngularVelocity: clampNum(
-      base.maxAngularVelocity,
+      migrated.maxAngularVelocity,
       1,
       8,
       DEFAULT_SIM_ROBOT_CONFIG.maxAngularVelocity,
     ),
-    maxAcceleration: clampNum(base.maxAcceleration, 12, 120, DEFAULT_SIM_ROBOT_CONFIG.maxAcceleration),
+    maxAcceleration: clampNum(
+      migrated.maxAcceleration,
+      12,
+      120,
+      DEFAULT_SIM_ROBOT_CONFIG.maxAcceleration,
+    ),
     maxAngularAcceleration: clampNum(
-      base.maxAngularAcceleration,
+      migrated.maxAngularAcceleration,
       6,
       36,
       DEFAULT_SIM_ROBOT_CONFIG.maxAngularAcceleration,
     ),
-    mass: clampNum(base.mass, 5, 40, DEFAULT_SIM_ROBOT_CONFIG.mass),
-    footprintWidth: clampNum(base.footprintWidth, 10, 18, DEFAULT_SIM_ROBOT_CONFIG.footprintWidth),
-    footprintLength: clampNum(base.footprintLength, 10, 18, DEFAULT_SIM_ROBOT_CONFIG.footprintLength),
+    mass: clampNum(migrated.mass, 5, 40, DEFAULT_SIM_ROBOT_CONFIG.mass),
+    footprintWidth: clampNum(migrated.footprintWidth, 10, 18, DEFAULT_SIM_ROBOT_CONFIG.footprintWidth),
+    footprintLength: clampNum(migrated.footprintLength, 10, 18, DEFAULT_SIM_ROBOT_CONFIG.footprintLength),
+    mechanismTiming: clampMechanismTiming(migrated.mechanismTiming),
   };
+}
+
+/** Bump pre-2025 turn defaults so saved settings match faster bot-like rotation. */
+function migrateLegacyTurnSpeed(config: SimRobotConfig): SimRobotConfig {
+  let { maxAngularVelocity, maxAngularAcceleration } = config;
+  if (maxAngularVelocity === 4) maxAngularVelocity = DEFAULT_SIM_ROBOT_CONFIG.maxAngularVelocity;
+  if (maxAngularAcceleration === 18) {
+    maxAngularAcceleration = DEFAULT_SIM_ROBOT_CONFIG.maxAngularAcceleration;
+  }
+  return { ...config, maxAngularVelocity, maxAngularAcceleration };
 }
 
 function clampNum(value: unknown, min: number, max: number, fallback: number): number {
@@ -101,6 +154,7 @@ function parseSavedAutoPathId(value: unknown): SavedAutoPathId {
     'super-duo-near12',
     'simple-duo-far',
     'super-simple-far',
+    'duo-cycle-leave',
     'upload',
     null,
   ];
@@ -148,13 +202,25 @@ function normalizeSettings(parsed: Partial<PlayerSettings>): PlayerSettings {
     robotPreload: parsed.robotPreload !== false,
     robotSkinId: parseRobotSkinId(parsed.robotSkinId),
     spawnSlot: parseSpawnSlot(parsed.spawnSlot),
+    autoMode: parsed.autoMode === 'program' ? 'program' : 'simple',
     lastAutoPathText:
       typeof parsed.lastAutoPathText === 'string' && parsed.lastAutoPathText.length > 0
         ? parsed.lastAutoPathText
         : null,
     lastAutoPathId: parseSavedAutoPathId(parsed.lastAutoPathId ?? null),
+    lastAutoProgramText:
+      typeof parsed.lastAutoProgramText === 'string' && parsed.lastAutoProgramText.length > 0
+        ? parsed.lastAutoProgramText
+        : null,
+    lastAutoProgramId: parseSavedAutoPathId(parsed.lastAutoProgramId ?? null),
     practiceBotsEnabled: parsed.practiceBotsEnabled === true,
     practiceBotSlots: parsePracticeBotSlots(parsed.practiceBotSlots),
+    botDifficulty:
+      parsed.botDifficulty === 'easy' || parsed.botDifficulty === 'hard'
+        ? parsed.botDifficulty
+        : 'normal',
+    artifactFriction: clampNum(parsed.artifactFriction, 0.1, 1.5, DEFAULT_PLAYER_SETTINGS.artifactFriction),
+    showBotFieldDebug: parsed.showBotFieldDebug !== false,
   };
 }
 

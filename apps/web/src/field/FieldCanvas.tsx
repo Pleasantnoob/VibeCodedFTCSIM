@@ -4,7 +4,6 @@ import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import { robotFootprintCorners, robotInGateZone } from '@ftc-sim/mechanisms';
 import { BUNDLED_ARTIFACT_SPRITES } from '../artifact-sprites';
 import {
-  VISUAL_SCALE,
   clampPedroPoint,
   createSquareFieldViewport,
   fieldPxToPedro,
@@ -23,6 +22,7 @@ import { smoothAlpha, smoothPose, shouldSnapPose } from '../net/smooth-motion';
 import { extrapolateRobotSnapshot } from '../net/extrapolate';
 import type { RobotSnapshotEntry } from '@ftc-sim/net';
 import type { BotDebugState } from '@ftc-sim/bot';
+import { gateCautionZones } from '@ftc-sim/bot';
 
 export type { FieldRobotCatalogEntry, FieldRobotRenderState } from '../robot/match-robots';
 export { PLAYER_ROBOT_ID } from '../robot/match-robots';
@@ -48,7 +48,7 @@ function FieldRobotShape({
   viewport: ReturnType<typeof createSquareFieldViewport>;
   robotSkinId: RobotSkinId;
 }) {
-  const scale = viewport.scalePxPerInch * VISUAL_SCALE;
+  const scale = viewport.scalePxPerInch;
   const lengthPx = entry.length * scale;
   const widthPx = entry.width * scale;
   const labelSize = Math.max(10, Math.min(14, widthPx * 0.38));
@@ -204,9 +204,9 @@ function artifactSprite(color: ArtifactColor): string {
   return BUNDLED_ARTIFACT_SPRITES[color];
 }
 
-function botPathSignature(entry: BotDebugState): string {
+function botPathSignature(entry: BotDebugState, viewportWidthPx: number): string {
   const points = entry.path.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join('|');
-  return `${entry.task}:${points}`;
+  return `${viewportWidthPx}:${entry.task}:${points}`;
 }
 
 function botTargetSignature(entry: BotDebugState): string {
@@ -528,7 +528,7 @@ export function FieldCanvas({
           botDebugElsRef.current.set(entry.robotId, els);
         }
 
-        const pathKey = botPathSignature(entry);
+        const pathKey = botPathSignature(entry, viewport.widthPx);
         if (botPathSignatureRef.current.get(entry.robotId) !== pathKey) {
           botPathSignatureRef.current.set(entry.robotId, pathKey);
           if (entry.path.length >= 2) {
@@ -604,7 +604,7 @@ export function FieldCanvas({
         if (pose) {
           const center = pedroToFieldPx(pose, viewport);
           const robotHalfPx = catalogEntry
-            ? (catalogEntry.length * viewport.scalePxPerInch * VISUAL_SCALE) / 2
+            ? (catalogEntry.length * viewport.scalePxPerInch) / 2
             : 14;
           const labelY = center.y - robotHalfPx - 34;
           const labelText = botLabelLines(entry).join('\n');
@@ -657,21 +657,29 @@ export function FieldCanvas({
       const polledSeen = new Set<string>();
       const scanLayer = botCollectScanLayerRef.current;
       for (const entry of debugEntries) {
-        if (entry.task !== 'collect' || !entry.collectScan) continue;
+        if ((entry.task !== 'collect' && entry.task !== 'idle') || !entry.collectScan) continue;
         for (const polled of entry.collectScan.polled) {
-          if (polled.chosen) continue;
           const key = `${entry.robotId}:${polled.id}`;
           polledSeen.add(key);
           let rect = botCollectScanElsRef.current.get(key);
           if (!rect && scanLayer) {
             rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.classList.add('field-bot-collect-pass');
+            rect.classList.add(
+              polled.chosen ? 'field-bot-collect-chosen' : 'field-bot-collect-pass',
+            );
             scanLayer.appendChild(rect);
             botCollectScanElsRef.current.set(key, rect);
           }
           if (!rect) continue;
+          if (polled.chosen) {
+            rect.classList.remove('field-bot-collect-pass');
+            rect.classList.add('field-bot-collect-chosen');
+          } else {
+            rect.classList.remove('field-bot-collect-chosen');
+            rect.classList.add('field-bot-collect-pass');
+          }
           const center = pedroToFieldPx({ x: polled.x, y: polled.y }, viewport);
-          const box = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
+          const box = 5 * viewport.scalePxPerInch;
           rect.setAttribute('x', String(center.x - box / 2));
           rect.setAttribute('y', String(center.y - box / 2));
           rect.setAttribute('width', String(box));
@@ -716,7 +724,7 @@ export function FieldCanvas({
     const layer = artifactLayerRef.current;
     if (!layer) return;
 
-    const diameterPx = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
+    const diameterPx = 5 * viewport.scalePxPerInch;
     const radiusPx = diameterPx / 2;
     const artifactDisplayRef = { current: new Map<string, Pose>() };
 
@@ -833,7 +841,7 @@ export function FieldCanvas({
               : artifactSpawns.filter((a) => !a.source.endsWith('_human_player_reserve'))
             ).map((artifact) => {
               const px = pedroToFieldPx(artifact.pose, viewport);
-              const diameterPx = 5 * viewport.scalePxPerInch * VISUAL_SCALE;
+              const diameterPx = 5 * viewport.scalePxPerInch;
               const radiusPx = diameterPx / 2;
               const color = artifact.color;
               const opacity = 'opacity' in artifact ? artifact.opacity : 1;
@@ -1044,6 +1052,51 @@ export function FieldCanvas({
                 .join(' ')}
             />
           )}
+
+          {showBotDebug &&
+            gateCautionZones().map((zone) => {
+              const scale = viewport.scalePxPerInch;
+              const [wallA, wallB] = zone.wallSegment;
+              const wallAPx = pedroToFieldPx(wallA, viewport);
+              const wallBPx = pedroToFieldPx(wallB, viewport);
+              const center = pedroToFieldPx(zone.anchor, viewport);
+              return (
+                <g
+                  key={`gate-caution-${zone.alliance}`}
+                  className={`field-gate-caution field-gate-caution--${zone.alliance}`}
+                  aria-hidden
+                >
+                  <line
+                    className="field-gate-caution-wall"
+                    x1={wallAPx.x}
+                    y1={wallAPx.y}
+                    x2={wallBPx.x}
+                    y2={wallBPx.y}
+                  />
+                  <circle
+                    className="field-gate-caution-outer"
+                    cx={center.x}
+                    cy={center.y}
+                    r={zone.outerIn * scale}
+                  />
+                  <circle
+                    className="field-gate-caution-inner"
+                    cx={center.x}
+                    cy={center.y}
+                    r={zone.innerIn * scale}
+                  />
+                  <circle className="field-gate-caution-anchor" cx={center.x} cy={center.y} r={3} />
+                  <text
+                    className="field-gate-caution-label"
+                    x={center.x}
+                    y={center.y - zone.outerIn * scale - 6}
+                    textAnchor="middle"
+                  >
+                    {zone.anchor.label} ({zone.innerIn}/{zone.outerIn}″)
+                  </text>
+                </g>
+              );
+            })}
 
           <g ref={botCollectScanLayerRef} className="field-bot-debug-layer field-bot-debug-layer--collect-pass" aria-hidden />
           <g ref={botDebugPathsLayerRef} className="field-bot-debug-layer field-bot-debug-layer--paths" aria-hidden />

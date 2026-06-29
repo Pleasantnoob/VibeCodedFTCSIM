@@ -76,8 +76,13 @@ export class Path {
    * do not jump to the wrong branch (common at Super Duo home at 57,12).
    */
   closestT(robotPose: Pose, hintT = 0): number {
-    const lo = hintT < 0.08 ? 0 : Math.max(0, hintT - 0.15);
-    const hi = 1;
+    const lookAhead = 0.45;
+    const hintDist =
+      hintT > 0 ? distance(robotPose, this.curve.getPose(hintT)) : 0;
+    const reacquire = hintDist > 10;
+    const lookBehind = reacquire ? hintT : hintT < 0.02 ? 0 : 0.12;
+    const lo = Math.max(0, hintT - lookBehind);
+    const hi = reacquire ? 1 : Math.min(1, hintT + lookAhead);
 
     const coarseSteps = 40;
     let bestT = lo;
@@ -105,7 +110,7 @@ export class Path {
 
     let result = (left + right) / 2;
 
-    if (hintT > 0.12 && result < hintT - 0.18) {
+    if (hintT > 0.05 && result < hintT - 0.15) {
       const hintDist = distance(robotPose, this.curve.getPose(hintT));
       const resultDist = distance(robotPose, this.curve.getPose(result));
       if (hintDist <= resultDist + 1.5) {
@@ -113,7 +118,7 @@ export class Path {
       }
     }
 
-    return Math.max(0, Math.min(1, result));
+    return Math.max(lo, Math.min(hi, result));
   }
 }
 

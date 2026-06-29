@@ -450,6 +450,10 @@ export class ArtifactWorld {
     this.applyArtifactFriction();
   }
 
+  setShootHoldIntervalSec(intervalSec: number): void {
+    this.sim.setShootHoldIntervalSec(intervalSec);
+  }
+
   /** Widen front-edge intake tolerance (multiplayer latency compensation). */
   setIntakeEdgeEpsilon(epsilon: number): void {
     this.sim.setIntakeEdgeEpsilon(epsilon);

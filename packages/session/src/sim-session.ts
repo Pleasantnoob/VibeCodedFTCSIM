@@ -3,6 +3,7 @@ import type { Alliance, MatchPhase } from '@ftc-sim/game-decode';
 import type { HostCommand, HostRoomSettings, InputFrame, StateSnapshot } from '@ftc-sim/net';
 import { MatchClock } from '@ftc-sim/match';
 import type { MechanismLogEntry, MechanismSnapshot, SimArtifactState } from '@ftc-sim/mechanisms';
+import { robotInLaunchZone } from '@ftc-sim/mechanisms';
 import {
   BotManager,
   type BotDebugState,
@@ -10,12 +11,13 @@ import {
   type BotSlotConfig,
 } from '@ftc-sim/bot';
 import {
-  AutoSequenceRunner,
+  AutoProgramRunner,
   autoSequenceForAlliance,
   pathChainForAlliance,
   parsePathFileText,
   type AutoSequence,
   type PathChain,
+  type ResolvedAutoProgram,
 } from '@ftc-sim/pedro';
 import { stepMultiRobotDrive } from '@ftc-sim/robot';
 import { ArtifactWorld, DEFAULT_ARTIFACT_FRICTION, type RobotMechanismTickInput } from './artifact-world.js';
@@ -102,9 +104,10 @@ export class SimSession {
   private playerTeamNumber: string;
   private practiceLayouts: MatchRobotLayout[];
   private follower: AutoFollowerLike | null = null;
-  private autoFollower = new AutoSequenceRunner();
+  private autoFollower = new AutoProgramRunner();
   private basePathChain: PathChain | null = null;
   private baseAutoSequence: AutoSequence | null = null;
+  private resolvedProgram: ResolvedAutoProgram | null = null;
   private injectedInput: import('@ftc-sim/robot').HolonomicInput | null = null;
   private robotInputs = new Map<string, DriveSample>();
   private robotTeamLabels = new Map<string, string>();
@@ -146,6 +149,13 @@ export class SimSession {
     const parsed = parsePathFileText(pathText);
     this.basePathChain = parsed.chain;
     this.baseAutoSequence = parsed.autoSequence ?? null;
+    this.resolvedProgram = null;
+  }
+
+  setResolvedAutoProgram(resolved: ResolvedAutoProgram | null): void {
+    this.resolvedProgram = resolved;
+    this.basePathChain = null;
+    this.baseAutoSequence = null;
   }
 
   private alliancePath(): { chain: PathChain | null; sequence: AutoSequence | null } {
@@ -160,10 +170,24 @@ export class SimSession {
   }
 
   startAutoFollower(): void {
-    const { chain, sequence } = this.alliancePath();
+    const timing = this.robotConfig.mechanismTiming;
+    this.autoFollower.setWaitConfig({
+      intakeFullWaitTimeoutSec: timing.intakeFullWaitTimeoutSec,
+      shootEmptyWaitTimeoutSec: timing.shootEmptyWaitTimeoutSec,
+      leaveSafetyMarginSec: timing.leaveSafetyMarginSec,
+    });
     this.autoFollower.setPose(this.pose);
+    if (this.resolvedProgram) {
+      this.autoFollower.startProgram(
+        this.resolvedProgram,
+        this.robotConfig.maxVelocity,
+        timing,
+      );
+      return;
+    }
+    const { chain, sequence } = this.alliancePath();
     if (sequence && sequence.steps.length > 0) {
-      this.autoFollower.start(sequence.steps);
+      this.autoFollower.startSimple(sequence.steps);
       return;
     }
     if (chain) {
@@ -197,6 +221,7 @@ export class SimSession {
       this.world.randomizeMotif();
     }
     this.world.setArtifactFriction(this.artifactFriction);
+    this.world.setShootHoldIntervalSec(this.robotConfig.mechanismTiming.shootHoldIntervalSec);
     this.applyPracticeBotPreloads();
     this.refreshFieldRobots();
     if (this.config.onlyClaimedRobots) {
@@ -373,6 +398,7 @@ export class SimSession {
     this.robotPreload = settings.robotPreload;
     this.hostTeamLabel = settings.teamLabel?.trim() || undefined;
     this.autoFollower.updateConstants({ mass: this.robotConfig.mass });
+    this.world.setShootHoldIntervalSec(this.robotConfig.mechanismTiming.shootHoldIntervalSec);
     const width = this.robotConfig.footprintWidth;
     const length = this.robotConfig.footprintLength;
     this.practiceLayouts = this.practiceLayouts.map((layout) => ({ ...layout, width, length }));
@@ -494,6 +520,7 @@ export class SimSession {
       this.config.fixedMotif,
     );
     this.world.setArtifactFriction(this.artifactFriction);
+    this.world.setShootHoldIntervalSec(this.robotConfig.mechanismTiming.shootHoldIntervalSec);
     this.applyPracticeBotPreloads();
     if (this.config.onlyClaimedRobots) {
       const claimed = [...this.claimedRobotIds];
@@ -565,6 +592,11 @@ export class SimSession {
     let driveFrame: import('@ftc-sim/robot').DriveFrame = 'field';
 
     if (playerClaimed) {
+      this.autoFollower.setContext({
+        storedCount: this.world.getStoredCount(PLAYER_ROBOT_ID),
+        timeRemainingSec: matchSnap.timeRemainingInPhase,
+        inLaunchZone: robotInLaunchZone(this.pose, footprint, this.getField()),
+      });
       const resolved = resolveDriveInput(
         sample,
         this.injectedInput,
@@ -874,8 +906,14 @@ export class SimSession {
     const gateEdge = sample.mechanism.gateEdge;
 
     if (autoMechanisms && robotId === PLAYER_ROBOT_ID) {
-      mechanismCommand = { ...mechanismCommand, intake: 1 };
-      if (this.follower?.shouldAutoShoot?.()) {
+      const footprint = simRobotFootprint(this.robotConfig);
+      const inLaunchZone = robotInLaunchZone(pose, footprint, this.getField());
+      const inWait = this.follower?.isInAutoWait?.() ?? false;
+      const intakeOn = inWait ? (this.follower?.shouldAutoIntake?.() ?? true) : true;
+      if (intakeOn) {
+        mechanismCommand = { ...mechanismCommand, intake: 1 };
+      }
+      if (this.follower?.shouldAutoShoot?.(inLaunchZone)) {
         shootHeld = true;
       }
     }

@@ -59,10 +59,10 @@ describe('Super Duo Far 12 with player collision', () => {
       const mag =
         Math.abs(input.forward) + Math.abs(input.strafe) + Math.abs(input.turn);
 
-      if (elapsed >= 17.2 && elapsed <= 19 && !runner.shouldAutoShoot() && mag > 0.05) {
+      if (elapsed >= 17.2 && elapsed <= 19 && !runner.isInAutoWait() && mag > 0.05) {
         pathDriveAt18 += 1;
       }
-      if (elapsed >= 17.5 && elapsed <= 20 && mag < 0.02 && !runner.shouldAutoShoot()) {
+      if (elapsed >= 17.5 && elapsed <= 20 && mag < 0.02 && !runner.isInAutoWait()) {
         stuckAfter17 += 1;
       }
 

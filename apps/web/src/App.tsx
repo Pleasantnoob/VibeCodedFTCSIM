@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDecodeField, getMatchArtifactStaging } from '@ftc-sim/season-decode';
 import { getDebugZones } from '@ftc-sim/field';
-import type { AutoSequence, PathChain, PedroJsonFile } from '@ftc-sim/pedro';
+import type { AutoSequence, PathChain, PedroJsonFile, ResolvedAutoProgram } from '@ftc-sim/pedro';
 import {
-  AutoSequenceRunner,
+  AutoProgramRunner,
   autoSequenceForAlliance,
+  autoSequenceOverlayPoints,
   getPathStartPose,
+  loadAutoProgramFromText,
   pathChainForAlliance,
   pathChainToPoints,
   parsePathFileText,
+  programStartPose,
 } from '@ftc-sim/pedro';
 import type { Pose, Vector2 } from '@ftc-sim/field';
 import type { SimArtifactState } from '@ftc-sim/mechanisms';
@@ -24,7 +27,6 @@ const PRACTICE_BOT_LABELS: Record<BotRobotId, string> = {
   'red-near': 'Red near',
 };
 import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, humanOccupiedRobotIds, type SoloSpawnSlot } from './robot/match-robots';
-import { DEFAULT_ARTIFACT_FRICTION } from './artifacts/artifact-world';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
   SIM_ROBOT_PRESETS,
@@ -52,7 +54,7 @@ import {
 } from './field/zone-editor';
 import { useDriveInput } from './input/useDriveInput';
 import { DriveControlsPanel } from './input/DriveControlsPanel';
-import { loadPlayerSettings, patchPlayerSettings, type PracticeBotId, type SavedAutoPathId } from './input/player-settings';
+import { loadPlayerSettings, patchPlayerSettings, type AutoMode, type PracticeBotId, type SavedAutoPathId } from './input/player-settings';
 import { useMatchGamepad } from './input/useMatchGamepad';
 import type { DriveFrame } from '@ftc-sim/robot';
 import { useMatchClock } from './match/useMatchClock';
@@ -62,6 +64,13 @@ import { MatchResultsCeremony } from './match/MatchResultsCeremony';
 import { useMatchFullscreen } from './match/useMatchFullscreen';
 import { useMatchAudio, playMatchAudioCue, unlockMatchAudio, emitMatchAudioCues, getMatchAudioCache } from './match/useMatchAudio';
 import { PanelSection, PanelsButton, PanelsLogo } from './components/panels';
+import {
+  AutoProgramPanel,
+  BUILTIN_AUTO_PROGRAMS,
+  BUILTIN_PATHS,
+  type BuiltinPathId,
+  type BuiltinProgramId,
+} from './components/AutoProgramPanel';
 import { DevToolsDrawer } from './components/DevToolsDrawer';
 import { installFtcSimDevApi } from './dev/inject-drive';
 import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
@@ -83,17 +92,6 @@ const NET_SETUP_SNAPSHOT: MatchSnapshot = {
   infiniteMode: false,
 };
 
-const BUILTIN_PATHS = [
-  { id: 'decode-pp', label: 'Decode Auto (PP export)', file: '/examples/decode-auto.pp' },
-  { id: 'decode-json', label: 'Decode Auto (JSON curve)', file: '/examples/decode-auto.json' },
-  { id: 'really-good', label: 'Really Good Path Test', file: '/examples/really-good-path-test.pp' },
-  { id: 'super-duo-far12', label: 'Super Duo Far 12', file: '/examples/super-duo-far12.pp' },
-  { id: 'super-duo-near12', label: 'Super Duo Near 12', file: '/examples/super-duo-near12.pp' },
-  { id: 'simple-duo-far', label: 'Simple Duo Far', file: '/examples/simple-duo-far.pp' },
-  { id: 'super-simple-far', label: 'Super Simple Far', file: '/examples/super-simple-far.pp' },
-] as const;
-
-type BuiltinPathId = (typeof BUILTIN_PATHS)[number]['id'];
 type LoadedPathId = SavedAutoPathId;
 
 function initialBotSlotConfigs(
@@ -196,7 +194,7 @@ export function App() {
     () => initialOverlayTeams(savedPlayer.robotTeamName, savedPlayer.spawnSlot),
     [savedPlayer.robotTeamName, savedPlayer.spawnSlot],
   );
-  const [artifactFriction, setArtifactFriction] = useState(DEFAULT_ARTIFACT_FRICTION);
+  const [artifactFriction, setArtifactFriction] = useState(savedPlayer.artifactFriction);
   const artifactFrictionRef = useRef(artifactFriction);
   artifactFrictionRef.current = artifactFriction;
   const [showZones, setShowZones] = useState(false);
@@ -230,6 +228,11 @@ export function App() {
   const [pathWarnings, setPathWarnings] = useState<string[]>([]);
   const [pathError, setPathError] = useState<string | null>(null);
   const [showPlannedPath, setShowPlannedPath] = useState(true);
+  const [autoMode, setAutoMode] = useState<AutoMode>(savedPlayer.autoMode);
+  const [loadedProgramLabel, setLoadedProgramLabel] = useState<string | null>(null);
+  const [selectedProgramId, setSelectedProgramId] = useState<BuiltinProgramId>('duo-cycle-leave');
+  const lastProgramTextRef = useRef<string | null>(savedPlayer.lastAutoProgramText);
+  const [programDebug, setProgramDebug] = useState<import('@ftc-sim/pedro').AutoProgramRunnerDebug | null>(null);
   const [selectedPathId, setSelectedPathId] = useState<BuiltinPathId>('decode-pp');
   const [loadedPathId, setLoadedPathId] = useState<LoadedPathId>(null);
   const pathChainRef = useRef<PathChain | null>(null);
@@ -245,7 +248,8 @@ export function App() {
   const matchAudioCacheRef = useRef(getMatchAudioCache());
   const soloMatchAudioPrevRef = useRef<MatchSnapshot | null>(null);
   const autoPhasePrevRef = useRef<MatchSnapshot['phase']>('setup');
-  const followerRef = useRef(new AutoSequenceRunner());
+  const followerRef = useRef(new AutoProgramRunner());
+  const resolvedProgramRef = useRef<ResolvedAutoProgram | null>(null);
   const resetRobotRef = useRef<(pose?: { x: number; y: number; heading: number }) => void>(() => {});
   const resetNpcPosesRef = useRef<(poses: ReadonlyMap<string, Pose>) => void>(() => {});
   const [robotConfig, setRobotConfig] = useState<SimRobotConfig>(savedPlayer.robot);
@@ -253,11 +257,11 @@ export function App() {
   robotConfigRef.current = robotConfig;
   const [robotSkinId, setRobotSkinId] = useState<RobotSkinId>(savedPlayer.robotSkinId);
   const [botsEnabled, setBotsEnabled] = useState(savedPlayer.practiceBotsEnabled);
-  const [botDifficulty, setBotDifficulty] = useState<Difficulty>('normal');
+  const [botDifficulty, setBotDifficulty] = useState<Difficulty>(savedPlayer.botDifficulty);
   const [botSlotConfigs, setBotSlotConfigs] = useState<BotSlotConfig[]>(() =>
-    initialBotSlotConfigs(savedPlayer, 'normal'),
+    initialBotSlotConfigs(savedPlayer, savedPlayer.botDifficulty),
   );
-  const [showBotFieldDebug, setShowBotFieldDebug] = useState(true);
+  const [showBotFieldDebug, setShowBotFieldDebug] = useState(savedPlayer.showBotFieldDebug);
   const botsEnabledRef = useRef(false);
   const botDifficultyRef = useRef<Difficulty>('normal');
   const botSlotConfigsRef = useRef(botSlotConfigs);
@@ -309,10 +313,21 @@ export function App() {
         label,
         loadId,
       };
-      updateBotSlot(robotId, { autoPath, runAuto: true });
+      setBotSlotConfigs((prev) => {
+        const next = prev.map((slot) =>
+          slot.robotId === robotId ? { ...slot, autoPath, runAuto: true } : slot,
+        );
+        persistPracticeBotSlots(next);
+        if (botsEnabledRef.current) {
+          const overrides = computeBotSpawnOverrides(next);
+          setBotSpawnOverrides(overrides);
+          queueMicrotask(() => resetNpcPosesRef.current(overrides));
+        }
+        return next;
+      });
       botAutoPathTextRef.current.set(robotId, pathText);
     },
-    [updateBotSlot],
+    [computeBotSpawnOverrides],
   );
 
   const loadBotAutoPathFromText = useCallback(
@@ -389,9 +404,12 @@ export function App() {
   const artifactSpawns = useMemo(() => getMatchArtifactStaging(), []);
 
   const plannedPathPoints = useMemo(() => {
+    if (autoSequence) {
+      return autoSequenceOverlayPoints(autoSequence, 80);
+    }
     if (!pathChain) return [];
     return pathChainToPoints(pathChain, 80).map((p) => ({ x: p.x, y: p.y }));
-  }, [pathChain]);
+  }, [autoSequence, pathChain]);
 
   const botPathPreview = useMemo(
     () => (botsEnabled ? buildBotPathPreviewStates(botSlotConfigs) : []),
@@ -451,8 +469,46 @@ export function App() {
     );
   }, [robotTeamName]);
 
+  const fetchModuleText = useCallback(async (path: string) => {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`Failed to load ${path}`);
+    return res.text();
+  }, []);
+
+  const applyAutoProgram = useCallback(
+    async (programText: string, label: string, source: LoadedPathId = 'upload') => {
+      const resolved = await loadAutoProgramFromText(programText, fetchModuleText, alliance);
+      resolvedProgramRef.current = resolved;
+      setAutoMode('program');
+      setLoadedProgramLabel(label);
+      setLoadedPathId(null);
+      setBasePathChain(null);
+      setBaseAutoSequence(null);
+      pathChainRef.current = null;
+      autoSequenceRef.current = null;
+      setPathFormat('auto-program');
+      setPathWarnings([]);
+      setPathError(null);
+      setShowPlannedPath(true);
+      lastProgramTextRef.current = programText;
+      patchPlayerSettings({
+        autoMode: 'program',
+        lastAutoProgramText: programText,
+        lastAutoProgramId: source,
+        lastAutoPathText: null,
+        lastAutoPathId: null,
+      });
+      const start = programStartPose(resolved);
+      if (start) resetRobotRef.current(start);
+    },
+    [alliance, fetchModuleText],
+  );
+
   const applyParsedPath = useCallback(
     (parsed: ReturnType<typeof parsePathFileText>, source: LoadedPathId = 'upload', pathText?: string) => {
+      resolvedProgramRef.current = null;
+      setLoadedProgramLabel(null);
+      setAutoMode('simple');
       setBasePathChain(parsed.chain);
       setBaseAutoSequence(parsed.autoSequence ?? null);
       setPathFormat(parsed.format);
@@ -471,6 +527,9 @@ export function App() {
         patchPlayerSettings({
           lastAutoPathText: textToSave,
           lastAutoPathId: source ?? 'upload',
+          autoMode: 'simple',
+          lastAutoProgramText: null,
+          lastAutoProgramId: null,
         });
       }
       if (pathText && isNetActive && net.role === 'host') {
@@ -484,22 +543,42 @@ export function App() {
     followerRef.current.cancelPath();
     pathChainRef.current = null;
     autoSequenceRef.current = null;
+    resolvedProgramRef.current = null;
     lastPathTextRef.current = null;
+    lastProgramTextRef.current = null;
     setBasePathChain(null);
     setBaseAutoSequence(null);
     setPathFormat(null);
     setPathWarnings([]);
     setPathError(null);
     setLoadedPathId(null);
-    patchPlayerSettings({ lastAutoPathText: null, lastAutoPathId: null });
+    setLoadedProgramLabel(null);
+    setProgramDebug(null);
+    patchPlayerSettings({
+      lastAutoPathText: null,
+      lastAutoPathId: null,
+      lastAutoProgramText: null,
+      lastAutoProgramId: null,
+    });
     resetRobotRef.current(playerSpawnPose(spawnSlot));
   }, [spawnSlot]);
 
   const startAutoPathRunner = useCallback(() => {
     followerRef.current.setPose(poseRef.current);
+    const timing = robotConfigRef.current.mechanismTiming;
+    followerRef.current.setWaitConfig({
+      intakeFullWaitTimeoutSec: timing.intakeFullWaitTimeoutSec,
+      shootEmptyWaitTimeoutSec: timing.shootEmptyWaitTimeoutSec,
+      leaveSafetyMarginSec: timing.leaveSafetyMarginSec,
+    });
+    const resolved = resolvedProgramRef.current;
+    if (resolved) {
+      followerRef.current.startProgram(resolved, robotConfigRef.current.maxVelocity, timing);
+      return;
+    }
     const sequence = autoSequenceRef.current;
     if (sequence && sequence.steps.length > 0) {
-      followerRef.current.start(sequence.steps);
+      followerRef.current.startSimple(sequence.steps);
       return;
     }
     if (pathChainRef.current) {
@@ -524,6 +603,36 @@ export function App() {
     if (!isNetActive || net.role !== 'host' || !lastPathTextRef.current) return;
     net.sendAutoPath(lastPathTextRef.current);
   }, [alliance, isNetActive, net.role, net.sendAutoPath]);
+
+  const loadBuiltinProgram = useCallback(
+    async (id: BuiltinProgramId) => {
+      const entry = BUILTIN_AUTO_PROGRAMS.find((program) => program.id === id);
+      if (!entry) return;
+      try {
+        const res = await fetch(entry.file);
+        if (!res.ok) throw new Error(`Failed to load ${entry.label}`);
+        await applyAutoProgram(await res.text(), entry.label, id);
+      } catch (e) {
+        setPathError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [applyAutoProgram],
+  );
+
+  const handleProgramUpload = useCallback(
+    async (file: File) => {
+      setPathError(null);
+      try {
+        if (file.size > 256 * 1024) {
+          throw new Error('Program file too large (max 256 KB)');
+        }
+        await applyAutoProgram(await file.text(), file.name, 'upload');
+      } catch (e) {
+        setPathError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [applyAutoProgram],
+  );
 
   const loadBuiltinPath = useCallback(
     async (id: BuiltinPathId) => {
@@ -562,10 +671,14 @@ export function App() {
     [loadPathFromText],
   );
 
-  const startPose = useMemo(
-    () => (pathChain ? getPathStartPose(pathChain) : playerSpawnPose(spawnSlot)),
-    [pathChain, spawnSlot],
-  );
+  const startPose = useMemo(() => {
+    if (autoMode === 'program' && resolvedProgramRef.current) {
+      const fromProgram = programStartPose(resolvedProgramRef.current);
+      if (fromProgram) return fromProgram;
+    }
+    if (pathChain) return getPathStartPose(pathChain);
+    return playerSpawnPose(spawnSlot);
+  }, [autoMode, pathChain, spawnSlot, loadedProgramLabel]);
 
   const effectiveStartPose = startPose;
 
@@ -662,33 +775,50 @@ export function App() {
   );
 
   const onSimHudTick = useCallback(() => {
-    if (!isNetActive && matchSounds) {
-      const prevSnap = soloMatchAudioPrevRef.current ?? match.clockRef.current!.snapshot();
-      match.syncUi();
-      const nextSnap = match.clockRef.current!.snapshot();
-      emitMatchAudioCues(prevSnap, nextSnap, matchSoundVolume, matchAudioCacheRef.current);
-      soloMatchAudioPrevRef.current = nextSnap;
-    } else {
-      match.syncUi();
-    }
-    const snap = match.clockRef.current?.snapshot();
-    if (autoPhasePrevRef.current === 'auto' && snap?.phase === 'transition') {
+    const clock = match.clockRef.current;
+    if (!clock) return;
+    const nextSnap = clock.snapshot();
+
+    if (autoPhasePrevRef.current === 'auto' && nextSnap.phase === 'transition') {
       followerRef.current.cancelPath();
     }
-    if (snap) {
-      autoPhasePrevRef.current = snap.phase;
-    }
+    autoPhasePrevRef.current = nextSnap.phase;
+
     const follower = followerRef.current;
     if (follower.isRunning()) {
-      setFollowerHud({
+      const progress = follower.getProgress();
+      const nextHud = {
         errors: follower.getErrors(),
-        progress: follower.getProgress(),
+        progress: {
+          completion: progress.completion,
+          distanceRemaining: progress.distanceRemaining,
+        },
         target: follower.getTargetPose(),
+      };
+      setProgramDebug(follower.getRunnerDebug());
+      setFollowerHud((prev) => {
+        if (
+          prev &&
+          prev.progress.completion === nextHud.progress.completion &&
+          prev.progress.distanceRemaining === nextHud.progress.distanceRemaining &&
+          prev.errors.translational === nextHud.errors.translational &&
+          prev.errors.heading === nextHud.errors.heading &&
+          prev.errors.drive === nextHud.errors.drive &&
+          prev.target?.x === nextHud.target?.x &&
+          prev.target?.y === nextHud.target?.y &&
+          prev.target?.heading === nextHud.target?.heading
+        ) {
+          return prev;
+        }
+        return nextHud;
       });
     } else {
-      setFollowerHud(null);
+      setProgramDebug((prev: import('@ftc-sim/pedro').AutoProgramRunnerDebug | null) =>
+        prev === null ? prev : null,
+      );
+      setFollowerHud((prev) => (prev === null ? prev : null));
     }
-  }, [match.syncUi, match.clockRef, isNetActive, matchSounds, matchSoundVolume]);
+  }, []);
 
   const {
     pose,
@@ -707,6 +837,7 @@ export function App() {
     botDebugLogs,
     botDebugRef,
     setArtifactFriction: applyArtifactFriction,
+    setShootHoldIntervalSec,
     randomizeMotif,
     finalizeMatch,
     advanceSimulation,
@@ -773,20 +904,48 @@ export function App() {
   resetNpcPosesRef.current = resetNpcPoses;
 
   useEffect(() => {
-    if (!physicsReady || savedPathRestoredRef.current || !savedPlayer.lastAutoPathText) return;
+    if (!botsEnabled) return;
+    if (displayMatchSnap.phase !== 'setup' && displayMatchSnap.phase !== 'init') return;
+    const overrides = computeBotSpawnOverrides(botSlotConfigs);
+    setBotSpawnOverrides(overrides);
+    resetNpcPoses(overrides);
+  }, [botsEnabled, botSlotConfigs, computeBotSpawnOverrides, displayMatchSnap.phase, resetNpcPoses]);
+
+  useEffect(() => {
+    if (!physicsReady || savedPathRestoredRef.current) return;
     savedPathRestoredRef.current = true;
+    if (savedPlayer.autoMode === 'program' && savedPlayer.lastAutoProgramText) {
+      void applyAutoProgram(
+        savedPlayer.lastAutoProgramText,
+        savedPlayer.lastAutoProgramId === 'duo-cycle-leave'
+          ? 'Duo cycle + leave'
+          : 'Saved program',
+        savedPlayer.lastAutoProgramId ?? 'upload',
+      ).catch((e) => setPathError(e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    if (!savedPlayer.lastAutoPathText) return;
     try {
       loadPathFromText(savedPlayer.lastAutoPathText, savedPlayer.lastAutoPathId ?? 'upload');
     } catch (e) {
       setPathError(e instanceof Error ? e.message : String(e));
     }
-  }, [physicsReady, loadPathFromText, savedPlayer.lastAutoPathId, savedPlayer.lastAutoPathText]);
+  }, [
+    applyAutoProgram,
+    physicsReady,
+    loadPathFromText,
+    savedPlayer.autoMode,
+    savedPlayer.lastAutoPathId,
+    savedPlayer.lastAutoPathText,
+    savedPlayer.lastAutoProgramId,
+    savedPlayer.lastAutoProgramText,
+  ]);
 
   useEffect(() => {
     netArtifactsRef.current = net.liveArtifacts;
   }, [net.liveArtifacts]);
 
-  const pathLoaded = Boolean(basePathChain || baseAutoSequence);
+  const pathLoaded = Boolean(basePathChain || baseAutoSequence || loadedProgramLabel);
 
   useEffect(() => {
     if (!isNetActive || !net.robotId) return;
@@ -883,7 +1042,13 @@ export function App() {
   useEffect(() => {
     if (!physicsReady) return;
     applyArtifactFriction(artifactFriction);
+    patchPlayerSettings({ artifactFriction });
   }, [artifactFriction, physicsReady, applyArtifactFriction]);
+
+  useEffect(() => {
+    if (!physicsReady) return;
+    setShootHoldIntervalSec(robotConfig.mechanismTiming.shootHoldIntervalSec);
+  }, [physicsReady, robotConfig.mechanismTiming.shootHoldIntervalSec, setShootHoldIntervalSec]);
 
   useEffect(() => {
     if (!physicsReady) return;
@@ -1127,6 +1292,7 @@ export function App() {
     }
     const prevSnap = match.clockRef.current!.snapshot();
     playSoloMatchAudio(prevSnap, () => {
+      applyBotAutoStarts(botSlotConfigsRef.current);
       if (matchSnap.phase === 'setup') {
         randomizeMotif();
       }
@@ -1401,10 +1567,6 @@ export function App() {
           poseLabel={`(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`}
           speed={speed}
           angularSpeed={angularSpeed}
-          botsEnabled={botsEnabled}
-          onBotsEnabledChange={setBotsEnabled}
-          botDifficulty={botDifficulty}
-          onBotDifficultyChange={setBotDifficulty}
         />
       )}
       {showMatchNav && (
@@ -1575,6 +1737,7 @@ export function App() {
                   onChange={(e) => {
                     const difficulty = e.target.value as Difficulty;
                     setBotDifficulty(difficulty);
+                    patchPlayerSettings({ botDifficulty: difficulty });
                     setBotSlotConfigs((prev) => prev.map((slot) => ({ ...slot, difficulty })));
                   }}
                 >
@@ -1687,7 +1850,11 @@ export function App() {
                   type="checkbox"
                   checked={showBotFieldDebug}
                   disabled={!botsEnabled}
-                  onChange={(e) => setShowBotFieldDebug(e.target.checked)}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setShowBotFieldDebug(next);
+                    patchPlayerSettings({ showBotFieldDebug: next });
+                  }}
                 />
                 Show bot task + path overlay
               </label>
@@ -1762,6 +1929,8 @@ export function App() {
                 ))}
               </select>
             </label>
+            <details className="panel-details">
+              <summary>Advanced drivetrain</summary>
             <label className="panel-label">
               Top speed: <strong>{robotConfig.maxVelocity.toFixed(0)} in/s</strong>
               <input
@@ -1841,6 +2010,7 @@ export function App() {
                 onChange={(e) => patchRobotConfig({ footprintWidth: Number(e.target.value) })}
               />
             </label>
+            </details>
           </PanelSection>
 
           <PanelSection title="Teleop" badge={driveModeLabel}>
@@ -1857,83 +2027,55 @@ export function App() {
           </PanelSection>
 
           <PanelSection
-            key={pathChain ? 'auto-loaded' : 'auto-empty'}
+            key={pathChain || loadedProgramLabel ? 'auto-loaded' : 'auto-empty'}
             title="Autonomous"
             badge={
-              pathChain
-                ? loadedPathId === 'upload'
-                  ? 'Custom upload'
-                  : BUILTIN_PATHS.find((path) => path.id === loadedPathId)?.label ??
-                    `${pathChain.paths.length} seg`
-                : 'none'
+              loadedProgramLabel
+                ? loadedProgramLabel
+                : pathChain
+                  ? loadedPathId === 'upload'
+                    ? 'Custom upload'
+                    : BUILTIN_PATHS.find((path) => path.id === loadedPathId)?.label ??
+                      `${pathChain.paths.length} seg`
+                  : 'none'
             }
-            defaultOpen={!!pathChain}
+            defaultOpen={!!pathChain || !!loadedProgramLabel}
           >
-            <label className="panel-field">
-              Routine
-              <select
-                className="panel-select"
-                value={selectedPathId}
-                onChange={(e) => setSelectedPathId(e.target.value as BuiltinPathId)}
-              >
-                {BUILTIN_PATHS.map((path) => (
-                  <option key={path.id} value={path.id}>
-                    {path.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="barrier-actions">
-              <PanelsButton onClick={() => void loadBuiltinPath(selectedPathId)}>
-                Add routine
-              </PanelsButton>
-            </div>
-            <label className="panel-check">
-              <input
-                type="file"
-                accept=".json,.pp"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handlePathUpload(file);
-                  e.target.value = '';
-                }}
-              />
-              Upload routine (.json / .pp)
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={showPlannedPath}
-                disabled={!pathChain}
-                onChange={(e) => setShowPlannedPath(e.target.checked)}
-              />
-              Show route before AUTO
-            </label>
-            {pathFormat && (
-              <p className="hint hint--compact">Format: {pathFormat}</p>
-            )}
-            {pathError && <p className="hint path-error">{pathError}</p>}
-            {pathWarnings.map((warning) => (
-              <p key={warning} className="hint">
-                {warning}
-              </p>
-            ))}
-            {followerHud && (
-              <ul className="metrics">
-                <li>
-                  Progress: <strong>{(followerHud.progress.completion * 100).toFixed(0)}%</strong>
-                </li>
-                <li>
-                  Trans. error: <strong>{followerHud.errors.translational.toFixed(2)} in</strong>
-                </li>
-                <li>
-                  Heading error: <strong>{followerHud.errors.heading.toFixed(3)} rad</strong>
-                </li>
-                <li>
-                  Remaining: <strong>{followerHud.progress.distanceRemaining.toFixed(1)} in</strong>
-                </li>
-              </ul>
-            )}
+            <AutoProgramPanel
+              autoMode={autoMode}
+              onAutoModeChange={(mode) => {
+                setAutoMode(mode);
+                patchPlayerSettings({ autoMode: mode });
+              }}
+              robotConfig={robotConfig}
+              onRobotConfigChange={patchRobotConfig}
+              selectedPathId={selectedPathId}
+              onSelectedPathIdChange={setSelectedPathId}
+              selectedProgramId={selectedProgramId}
+              onSelectedProgramIdChange={setSelectedProgramId}
+              loadedPathId={loadedPathId}
+              loadedProgramLabel={loadedProgramLabel}
+              pathFormat={pathFormat}
+              pathError={pathError}
+              pathWarnings={pathWarnings}
+              showPlannedPath={showPlannedPath}
+              onShowPlannedPathChange={setShowPlannedPath}
+              programDebug={programDebug}
+              followerHud={
+                followerHud
+                  ? {
+                      progress: followerHud.progress,
+                      errors: followerHud.errors,
+                      distRemaining: followerHud.progress.distanceRemaining,
+                    }
+                  : null
+              }
+              onLoadBuiltinPath={(id) => void loadBuiltinPath(id)}
+              onLoadBuiltinProgram={(id) => void loadBuiltinProgram(id)}
+              onPathUpload={handlePathUpload}
+              onProgramUpload={handleProgramUpload}
+              onClear={clearPath}
+            />
           </PanelSection>
 
           <PanelSection title="Broadcast HUD" badge={overlayMatchName}>

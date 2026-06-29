@@ -3,6 +3,7 @@ import type { Alliance } from '@ftc-sim/game-decode';
 import {
   AutoSequenceRunner,
   autoSequenceForAlliance,
+  autoSequenceOverlayPoints,
   getPathStartPose,
   pathChainForAlliance,
   pathChainToPoints,
@@ -67,11 +68,8 @@ export function pathOverlayPoints(
   samplesPerSegment = 80,
 ): Array<{ x: number; y: number }> {
   const { chain, sequence } = alliancePathForBot(autoPath, alliance);
-  if (sequence?.displayChain) {
-    return pathChainToPoints(sequence.displayChain, samplesPerSegment).map((p) => ({
-      x: p.x,
-      y: p.y,
-    }));
+  if (sequence) {
+    return autoSequenceOverlayPoints(sequence, samplesPerSegment);
   }
   return pathChainToPoints(chain, samplesPerSegment).map((p) => ({ x: p.x, y: p.y }));
 }
@@ -86,8 +84,8 @@ export function startBotAutoRunner(
   if (robotMass !== undefined) {
     runner.updateConstants({ mass: robotMass });
   }
-  runner.setPose(pose);
   const { chain, sequence } = alliancePathForBot(autoPath, alliance);
+  runner.setPose(pose);
   if (sequence && sequence.steps.length > 0) {
     runner.start(sequence.steps);
     return;
@@ -101,7 +99,11 @@ export function tickBotAutoRunner(
   linear: { x: number; y: number },
   dt: number,
   limits: KinematicLimits,
+  context?: { storedCount: number; inLaunchZone: boolean },
 ): HolonomicInput {
+  if (context) {
+    runner.setContext(context);
+  }
   runner.setPose(pose);
   runner.setVelocity(linear);
   return runner.updateHolonomic(dt, limits);

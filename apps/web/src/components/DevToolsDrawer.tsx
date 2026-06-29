@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Vector2 } from '@ftc-sim/field';
 import type { MechanismLogEntry } from '@ftc-sim/mechanisms';
-import type { BotDebugLogCategory, BotDebugLogEntry, Difficulty } from '@ftc-sim/bot';
+import type { BotDebugLogCategory, BotDebugLogEntry } from '@ftc-sim/bot';
 import type { MapVertexSelection } from '../field/map-selection';
 import type { DriveInputDebug } from '../input/drive-input-sampler';
 import { barrierSelection, zoneSelection } from '../field/map-selection';
@@ -53,10 +53,6 @@ export interface DevToolsDrawerProps {
   poseLabel?: string;
   speed?: number;
   angularSpeed?: number;
-  botsEnabled?: boolean;
-  onBotsEnabledChange?: (value: boolean) => void;
-  botDifficulty?: Difficulty;
-  onBotDifficultyChange?: (value: Difficulty) => void;
 }
 
 const BOT_LOG_CATEGORIES: Array<BotDebugLogCategory | 'all'> = [
@@ -122,10 +118,6 @@ export function DevToolsDrawer({
   poseLabel,
   speed,
   angularSpeed,
-  botsEnabled = false,
-  onBotsEnabledChange,
-  botDifficulty = 'normal',
-  onBotDifficultyChange,
 }: DevToolsDrawerProps) {
   const [botLogCategory, setBotLogCategory] = useState<BotDebugLogCategory | 'all'>('all');
   const [botLogRobot, setBotLogRobot] = useState<string>('all');
@@ -155,33 +147,9 @@ export function DevToolsDrawer({
         </button>
       </div>
 
-      {onBotsEnabledChange && (
-        <PanelSection title="Practice bots" defaultOpen>
-          <label className="panel-check">
-            <input
-              type="checkbox"
-              checked={botsEnabled}
-              onChange={(event) => onBotsEnabledChange(event.target.checked)}
-            />
-            Fill NPCs with bots
-          </label>
-          {onBotDifficultyChange && (
-            <label className="panel-field">
-              Difficulty
-              <select
-                className="panel-select"
-                value={botDifficulty}
-                disabled={!botsEnabled}
-                onChange={(event) => onBotDifficultyChange(event.target.value as Difficulty)}
-              >
-                <option value="easy">Easy</option>
-                <option value="normal">Normal</option>
-                <option value="hard">Hard</option>
-              </select>
-            </label>
-          )}
-        </PanelSection>
-      )}
+      <p className="hint dev-tools-drawer__sidebar-link">
+        Practice bots (enable, difficulty, AUTO paths) are in the sidebar under <strong>Practice bots</strong>.
+      </p>
 
       <PanelSection title="Drive debug" badge={controlSource ?? 'none'} defaultOpen={false}>
         <ul className="metrics">

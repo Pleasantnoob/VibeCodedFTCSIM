@@ -1,8 +1,10 @@
 import type { Pose, Vector2 } from './types.js';
 
 export const FIELD_SIZE_INCHES = 144;
-export const VISUAL_FIELD_SIZE_INCHES = 141.5;
-export const VISUAL_SCALE = VISUAL_FIELD_SIZE_INCHES / FIELD_SIZE_INCHES;
+/** @deprecated Use {@link FIELD_SIZE_INCHES}. Pedro 1.2+ and the visualizer use 0–144 in. */
+export const VISUAL_FIELD_SIZE_INCHES = FIELD_SIZE_INCHES;
+/** @deprecated Identity — kept for legacy imports only (see {@link packages/pedro VISUALIZER_TO_PEDRO}). */
+export const VISUAL_SCALE = 1;
 export const INCHES_TO_METERS = 0.0254;
 export const FIELD_HALF_METERS = (FIELD_SIZE_INCHES / 2) * INCHES_TO_METERS;
 

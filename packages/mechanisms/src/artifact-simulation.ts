@@ -118,6 +118,7 @@ export class ArtifactSimulation {
   private reserveVisible = false;
   private stationSimActive = false;
   private intakeEdgeEpsilon = 0.35;
+  private shootHoldIntervalSec = SHOOT_HOLD_INTERVAL_S;
 
   constructor(
     private field: FieldDefinition,
@@ -380,6 +381,16 @@ export class ArtifactSimulation {
     this.log('cmd', `Burst scheduled: ${count} shots every ${intervalSec}s`, { start, robotId });
   }
 
+  setShootHoldIntervalSec(intervalSec: number): void {
+    if (Number.isFinite(intervalSec) && intervalSec > 0.02) {
+      this.shootHoldIntervalSec = intervalSec;
+    }
+  }
+
+  getShootHoldIntervalSec(): number {
+    return this.shootHoldIntervalSec;
+  }
+
   /** While held, fire one shot every {@link SHOOT_HOLD_INTERVAL_S}. */
   setShootHold(robotId: string, active: boolean): void {
     const state = this.getRobotState(robotId);
@@ -526,6 +537,7 @@ export class ArtifactSimulation {
   }
 
   private syncOnFieldFromPhysics(physics: PhysicsAdapter): void {
+    this.reconcileFieldArtifactColliders(physics);
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) continue;
       if (artifact.phase === 'humanPlayerStation' && !this.stationSimActive) continue;
@@ -539,18 +551,24 @@ export class ArtifactSimulation {
       artifact.pose = physics.getArtifactPose(artifact.bodyId);
       artifact.opacity = 1;
     }
-    this.reconcileFieldArtifactColliders(physics);
   }
 
   /** Re-enable colliders for field artifacts left disabled after ramp roll / respawn. */
   private reconcileFieldArtifactColliders(physics: PhysicsAdapter): void {
     for (const artifact of this.artifacts.values()) {
-      if (artifact.phase !== 'onField' && artifact.phase !== 'overflow') continue;
-      if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
-      const vx = physics.getArtifactVelocity(artifact.bodyId).x;
-      const vy = physics.getArtifactVelocity(artifact.bodyId).y;
-      physics.activateArtifactBody(artifact.bodyId, artifact.pose, vx, vy);
-      this.log('physics', `Restored collider for ${artifact.id}`, { phase: artifact.phase });
+      if (artifact.phase === 'onField' || artifact.phase === 'overflow') {
+        if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
+        const vx = physics.getArtifactVelocity(artifact.bodyId).x;
+        const vy = physics.getArtifactVelocity(artifact.bodyId).y;
+        physics.activateArtifactBody(artifact.bodyId, artifact.pose, vx, vy);
+        this.log('physics', `Restored collider for ${artifact.id}`, { phase: artifact.phase });
+        continue;
+      }
+      if (artifact.phase === 'humanPlayerStation' && this.stationSimActive) {
+        if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
+        physics.activateStationArtifactBody(artifact.bodyId, artifact.pose, 0, 0);
+        this.log('physics', `Restored station collider for ${artifact.id}`);
+      }
     }
   }
 
@@ -582,6 +600,10 @@ export class ArtifactSimulation {
       if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) {
         physics.parkArtifactBody(artifact.bodyId, HIDDEN_ARTIFACT_POSE);
         physics.setArtifactEnabled(artifact.bodyId, false);
+        continue;
+      }
+      if (artifact.phase === 'humanPlayerStation') {
+        physics.activateStationArtifactBody(artifact.bodyId, spawn.pose, spawn.vx, spawn.vy);
         continue;
       }
       physics.activateArtifactBody(artifact.bodyId, spawn.pose, spawn.vx, spawn.vy);
@@ -675,7 +697,7 @@ export class ArtifactSimulation {
     const state = this.getRobotState(robotId);
     if (!state.shootHoldWanted) return;
     if (this.simTime < state.shootHoldNextShotAt) return;
-    state.shootHoldNextShotAt = this.simTime + SHOOT_HOLD_INTERVAL_S;
+    state.shootHoldNextShotAt = this.simTime + this.shootHoldIntervalSec;
     this.tryShoot(robotId, robotPose, robotVelocity, footprint, physics, robotAlliance);
   }
 
@@ -973,7 +995,7 @@ export class ArtifactSimulation {
     artifact.phase = 'onField';
     artifact.opacity = 1;
     artifact.pose = { ...pose };
-    physics.activateArtifactBody(artifactId, pose, 0, 0);
+    physics.activateArtifactBody(artifact.bodyId, pose, 0, 0);
   }
 
   private checkAutoGates(robots: RobotMechanismTick[], footprint: RobotFootprint): void {
@@ -1046,7 +1068,7 @@ export class ArtifactSimulation {
         openedByAlliance,
         slotIndex: i,
         classifiedRampSlot: i,
-        releaseAt: this.simTime + delayIndex * 0.15,
+        releaseAt: this.simTime + delayIndex * GATE_RELEASE_INTERVAL_S,
         velocity,
         spawnPose,
         startPose: { ...artifact.pose },
@@ -1054,7 +1076,7 @@ export class ArtifactSimulation {
       this.log('gate', `Queued ${artifactId} from slot ${i}`, {
         spawnPose,
         velocity,
-        delay: delayIndex * 0.15,
+        delay: delayIndex * GATE_RELEASE_INTERVAL_S,
       });
       delayIndex++;
     }

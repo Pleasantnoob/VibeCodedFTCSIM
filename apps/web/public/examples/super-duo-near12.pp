@@ -115,7 +115,7 @@
       "id": "line-b81r4mgq1gv",
       "endPoint": {
         "x": 11,
-        "y": 58,
+        "y": 57,
         "heading": "linear",
         "reverse": false,
         "startDeg": 134,
@@ -163,7 +163,7 @@
       "name": "Path 8",
       "endPoint": {
         "x": 11,
-        "y": 58,
+        "y": 57,
         "heading": "linear",
         "reverse": false,
         "startDeg": 134,
@@ -171,8 +171,8 @@
       },
       "controlPoints": [
         {
-          "x": 52,
-          "y": 63
+          "x": 54.918918918918926,
+          "y": 58.718918918918895
         }
       ],
       "color": "#C6D57C",
@@ -374,5 +374,5 @@
     "onionNextPointOnly": false
   },
   "version": "1.2.1",
-  "timestamp": "2026-06-26T04:56:48.278Z"
+  "timestamp": "2026-06-26T15:27:09.704Z"
 }

@@ -349,7 +349,7 @@ code {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: contain;
   pointer-events: none;
   user-select: none;
 }
@@ -685,6 +685,74 @@ code {
   stroke-dasharray: 4 3;
   opacity: 0.9;
   pointer-events: none;
+}
+
+.field-bot-collect-chosen {
+  fill: rgba(255, 215, 0, 0.22);
+  stroke: #ffd700;
+  stroke-width: 2;
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+.field-gate-caution {
+  pointer-events: none;
+}
+
+.field-gate-caution--blue .field-gate-caution-outer {
+  fill: rgba(96, 165, 250, 0.06);
+  stroke: rgba(96, 165, 250, 0.35);
+  stroke-width: 1.5;
+  stroke-dasharray: 8 5;
+}
+
+.field-gate-caution--blue .field-gate-caution-inner {
+  fill: rgba(96, 165, 250, 0.1);
+  stroke: rgba(96, 165, 250, 0.55);
+  stroke-width: 1.5;
+}
+
+.field-gate-caution--red .field-gate-caution-outer {
+  fill: rgba(248, 113, 113, 0.06);
+  stroke: rgba(248, 113, 113, 0.35);
+  stroke-width: 1.5;
+  stroke-dasharray: 8 5;
+}
+
+.field-gate-caution--red .field-gate-caution-inner {
+  fill: rgba(248, 113, 113, 0.1);
+  stroke: rgba(248, 113, 113, 0.55);
+  stroke-width: 1.5;
+}
+
+.field-gate-caution-wall {
+  stroke-width: 2.5;
+  opacity: 0.75;
+}
+
+.field-gate-caution--blue .field-gate-caution-wall {
+  stroke: rgba(96, 165, 250, 0.8);
+}
+
+.field-gate-caution--red .field-gate-caution-wall {
+  stroke: rgba(248, 113, 113, 0.8);
+}
+
+.field-gate-caution-anchor {
+  fill: #fbbf24;
+  stroke: #0b0d0d;
+  stroke-width: 1;
+  opacity: 0.9;
+}
+
+.field-gate-caution-label {
+  fill: #fbbf24;
+  font-size: 9px;
+  font-weight: 600;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(11, 13, 13, 0.85);
+  stroke-width: 2px;
 }
 
 .field-follower-error {
@@ -1121,6 +1189,26 @@ code {
   margin-bottom: 0.65rem;
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.panel-details {
+  margin: 0.65rem 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.panel-details > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.panel-details[open] > summary {
+  margin-bottom: 0.5rem;
 }
 
 .bot-slot-config {

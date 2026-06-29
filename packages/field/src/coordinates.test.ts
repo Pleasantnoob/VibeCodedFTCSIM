@@ -56,9 +56,9 @@ describe('canvas coords', () => {
     expect(back.y).toBeCloseTo(original.y, 2);
   });
 
-  it('uses 141.5/144 visual scale at field edge', () => {
+  it('maps field edge to canvas edge in pedro inches', () => {
     const edge = pedroToFieldPx({ x: FIELD_SIZE_INCHES, y: 0 }, viewport);
-    expect(edge.x / viewport.scalePxPerInch).toBeCloseTo(VISUAL_FIELD_SIZE_INCHES, 2);
-    expect(VISUAL_SCALE).toBeCloseTo(VISUAL_FIELD_SIZE_INCHES / FIELD_SIZE_INCHES, 5);
+    expect(edge.x / viewport.scalePxPerInch).toBeCloseTo(FIELD_SIZE_INCHES, 2);
+    expect(VISUAL_SCALE).toBe(1);
   });
 });

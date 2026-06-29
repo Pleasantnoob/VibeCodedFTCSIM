@@ -9,7 +9,9 @@ export interface AutoFollowerLike {
   setPose(pose: Pose): void;
   setVelocity(linear: { x: number; y: number }): void;
   updateHolonomic(dt: number, limits: KinematicLimits): HolonomicInput;
-  shouldAutoShoot?(): boolean;
+  isInAutoWait?(): boolean;
+  shouldAutoShoot?(inLaunchZone: boolean): boolean;
+  shouldAutoIntake?(): boolean;
 }
 
 export interface DriveSample {

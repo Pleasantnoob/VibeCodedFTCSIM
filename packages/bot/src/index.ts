@@ -26,11 +26,24 @@ export {
   pickLaunchZoneForScorer,
   shouldAvoidOpponentGateZone,
   staggeredParkTarget,
+  parkDriveTarget,
+  parkRouteWaypoints,
+  parkApproachY,
+  PARK_APPROACH_Y,
 } from './coordination.js';
 export {
   allyBlocksParkApproach,
   fieldDriveTowardPark,
+  parkEscapeInput,
+  parkPassDetourTarget,
+  parkPassVerticalSide,
 } from './navigation/park-navigation.js';
+export { gateCautionZones, type GateCautionZoneVisual } from './gate-caution-viz.js';
+export {
+  GATE_CAUTION_BLEND_IN_IN,
+  GATE_CAUTION_BLEND_OUT_IN,
+  turnGainInGateCautionArea,
+} from './drive/field-drive.js';
 export {
   BotManager,
   defaultPracticeBotSlots,

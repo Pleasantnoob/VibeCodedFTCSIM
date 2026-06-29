@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "modules": {
+    "preloadShoot": { "path": "/examples/auto-modules/shoot-near.pp" },
+    "collect": { "path": "/examples/auto-modules/collect-near.pp" },
+    "leave": { "path": "/examples/auto-modules/leave.pp" }
+  },
+  "steps": [
+    { "run": "preloadShoot" },
+    { "waitUntil": "storedEmpty" },
+    {
+      "loop": {
+        "body": [
+          { "run": "collect" },
+          { "waitUntil": "storedFull" },
+          { "run": "preloadShoot" },
+          { "waitUntil": "storedEmpty" }
+        ],
+        "until": "leaveBudget"
+      }
+    },
+    { "run": "leave" }
+  ],
+  "waits": {
+    "storedFull": { "kind": "storedCount", "min": 3, "timeoutSec": 2.5, "onTimeout": "continue" },
+    "storedEmpty": { "kind": "storedCount", "max": 0, "timeoutSec": 4.0, "onTimeout": "continue" }
+  },
+  "leave": { "safetyMarginSec": 2.0 }
+}

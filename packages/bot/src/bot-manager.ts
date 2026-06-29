@@ -1,4 +1,5 @@
 import { AutoSequenceRunner } from '@ftc-sim/pedro';
+import { robotInLaunchZone } from '@ftc-sim/mechanisms';
 import { BotDebugLog, type BotDebugLogEntry } from './debug/bot-debug-log.js';
 import {
   pathOverlayPoints,
@@ -166,6 +167,7 @@ export class BotManager {
       } else {
         result = tickSimpleCollector(world, slot, state, collectorCtx);
       }
+      allyTasks.set(slot.robotId, result.debug.task);
       if (robot) {
         const task = result.debug.task;
         const gateInLane = task === 'gate' && result.debug.gatePhase === 'lane';
@@ -266,10 +268,16 @@ export class BotManager {
     }
 
     const runner = entry.runner;
-    const input = tickBotAutoRunner(runner, robot.pose, robot.linear, dt, world.limits);
+    const inLaunchZone = robotInLaunchZone(robot.pose, world.footprint, world.field);
+    const input = tickBotAutoRunner(runner, robot.pose, robot.linear, dt, world.limits, {
+      storedCount: robot.stored.length,
+      inLaunchZone,
+    });
 
     const running = runner.isRunning();
-    const inWait = runner.shouldAutoShoot();
+    const inWait = runner.isInAutoWait();
+    const autoShoot = runner.shouldAutoShoot(inLaunchZone);
+    const autoIntake = runner.shouldAutoIntake();
     const runnerDebug = runner.getRunnerDebug();
     const pathPoints = pathOverlayPoints(autoPath, robot.alliance);
     const targetPose = runner.getTargetPose();
@@ -285,7 +293,7 @@ export class BotManager {
       this.autoStepWatch.set(slot.robotId, runnerDebug.stepIndex);
       if (runnerDebug.phase === 'wait') {
         logLines.push(
-          `AUTO wait step=${runnerDebug.stepIndex + 1}/${runnerDebug.stepCount} shoot ${runnerDebug.waitRemainingSec.toFixed(2)}s @ (${robot.pose.x.toFixed(0)},${robot.pose.y.toFixed(0)})`,
+          `AUTO wait step=${runnerDebug.stepIndex + 1}/${runnerDebug.stepCount} mode=${runnerDebug.waitMode ?? '?'} stored=${robot.stored.length} ${inLaunchZone ? 'shoot' : 'intake'} ${runnerDebug.waitRemainingSec.toFixed(2)}s @ (${robot.pose.x.toFixed(0)},${robot.pose.y.toFixed(0)})`,
         );
       } else if (runnerDebug.phase === 'path') {
         logLines.push(
@@ -334,10 +342,10 @@ export class BotManager {
         input,
         driveFrame: 'robot',
         mechanism: {
-          command: { intake: 1 },
+          command: { intake: autoIntake || (!inWait && running) ? 1 : 0 },
           shootEdge: false,
           gateEdge: false,
-          shootHeld: runner.shouldAutoShoot(),
+          shootHeld: autoShoot,
         },
       },
       debug: {

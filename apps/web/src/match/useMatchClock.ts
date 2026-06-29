@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { MatchClock, type MatchSnapshot } from '@ftc-sim/match';
+import { MatchClock, matchSnapshotsEqual, type MatchSnapshot } from '@ftc-sim/match';
 import {
   advanceAccumulator,
   createGameLoopAccumulator,
@@ -34,7 +34,10 @@ export function useMatchClock(options: UseMatchClockOptions = {}): UseMatchClock
   const [snapshot, setSnapshot] = useState<MatchSnapshot>(() => clockRef.current.snapshot());
 
   const syncUi = useCallback(() => {
-    setSnapshot(clockRef.current.snapshot());
+    setSnapshot((prev) => {
+      const next = clockRef.current.snapshot();
+      return matchSnapshotsEqual(prev, next) ? prev : next;
+    });
   }, []);
 
   const initMatch = useCallback(() => {
@@ -93,19 +96,26 @@ export function useMatchClock(options: UseMatchClockOptions = {}): UseMatchClock
     let frame = 0;
 
     const loop = (now: number) => {
-      const snap = clockRef.current.snapshot();
-      if (snap.running && !snap.paused) {
+      const before = clockRef.current.snapshot();
+      if (before.running && !before.paused) {
         const { steps, dt } = advanceAccumulator(acc, now);
         for (let i = 0; i < steps; i++) {
           clockRef.current.tick(dt);
-        }
-        if (shouldUpdateHud(acc, now)) {
-          syncUi();
         }
       } else {
         acc.lastTime = now;
         acc.accumulator = 0;
       }
+
+      const after = clockRef.current.snapshot();
+      const phaseChanged = after.phase !== before.phase;
+      const runningChanged = after.running !== before.running;
+      const timerTick = after.running && shouldUpdateHud(acc, now);
+
+      if (phaseChanged || runningChanged || timerTick) {
+        syncUi();
+      }
+
       frame = requestAnimationFrame(loop);
     };
 

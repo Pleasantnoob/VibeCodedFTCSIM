@@ -2,7 +2,7 @@
   "season": "decode",
   "version": "2025-26.4",
   "fieldSizeInches": 144,
-  "visualFieldSizeInches": 141.5,
+  "visualFieldSizeInches": 144,
   "coordinateSystem": "pedro",
   "visualAssets": {
     "fieldImage": "/assets/decode.webp",

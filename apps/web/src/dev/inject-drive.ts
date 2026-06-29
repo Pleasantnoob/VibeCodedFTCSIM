@@ -1,7 +1,7 @@
 import type { MatchSnapshot } from '@ftc-sim/match';
 import type { PathChain, PedroJsonFile } from '@ftc-sim/pedro';
 import { pathChainToPoints } from '@ftc-sim/pedro';
-import type { AutoSequenceRunner } from '@ftc-sim/pedro';
+import type { AutoProgramRunner } from '@ftc-sim/pedro';
 import type { HolonomicInput, Pose } from '@ftc-sim/robot';
 import type { BotDebugState } from '@ftc-sim/bot';
 
@@ -379,7 +379,7 @@ export function installFtcSimDevApi(hooks: {
   loadPathFromText: (text: string) => void;
   getPathChain: () => PathChain | null;
   clearPath: () => void;
-  getFollower: () => AutoSequenceRunner;
+  getFollower: () => AutoProgramRunner;
   startAuto: () => void;
   getBotDebug: () => BotDebugState[];
   getNpcPoses: () => Array<{ id: string; pose: Pose; linear: { x: number; y: number } }>;

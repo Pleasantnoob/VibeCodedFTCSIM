@@ -1,18 +1,20 @@
-import { VISUAL_FIELD_SIZE_INCHES, FIELD_SIZE_INCHES } from '@ftc-sim/field';
+import { FIELD_SIZE_INCHES } from '@ftc-sim/field';
 import type { Pose, Vector2 } from '@ftc-sim/field';
 import type { AutoSequence, AutoSequenceStep } from './auto-sequence.js';
 import { BezierCurve, BezierLine } from './geometry.js';
 import {
   constantHeading,
   linearHeading,
+  Path,
   PathBuilder,
   PathChain,
   getPathStartPose,
   tangentHeading,
 } from './paths.js';
 
-/** Visualizer canvas inches (0–141.5) → Pedro inches (0–144). */
-export const VISUALIZER_TO_PEDRO = FIELD_SIZE_INCHES / VISUAL_FIELD_SIZE_INCHES;
+/** Pre-1.2 visualizer canvas inches (0–141.5) → Pedro inches (0–144). */
+export const LEGACY_VISUALIZER_FIELD_INCHES = 141.5;
+export const VISUALIZER_TO_PEDRO = FIELD_SIZE_INCHES / LEGACY_VISUALIZER_FIELD_INCHES;
 
 export interface VisualizerPoint {
   x: number;
@@ -68,6 +70,24 @@ export interface VisualizerPpFile {
 
 function degToRad(deg: number): number {
   return (deg * Math.PI) / 180;
+}
+
+/** Pedro Pathing Visualizer: single CP is quadratic → equivalent cubic controls. */
+export function quadraticToCubic(
+  start: Vector2,
+  control: Vector2,
+  end: Vector2,
+): { control1: Vector2; control2: Vector2 } {
+  return {
+    control1: {
+      x: start.x + (2 / 3) * (control.x - start.x),
+      y: start.y + (2 / 3) * (control.y - start.y),
+    },
+    control2: {
+      x: end.x + (2 / 3) * (control.x - end.x),
+      y: end.y + (2 / 3) * (control.y - end.y),
+    },
+  };
 }
 
 function usesPedroInches(data: VisualizerPpFile): boolean {
@@ -176,15 +196,15 @@ function addLineToBuilder(
       ),
     );
   } else {
+    const startPose = poseFromVisualizer(prevEnd, data, startHeading);
+    const endPose = poseFromVisualizer(end, data, endHeading);
     const cp = toPedroPoint(line.controlPoints[0], data);
-    builder.addPath(
-      new BezierCurve(
-        poseFromVisualizer(prevEnd, data, startHeading),
-        cp,
-        cp,
-        poseFromVisualizer(end, data, endHeading),
-      ),
+    const { control1, control2 } = quadraticToCubic(
+      { x: startPose.x, y: startPose.y },
+      cp,
+      { x: endPose.x, y: endPose.y },
     );
+    builder.addPath(new BezierCurve(startPose, control1, control2, endPose));
   }
 
   return end;
@@ -207,6 +227,20 @@ function pushWait(steps: AutoSequenceStep[], durationMs: unknown, name?: string)
   steps.push({ kind: 'wait', durationSec, name });
 }
 
+/** Overlay chain follows sequence order, not raw lines[] order (avoids bogus connectors). */
+function buildDisplayChainFromSteps(steps: AutoSequenceStep[]): PathChain {
+  const paths: Path[] = [];
+  for (const step of steps) {
+    if (step.kind === 'path') {
+      paths.push(...step.chain.paths);
+    }
+  }
+  if (paths.length === 0) {
+    throw new Error('Auto sequence contains no path steps');
+  }
+  return new PathChain(paths);
+}
+
 export function parseVisualizerPp(data: VisualizerPpFile): PathChain {
   if (!data.startPoint || !Array.isArray(data.lines)) {
     throw new Error('Invalid Visualizer .pp file: expected startPoint and lines[]');
@@ -224,8 +258,6 @@ export function parseVisualizerPp(data: VisualizerPpFile): PathChain {
 }
 
 export function parseVisualizerAutoSequence(data: VisualizerPpFile): AutoSequence {
-  const displayChain = parseVisualizerPp(data);
-  const startPose = getPathStartPose(displayChain);
   const spawnStartDeg = data.startPoint.startDeg ?? data.startPoint.degrees ?? 0;
 
   const lineById = new Map<string, VisualizerLine>();
@@ -263,6 +295,12 @@ export function parseVisualizerAutoSequence(data: VisualizerPpFile): AutoSequenc
     prevEnd = segment.end;
     pushWait(steps, line.waitAfterMs, line.waitAfterName);
   }
+
+  const displayChain = buildDisplayChainFromSteps(steps);
+  const firstPathStep = steps.find(
+    (step): step is Extract<AutoSequenceStep, { kind: 'path' }> => step.kind === 'path',
+  );
+  const startPose = getPathStartPose(firstPathStep!.chain);
 
   return { displayChain, steps, startPose };
 }

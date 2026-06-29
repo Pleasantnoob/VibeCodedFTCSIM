@@ -47,6 +47,8 @@ function maxParkingStatus(
   return PARKING_RANK[a] >= PARKING_RANK[b] ? a : b;
 }
 
+const MAX_MATCH_EVENTS = 256;
+
 export class DecodeRulesEngine {
   private rules = getDecodeRules();
   private state: MatchState;
@@ -483,6 +485,9 @@ export class DecodeRulesEngine {
 
   private log(t: number, type: string, message: string, data?: Record<string, unknown>): void {
     this.state.events.push({ t, type, message, data });
+    if (this.state.events.length > MAX_MATCH_EVENTS) {
+      this.state.events.splice(0, this.state.events.length - MAX_MATCH_EVENTS);
+    }
   }
 }
 

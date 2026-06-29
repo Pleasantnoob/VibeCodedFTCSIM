@@ -40,6 +40,11 @@ export const OPPONENT_GATE_ARTIFACT_EXCLUDE_IN = 20;
 export const OPPONENT_GATE_ARTIFACT_PENALTY_IN = 36;
 export const OPPONENT_GATE_COLLECT_REPEL_RADIUS = 42;
 export const OPPONENT_GATE_COLLECT_REPEL_STRENGTH = 58;
+/** Default repulsion for score / park / idle near the opponent gate mouth. */
+export const OPPONENT_GATE_AVOID_RADIUS = 40;
+export const OPPONENT_GATE_AVOID_STRENGTH = 50;
+/** Distance at which non-gate bots start treating the opponent gate as hazardous. */
+export const OPPONENT_GATE_AVOID_DIST_IN = 40;
 
 const FALLBACK_BASE: Record<Alliance, { target: { x: number; y: number }; heading: number }> = {
   blue: { target: { x: 105, y: 33 }, heading: Math.PI / 2 },
@@ -207,6 +212,41 @@ export function distToOpponentGate(pose: Vector2, alliance: Alliance): number {
   return Math.hypot(pose.x - gate.x, pose.y - gate.y);
 }
 
+/** Vertical goal-wall segment beside the gate mouth (west for blue, east for red). */
+const GOAL_WALL_CAUTION: Record<Alliance, { x: number; y0: number; y1: number }> = {
+  blue: { x: 8, y0: 64, y1: 124 },
+  red: { x: 136, y0: 64, y1: 124 },
+};
+
+function distToVerticalWallSegment(
+  pose: Vector2,
+  wall: { x: number; y0: number; y1: number },
+): number {
+  const y = Math.max(wall.y0, Math.min(wall.y1, pose.y));
+  return Math.hypot(pose.x - wall.x, pose.y - y);
+}
+
+/**
+ * Closest distance to gate corridor / goal-wall corner hotspots.
+ * Uses both alliance gates — blue bots wedge on the west wall, not only the east opponent gate.
+ */
+export function distToGateCautionArea(pose: Vector2, alliance: Alliance): number {
+  const opponent: Alliance = alliance === 'blue' ? 'red' : 'blue';
+  let min = distToVerticalWallSegment(pose, GOAL_WALL_CAUTION[alliance]);
+  min = Math.min(min, Math.hypot(pose.x - GATE_APPROACH[alliance].x, pose.y - GATE_APPROACH[alliance].y));
+  if (alliance === 'blue' ? pose.x > 60 : pose.x < 84) {
+    min = Math.min(
+      min,
+      Math.hypot(pose.x - GATE_APPROACH[opponent].x, pose.y - GATE_APPROACH[opponent].y),
+    );
+  }
+  const lane = GATE_LANE[alliance];
+  if (Math.abs(pose.y - lane.y) < 20) {
+    min = Math.min(min, Math.hypot(pose.x - lane.x, pose.y - lane.y));
+  }
+  return min;
+}
+
 export function artifactTooCloseToOpponentGate(pose: Vector2, alliance: Alliance): boolean {
   return distToOpponentGate(pose, alliance) < OPPONENT_GATE_ARTIFACT_EXCLUDE_IN;
 }
@@ -234,9 +274,70 @@ export function baseParkTarget(
 
 const PARK_SLOT_OFFSET: Record<string, { dx: number; dy: number }> = {
   'blue-near': { dx: -6, dy: 4 },
+  'blue-far': { dx: 6, dy: 4 },
   'red-far': { dx: -6, dy: 4 },
   'red-near': { dx: 6, dy: 4 },
 };
+
+/** North-lane staging point so cross-alliance park paths don't meet at center. */
+export const PARK_WAYPOINT_ARRIVE_IN = 10;
+
+/** Per-bot approach row so cross-field paths don't share the same y (over/under pass). */
+export const PARK_APPROACH_Y: Record<string, number> = {
+  'blue-near': 50,
+  'blue-far': 44,
+  'red-near': 38,
+  'red-far': 32,
+};
+
+export function parkApproachY(robotId: string): number {
+  return PARK_APPROACH_Y[robotId] ?? 42;
+}
+
+/** Ordered lane → approach → base for endgame parking. */
+export function parkRouteWaypoints(
+  parkTarget: Vector2,
+  alliance: Alliance,
+  robotId: string,
+): Vector2[] {
+  const far = robotId.includes('far');
+  const lane =
+    alliance === 'blue'
+      ? far
+        ? { x: 108, y: 62 }
+        : { x: 92, y: 52 }
+      : far
+        ? { x: 38, y: 62 }
+        : { x: 52, y: 52 };
+  const approach = {
+    x: parkTarget.x + (alliance === 'blue' ? (far ? 5 : -5) : far ? -5 : 5),
+    y: parkApproachY(robotId),
+  };
+  return [lane, approach, parkTarget];
+}
+
+/** Next waypoint on the park route (lane, approach, then base). */
+export function parkDriveTarget(
+  parkTarget: Vector2,
+  pose: Vector2,
+  alliance: Alliance,
+  robotId: string,
+): Vector2 {
+  for (const wp of parkRouteWaypoints(parkTarget, alliance, robotId)) {
+    if (Math.hypot(wp.x - pose.x, wp.y - pose.y) > PARK_WAYPOINT_ARRIVE_IN) return wp;
+  }
+  return parkTarget;
+}
+
+/** @deprecated use parkDriveTarget */
+export function parkStagingTarget(
+  parkTarget: Vector2,
+  pose: Vector2,
+  alliance: Alliance,
+  robotId: string,
+): Vector2 {
+  return parkDriveTarget(parkTarget, pose, alliance, robotId);
+}
 
 /** Offset park targets so two alliance bots don't stack on the same base point. */
 export function staggeredParkTarget(
@@ -252,12 +353,12 @@ export function staggeredParkTarget(
   };
 }
 
-export const ENDGAME_NO_NEW_TASKS_SEC = 10;
+export const ENDGAME_NO_NEW_TASKS_SEC = 5;
 export const ENDGAME_FORCE_PARK_SEC = 5;
 
 export type EndgameRole = 'finisher' | 'parker';
 
-/** Last 10s: one bot finishes scoring while the partner parks first. */
+/** Last 5s: wrap up scoring / park in base (see {@link ENDGAME_FORCE_PARK_SEC}). */
 export function pickEndgameRoles(
   world: BotWorldSnapshot,
   slots: BotSlotConfig[],
@@ -354,7 +455,19 @@ export function shouldAvoidOpponentGateZone(
   robotId: string,
 ): boolean {
   if (task === 'gate' || gateAssignees.has(robotId)) return false;
-  return distToOpponentGate(pose, alliance) < 26;
+  return distToOpponentGate(pose, alliance) < OPPONENT_GATE_AVOID_DIST_IN;
+}
+
+/** Push away from the opponent goal-wall segment beside their gate (penalty contact). */
+export function opponentGoalWallRepulsion(pose: Vector2, alliance: Alliance): Vector2 {
+  const opponent: Alliance = alliance === 'blue' ? 'red' : 'blue';
+  const wall = GOAL_WALL_CAUTION[opponent];
+  const y = Math.max(wall.y0, Math.min(wall.y1, pose.y));
+  const dist = Math.hypot(pose.x - wall.x, pose.y - y);
+  if (dist > 24) return { x: 0, y: 0 };
+  const pushX = opponent === 'blue' ? 1 : -1;
+  const strength = (24 - dist) * 3.2;
+  return { x: pushX * strength, y: 0 };
 }
 
 export function opponentBaseCentroid(

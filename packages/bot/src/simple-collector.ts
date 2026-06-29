@@ -21,6 +21,7 @@ import {
   isRampFull,
   opponentGatePoint,
   parkReturnStatus,
+  parkDriveTarget,
   pickLaunchZoneForScorer,
   staggeredParkTarget,
   type EndgameRole,
@@ -28,6 +29,7 @@ import {
 import {
   allyBlocksParkApproach,
   fieldDriveTowardPark,
+  parkEscapeInput,
 } from './navigation/park-navigation.js';
 import {
   fieldDriveAlignShoot,
@@ -36,8 +38,10 @@ import {
   fieldDriveToward,
   intakeFaceHeading,
   intakeHeadingError,
+  turnGainInGateCautionArea,
   zeroDrive,
 } from './drive/field-drive.js';
+import { gateCreepTurnGainFor } from './personality/difficulty.js';
 import {
   checkInGateZone,
   checkInLaunchZone,
@@ -69,6 +73,8 @@ export interface CollectorRobotState {
   lastStatusLogAt: number;
   gatePhase: GatePhase;
   gateStuckNudges: number;
+  parkYieldSinceSec: number | null;
+  parkStuckNudges: number;
   stuck: StuckTracker;
 }
 
@@ -91,6 +97,8 @@ export function createCollectorState(): CollectorRobotState {
     lastStatusLogAt: -Infinity,
     gatePhase: 'lane',
     gateStuckNudges: 0,
+    parkYieldSinceSec: null,
+    parkStuckNudges: 0,
     stuck: createStuckTracker(),
   };
 }
@@ -222,6 +230,11 @@ export function tickSimpleCollector(
     state.gateStuckNudges = 0;
     resetStuckTracker(state.stuck);
   }
+  if (state.currentTask === 'park' && task !== 'park') {
+    state.parkYieldSinceSec = null;
+    state.parkStuckNudges = 0;
+    resetStuckTracker(state.stuck);
+  }
   state.currentTask = task;
 
   if (storedCount !== state.lastStoredCount) {
@@ -325,6 +338,10 @@ function tickCollectPhase(
       canDrive,
       logLines,
       goalNode: 'none',
+      collectScan:
+        scan.polled.length > 0
+          ? { chosenId: null, polled: scan.polled }
+          : undefined,
     });
   }
 
@@ -362,8 +379,9 @@ function tickCollectPhase(
           faceHeading: intakeFaceHeading(robot.pose, artifactPos),
           maxSpeed: 0.55,
           difficulty: slot.difficulty,
+          alliance: robot.alliance,
         })
-      : fieldDriveToCollect(robot.pose, artifactPos, slot.difficulty)
+      : fieldDriveToCollect(robot.pose, artifactPos, slot.difficulty, robot.alliance)
     : zeroDrive();
 
   const stuck = updateStuckTracker(
@@ -488,7 +506,13 @@ function tickScorePhase(
   let input = canDrive
     ? inLaunch && !aligned
       ? fieldDriveAlignShoot(robot.pose, shootHeading, slot.difficulty, launchTarget)
-      : fieldDriveScoreApproach(robot.pose, launchTarget, shootHeading, slot.difficulty)
+      : fieldDriveScoreApproach(
+          robot.pose,
+          launchTarget,
+          shootHeading,
+          slot.difficulty,
+          robot.alliance,
+        )
     : zeroDrive();
 
   const stuck = updateStuckTracker(
@@ -599,11 +623,17 @@ function tickGatePhase(
 
   let input = zeroDrive();
   if (canDrive) {
+    const creep = state.gatePhase === 'creep';
+    const gateTurnGain = creep
+      ? gateCreepTurnGainFor(slot.difficulty)
+      : turnGainInGateCautionArea(robot.pose, robot.alliance, slot.difficulty);
     input = fieldDriveToward(robot.pose, target, {
-      maxSpeed: state.gatePhase === 'lane' ? 0.72 : 0.48,
-      arriveIn: state.gatePhase === 'creep' ? 0.3 : 2.5,
-      faceHeading: state.gatePhase === 'creep' ? gateCreepHeading(robot.alliance) : undefined,
+      maxSpeed: creep ? 0.55 : state.gatePhase === 'lane' ? 0.75 : 0.55,
+      arriveIn: creep ? 0.3 : 2.5,
+      faceHeading: creep ? gateCreepHeading(robot.alliance) : undefined,
       difficulty: slot.difficulty,
+      turnGain: gateTurnGain,
+      alliance: robot.alliance,
     });
   }
 
@@ -626,6 +656,7 @@ function tickGatePhase(
         maxSpeed: 0.55,
         arriveIn: 6,
         difficulty: slot.difficulty,
+        alliance: robot.alliance,
       });
       state.gatePhase = 'lane';
     } else {
@@ -666,7 +697,8 @@ function tickParkPhase(
   logLines: string[],
 ): CollectorTickResult {
   const park = staggeredParkTarget(world.field, robot.alliance, slot.robotId);
-  const dist = Math.hypot(park.target.x - robot.pose.x, park.target.y - robot.pose.y);
+  const driveTarget = parkDriveTarget(park.target, robot.pose, robot.alliance, slot.robotId);
+  const dist = Math.hypot(driveTarget.x - robot.pose.x, driveTarget.y - robot.pose.y);
   const headingErr = Math.abs(normalizeAngle(robot.pose.heading - park.heading));
   const aligned = headingErr < 0.15;
   const parkStatus = parkReturnStatus(robot.pose, world.footprint, world.field, robot.alliance);
@@ -676,17 +708,30 @@ function tickParkPhase(
     state.lastStatusLogAt = elapsedSec;
     const role = ctx.endgameRoles.get(slot.robotId);
     logLines.push(
-      `PARK base=(${park.target.x.toFixed(0)},${park.target.y.toFixed(0)}) dist=${dist.toFixed(1)}in status=${parkStatus} role=${role ?? 'solo'} aligned=${aligned ? 'yes' : 'no'}`,
+      `PARK base=(${park.target.x.toFixed(0)},${park.target.y.toFixed(0)}) via=(${driveTarget.x.toFixed(0)},${driveTarget.y.toFixed(0)}) dist=${dist.toFixed(1)}in status=${parkStatus} role=${role ?? 'solo'} aligned=${aligned ? 'yes' : 'no'}`,
     );
   }
 
   let input = zeroDrive();
-  const allyBlocking = allyBlocksParkApproach(
+  let allyBlocking = allyBlocksParkApproach(
     robot,
-    park.target,
+    driveTarget,
     world.robots,
     ctx.allyTasks,
   );
+  if (
+    allyBlocking &&
+    state.parkYieldSinceSec !== null &&
+    elapsedSec - state.parkYieldSinceSec >= 1.4
+  ) {
+    allyBlocking = false;
+    logLines.push('PARK force lane — ally yield timeout');
+  }
+  if (allyBlocking) {
+    if (state.parkYieldSinceSec === null) state.parkYieldSinceSec = elapsedSec;
+  } else {
+    state.parkYieldSinceSec = null;
+  }
 
   if (canDrive && !atBase && !allyBlocking) {
     if (parkStatus === 'partial' && !aligned) {
@@ -694,7 +739,7 @@ function tickParkPhase(
     } else {
       input = fieldDriveTowardPark(
         robot.pose,
-        park.target,
+        driveTarget,
         world.robots,
         slot.robotId,
         robot.alliance,
@@ -703,11 +748,32 @@ function tickParkPhase(
           arriveIn: parkStatus === 'partial' ? 0.75 : 3,
           maxSpeed: parkStatus === 'partial' ? 0.45 : 0.85,
           difficulty: slot.difficulty,
+          robotTasks: ctx.allyTasks,
         },
       );
     }
   } else if (allyBlocking && canDrive && !atBase) {
-    logLines.push('PARK yield ally clearing base lane');
+    const yieldSec =
+      state.parkYieldSinceSec !== null ? elapsedSec - state.parkYieldSinceSec : 0;
+    if (yieldSec >= 0.55) {
+      state.parkStuckNudges += 1;
+      input = parkEscapeInput(
+        robot.pose,
+        world.robots,
+        slot.robotId,
+        robot.alliance,
+        state.parkStuckNudges,
+        driveTarget,
+      );
+      input = {
+        ...input,
+        forward: Math.min(0.5, (input.forward ?? 0) * 0.65),
+        strafe: (input.strafe ?? 0) * 0.9,
+      };
+      logLines.push(`PARK yield creep t=${yieldSec.toFixed(1)}s`);
+    } else {
+      logLines.push('PARK yield ally clearing base lane');
+    }
   }
 
   const stuck = updateStuckTracker(
@@ -718,17 +784,24 @@ function tickParkPhase(
     elapsedSec,
   );
   if (stuck) {
-    logLines.push('STUCK park detour');
-    const detourSide = slot.robotId.includes('near') ? 0.55 : -0.55;
-    input = { ...zeroDrive(), strafe: detourSide, forward: 0.35 };
+    state.parkStuckNudges += 1;
+    logLines.push(`STUCK park detour nudge=${state.parkStuckNudges}`);
+    input = parkEscapeInput(
+      robot.pose,
+      world.robots,
+      slot.robotId,
+      robot.alliance,
+      state.parkStuckNudges,
+      driveTarget,
+    );
   }
 
-  const pathWaypoints = [{ x: robot.pose.x, y: robot.pose.y }, park.target];
+  const pathWaypoints = [{ x: robot.pose.x, y: robot.pose.y }, driveTarget, park.target];
   return buildResult({
     slot,
     robot,
     task: 'park',
-    target: park.target,
+    target: driveTarget,
     storedCount: robot.stored.length,
     input,
     mechanism: IDLE_MECHANISM,

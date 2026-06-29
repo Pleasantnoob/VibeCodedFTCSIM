@@ -314,7 +314,25 @@ describe('simple collector', () => {
       result.sample.input.forward ?? 0,
       result.sample.input.strafe ?? 0,
     );
-    expect(driveMag).toBeGreaterThan(0.45);
+    expect(driveMag).toBeGreaterThan(0.4);
+  });
+
+  it('keeps collecting with 8 seconds left in teleop', () => {
+    const state = createCollectorState();
+    const world = baseWorld({
+      match: {
+        phase: 'teleop',
+        timeElapsed: 102,
+        timeRemainingInPhase: 8,
+        infiniteMode: false,
+        allowsDrive: true,
+        controlSource: 'teleop',
+        running: true,
+        paused: false,
+      } as BotWorldSnapshot['match'],
+    });
+    const result = tickSimpleCollector(world, slot, state);
+    expect(result.debug.task).toBe('collect');
   });
 
   it('forces park under 5 seconds left', () => {
@@ -390,8 +408,9 @@ describe('simple collector', () => {
     const result = tickSimpleCollector(world, slot, state);
     expect(result.debug.task).toBe('park');
     expect(result.debug.target?.y).toBeGreaterThan(20);
-    expect(result.debug.target?.y).toBeLessThan(50);
-    expect(result.debug.target?.x).toBeGreaterThan(90);
+    expect(result.debug.target?.y).toBeLessThanOrEqual(58);
+    expect(result.debug.target?.x).toBeGreaterThan(80);
+    expect(result.debug.target?.x).toBeLessThan(95);
   });
 
   it('logs scan breakdown when no artifacts found', () => {

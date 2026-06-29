@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { FieldDefinition, Pose, StagedArtifactLayout } from '@ftc-sim/field';
 import type { Alliance, MatchState, MatchRobotSnapshot } from '@ftc-sim/game-decode';
 import type { SimArtifactState, MechanismLogEntry } from '@ftc-sim/mechanisms';
+import { robotInLaunchZone } from '@ftc-sim/mechanisms';
 import type { MatchPhase, MatchSnapshot } from '@ftc-sim/match';
-import type { AutoSequenceRunner } from '@ftc-sim/pedro';
+import type { AutoProgramRunner } from '@ftc-sim/pedro';
 import {
   BotManager,
   defaultPracticeBotSlots,
@@ -65,7 +66,7 @@ export interface PhysicsRobotOptions {
   matchActiveRef: RefObject<boolean>;
   driveBlockedRef?: RefObject<boolean>;
   getMatchSnapshotRef: RefObject<() => MatchSnapshot>;
-  followerRef: RefObject<AutoSequenceRunner | null>;
+  followerRef: RefObject<AutoProgramRunner | null>;
   robotConfigRef: RefObject<SimRobotConfig>;
   onSimHudTick?: () => void;
   alliance: Alliance;
@@ -247,6 +248,10 @@ export function usePhysicsRobot(
 
   const setArtifactFriction = useCallback((friction: number) => {
     artifactWorldRef.current?.setArtifactFriction(friction);
+  }, []);
+
+  const setShootHoldIntervalSec = useCallback((intervalSec: number) => {
+    artifactWorldRef.current?.setShootHoldIntervalSec(intervalSec);
   }, []);
 
   const reset = useCallback(
@@ -459,6 +464,13 @@ export function usePhysicsRobot(
           !(driveBlockedRef?.current ?? false);
         const controlSource = matchSnapNow?.controlSource ?? 'none';
         const follower = followerRef?.current ?? null;
+        if (follower && 'setContext' in follower) {
+          follower.setContext({
+            storedCount: artifactWorldRef.current?.getStoredCount() ?? 0,
+            timeRemainingSec: matchSnapNow?.timeRemainingInPhase ?? 30,
+            inLaunchZone: robotInLaunchZone(poseRef.current, footprint, field),
+          });
+        }
 
         let { input: driveInput, driveFrame } = resolveDriveInput(
           {
@@ -611,8 +623,13 @@ export function usePhysicsRobot(
           shootEdge = false;
           shootHeld = false;
         } else if (autoMechanisms) {
-          mechanismCommand = { ...mechanismCommand, intake: 1 };
-          if (follower?.shouldAutoShoot()) {
+          const inLaunchZone = robotInLaunchZone(poseRef.current, footprint, field);
+          const inWait = follower?.isInAutoWait?.() ?? false;
+          const intakeOn = inWait ? (follower?.shouldAutoIntake?.() ?? true) : true;
+          if (intakeOn) {
+            mechanismCommand = { ...mechanismCommand, intake: 1 };
+          }
+          if (follower?.shouldAutoShoot(inLaunchZone)) {
             shootHeld = true;
           }
         }
@@ -676,19 +693,25 @@ export function usePhysicsRobot(
       }
 
       pushTelemetry(lastDriveInputRef.current);
-      setPose({ ...poseRef.current });
-      const speed = Math.hypot(linearRef.current.x, linearRef.current.y);
-      setHud({ speed, angularSpeed: angularRef.current });
-      if (artifactWorldRef.current) {
-        setLiveArtifacts(artifactWorldRef.current.getRenderArtifacts());
-        setMatchGameState(artifactWorldRef.current.getMatchState());
-        setMechanismDebugLogs(artifactWorldRef.current.getDebugLogs());
-        if (botsEnabledRef?.current && botManagerRef?.current) {
-          setBotDebugLogs(botManagerRef.current.getDebugLogs());
+      const hudNow = performance.now();
+      const paintHud = shouldUpdateHud(accRef.current, hudNow);
+      if (paintHud) {
+        setPose({ ...poseRef.current });
+        const speed = Math.hypot(linearRef.current.x, linearRef.current.y);
+        setHud({ speed, angularSpeed: angularRef.current });
+        if (artifactWorldRef.current) {
+          setLiveArtifacts(artifactWorldRef.current.getRenderArtifacts());
+          setMatchGameState(artifactWorldRef.current.getMatchState());
+          setMechanismDebugLogs(artifactWorldRef.current.getDebugLogs());
+          if (botsEnabledRef?.current && botManagerRef?.current) {
+            setBotDebugLogs(botManagerRef.current.getDebugLogs());
+          }
         }
       }
-      onHudTick?.(sample.debug, sample.source, samplerRef.current?.gamepadConnected ?? false);
-      onSimHudTick?.();
+      if (paintHud) {
+        onHudTick?.(sample.debug, sample.source, samplerRef.current?.gamepadConnected ?? false);
+        onSimHudTick?.();
+      }
     };
 
     advanceSimulationRef.current = (steps: number) => {
@@ -728,7 +751,6 @@ export function usePhysicsRobot(
     getMatchSnapshotRef,
     followerRef,
     robotConfigRef,
-    onSimHudTick,
     buildMatchRobots,
     buildNpcSync,
     refreshFieldRobotsRef,
@@ -792,6 +814,7 @@ export function usePhysicsRobot(
     botDebugLogs,
     botDebugRef,
     setArtifactFriction,
+    setShootHoldIntervalSec,
     randomizeMotif,
     finalizeMatch,
     advanceSimulation,

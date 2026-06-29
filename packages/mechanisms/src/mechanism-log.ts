@@ -30,8 +30,6 @@ export class MechanismLogger {
     if (this.entries.length > MAX_ENTRIES) {
       this.entries.shift();
     }
-    const suffix = data ? ` ${JSON.stringify(data)}` : '';
-    console.log(`[mech:${category}] t=${simTime.toFixed(2)} ${message}${suffix}`);
   }
 
   getEntries(): MechanismLogEntry[] {

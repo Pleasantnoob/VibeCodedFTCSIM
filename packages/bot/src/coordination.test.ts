@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { getDecodeField } from '@ftc-sim/season-decode';
 import {
   allyEnRouteToGate,
+  distToGateCautionArea,
+  distToOpponentGate,
   pickEndgameRoles,
   pickGateAssignees,
   pickLaunchZoneForScorer,
+  parkStagingTarget,
+  parkDriveTarget,
+  parkRouteWaypoints,
+  parkApproachY,
   staggeredParkTarget,
 } from './coordination.js';
 import type { BotRobotSnapshot, BotSlotConfig } from './types.js';
@@ -97,6 +103,16 @@ describe('pickGateAssignees', () => {
   });
 });
 
+describe('distToGateCautionArea', () => {
+  it('flags blue west-wall score corridor, not only the east opponent gate', () => {
+    const westLaunchCorridor = distToGateCautionArea({ x: 28, y: 95 }, 'blue');
+    const openField = distToGateCautionArea({ x: 72, y: 36 }, 'blue');
+    expect(westLaunchCorridor).toBeLessThan(22);
+    expect(openField).toBeGreaterThan(30);
+    expect(westLaunchCorridor).toBeLessThan(distToOpponentGate({ x: 28, y: 95 }, 'blue'));
+  });
+});
+
 describe('allyEnRouteToGate', () => {
   it('detects a teammate driving toward the gate', () => {
     const robots: BotRobotSnapshot[] = [
@@ -139,7 +155,47 @@ describe('pickLaunchZoneForScorer', () => {
 });
 
 describe('pickEndgameRoles', () => {
-  it('assigns finisher to the bot holding cargo in the last 10 seconds', () => {
+  it('does not assign endgame roles until 5 seconds left', () => {
+    const robots: BotRobotSnapshot[] = [
+      {
+        id: 'red-far',
+        alliance: 'red',
+        pose: { x: 80, y: 80, heading: 0 },
+        linear: { x: 0, y: 0 },
+        angular: 0,
+        stored: [{ id: 'a', color: 'green', slot: 0 }],
+      },
+      {
+        id: 'red-near',
+        alliance: 'red',
+        pose: { x: 50, y: 50, heading: 0 },
+        linear: { x: 0, y: 0 },
+        angular: 0,
+        stored: [],
+      },
+    ];
+    const roles = pickEndgameRoles(
+      {
+        ...rampFullWorld(robots),
+        field: getDecodeField(),
+        match: {
+          phase: 'teleop',
+          timeElapsed: 102,
+          timeRemainingInPhase: 8,
+          infiniteMode: false,
+          allowsDrive: true,
+          controlSource: 'teleop',
+          running: true,
+          paused: false,
+        },
+      } as Parameters<typeof pickEndgameRoles>[0],
+      slots,
+      new Map([['red-far', 'score']]),
+    );
+    expect(roles.size).toBe(0);
+  });
+
+  it('assigns park roles for both bots at 5 seconds left', () => {
     const robots: BotRobotSnapshot[] = [
       {
         id: 'red-far',
@@ -167,8 +223,8 @@ describe('pickEndgameRoles', () => {
         field: getDecodeField(),
         match: {
           phase: 'teleop',
-          timeElapsed: 110,
-          timeRemainingInPhase: 8,
+          timeElapsed: 115,
+          timeRemainingInPhase: 5,
           infiniteMode: false,
           allowsDrive: true,
           controlSource: 'teleop',
@@ -179,8 +235,39 @@ describe('pickEndgameRoles', () => {
       slots,
       new Map([['red-far', 'score']]),
     );
-    expect(roles.get('red-far')).toBe('finisher');
+    expect(roles.get('red-far')).toBe('parker');
     expect(roles.get('red-near')).toBe('parker');
+  });
+});
+
+describe('parkRouteWaypoints', () => {
+  it('splits blue-near and red-far staging lanes', () => {
+    const field = getDecodeField();
+    const bluePark = staggeredParkTarget(field, 'blue', 'blue-near');
+    const redPark = staggeredParkTarget(field, 'red', 'red-far');
+    const blueLane = parkRouteWaypoints(bluePark.target, 'blue', 'blue-near')[0]!;
+    const redLane = parkRouteWaypoints(redPark.target, 'red', 'red-far')[0]!;
+    expect(blueLane.y).not.toBe(redLane.y);
+    expect(Math.abs(blueLane.x - redLane.x)).toBeGreaterThan(30);
+  });
+
+  it('advances through lane then approach before base', () => {
+    const field = getDecodeField();
+    const bluePark = staggeredParkTarget(field, 'blue', 'blue-near');
+    const lane = parkDriveTarget(bluePark.target, { x: 20, y: 20 }, 'blue', 'blue-near');
+    expect(lane.y).toBeGreaterThan(50);
+    const approach = parkDriveTarget(
+      bluePark.target,
+      { x: 85, y: 58 },
+      'blue',
+      'blue-near',
+    );
+    expect(approach.y).toBe(50);
+  });
+
+  it('gives each bot a distinct approach row', () => {
+    expect(parkApproachY('blue-near')).toBeGreaterThan(parkApproachY('red-far'));
+    expect(parkApproachY('blue-far')).toBeGreaterThan(parkApproachY('red-near'));
   });
 });
 

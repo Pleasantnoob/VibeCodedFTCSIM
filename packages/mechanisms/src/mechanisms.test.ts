@@ -239,3 +239,58 @@ describe('ramp slots', () => {
     expect(slots[8]!.y).toBe(72.5 + 8 * 5);
   });
 });
+
+describe('artifact collider reconcile', () => {
+  it('re-enables colliders for on-field artifacts left parked', () => {
+    const field = getDecodeField();
+    const sim = new ArtifactSimulation(
+      field,
+      new DecodeRulesEngine({ field, alliance: 'blue' }),
+      'blue',
+    );
+    sim.init(getMatchArtifactStaging());
+    const enabled = new Map<string, boolean>();
+    const activated: string[] = [];
+    const stationActivated: string[] = [];
+    const physics: PhysicsAdapter = {
+      getArtifactPose: () => ({ x: 40, y: 40, heading: 0 }),
+      getArtifactVelocity: () => ({ x: 0, y: 0 }),
+      setArtifactPose: () => {},
+      setArtifactVelocity: () => {},
+      setArtifactEnabled: (bodyId, on) => {
+        enabled.set(bodyId, on);
+      },
+      isArtifactColliderEnabled: (bodyId) => enabled.get(bodyId) ?? false,
+      parkArtifactBody: (bodyId) => {
+        enabled.set(bodyId, false);
+      },
+      activateArtifactBody: (bodyId) => {
+        activated.push(bodyId);
+        enabled.set(bodyId, true);
+      },
+      activateStationArtifactBody: (bodyId) => {
+        stationActivated.push(bodyId);
+        enabled.set(bodyId, true);
+      },
+      syncRobotCollider: () => {},
+      step: () => {},
+    };
+
+    sim.syncHumanPlayerStation('auto', physics);
+    const onField = sim.getSnapshot().artifacts.find((a) => a.phase === 'onField');
+    expect(onField).toBeDefined();
+    enabled.set(onField!.bodyId, false);
+
+    sim.tick(
+      0.02,
+      { x: 20, y: 20, heading: 0 },
+      { x: 0, y: 0 },
+      DEFAULT_KINEMATIC_ROBOT.footprint,
+      physics,
+      'blue',
+      'auto',
+    );
+
+    expect(activated).toContain(onField!.bodyId);
+  });
+});
