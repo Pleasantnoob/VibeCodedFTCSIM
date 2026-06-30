@@ -47,7 +47,7 @@ export interface PlayerSettings {
   showBotFieldDebug: boolean;
 }
 
-export type PracticeBotId = Extract<BotRobotId, 'blue-near' | 'red-far' | 'red-near'>;
+export type PracticeBotId = Exclude<BotRobotId, 'player'>;
 
 const STORAGE_KEY = 'ftc-sim.player-settings.v2';
 const LEGACY_STORAGE_KEY = 'ftc-sim.player-settings.v1';
@@ -167,7 +167,7 @@ function parsePracticeBotSlots(
 ): Partial<Record<PracticeBotId, boolean>> {
   if (!raw || typeof raw !== 'object') return {};
   const next: Partial<Record<PracticeBotId, boolean>> = {};
-  for (const id of ['blue-near', 'red-far', 'red-near'] as const) {
+  for (const id of ['blue-near', 'blue-far', 'red-near', 'red-far'] as const) {
     if (typeof raw[id] === 'boolean') next[id] = raw[id];
   }
   return next;

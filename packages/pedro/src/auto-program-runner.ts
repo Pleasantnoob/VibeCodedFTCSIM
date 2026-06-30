@@ -191,7 +191,10 @@ export class AutoProgramRunner {
   shouldAutoShoot(inLaunchZone: boolean): boolean {
     if (this.mode === 'program' && this.programPhase === 'conditionalWait' && this.conditionalWait) {
       if (!waitShouldShoot(this.conditionalWait.spec)) return false;
-      return inLaunchZone;
+      return inLaunchZone && this.context.storedCount > 0;
+    }
+    if (this.mode === 'program' && this.programPhase === 'module') {
+      return this.sequenceRunner.shouldAutoShoot(inLaunchZone);
     }
     return this.sequenceRunner.shouldAutoShoot(inLaunchZone);
   }

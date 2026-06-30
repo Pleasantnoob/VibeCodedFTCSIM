@@ -7,7 +7,7 @@ import type { DriveFrame, HolonomicInput, KinematicLimits, RobotFootprint } from
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
-export type BotRobotId = 'player' | 'blue-near' | 'red-far' | 'red-near';
+export type BotRobotId = 'player' | 'blue-near' | 'blue-far' | 'red-near' | 'red-far';
 
 /** Pedro path loaded for a bot's AUTO period (blue-authored; mirrored per alliance). */
 export interface BotAutoPath {

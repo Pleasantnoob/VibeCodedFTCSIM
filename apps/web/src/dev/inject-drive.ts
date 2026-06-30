@@ -234,7 +234,8 @@ function summarizeGoalCollision(telemetry: DriveTelemetryFrame[]): GoalCollision
   };
 }
 
-const BOT_NPC_IDS = ['blue-near', 'red-far', 'red-near'] as const;
+const BOT_NPC_IDS = ['blue-near', 'blue-far', 'red-near', 'red-far'] as const;
+const BOT_NPC_MIN_COUNT = 3;
 const DEFAULT_BAD_FLAGS = ['stuck_backoff', 'stuck_rotate', 'idle_drive_far_from_target', 'no_path'];
 
 async function sleepMs(ms: number): Promise<void> {
@@ -252,7 +253,7 @@ async function waitForBotHarnessReady(hooks: {
   mode: 'inf' | 'teleop' | 'current';
 }): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
-    if (hooks.getNpcPoses().length >= BOT_NPC_IDS.length) break;
+    if (hooks.getNpcPoses().length >= BOT_NPC_MIN_COUNT) break;
     await sleepMs(100);
   }
 
@@ -291,6 +292,7 @@ function evaluateBotSmoke(
   for (const id of BOT_NPC_IDS) {
     const startNpc = samples[0]?.npcs.find((npc) => npc.id === id);
     const endNpc = samples[samples.length - 1]?.npcs.find((npc) => npc.id === id);
+    if (!startNpc && !endNpc) continue;
     const startPose = startPoses?.[id] ?? startNpc?.pose ?? { x: 0, y: 0, heading: 0 };
     const endPose = endNpc?.pose ?? startPose;
     let distanceMoved = Math.hypot(endPose.x - startPose.x, endPose.y - startPose.y);

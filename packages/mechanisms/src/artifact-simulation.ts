@@ -24,6 +24,7 @@ import {
   rampSlotPositions,
   rampSouthExitPose,
   RAMP_ROLL_DURATION_S,
+  RAMP_ROLL_MIN_S,
   robotInGateZone,
   robotInLaunchZone,
   sampleTrajectoryAt,
@@ -718,7 +719,7 @@ export class ArtifactSimulation {
     const artifact = this.artifacts.get(held.id);
     if (!artifact) return;
 
-    const eligible = robotInLaunchZone(robotPose, footprint, this.field);
+    const eligible = robotInLaunchZone(robotPose, footprint, this.field, robotAlliance);
     this.lastShotEligible = eligible;
 
     const plan = planShot(robotPose, robotVelocity, footprint, this.field, robotAlliance);
@@ -1106,7 +1107,7 @@ export class ArtifactSimulation {
         item.spawnPose.y - item.startPose.y,
       );
       const duration = Math.max(
-        0.55,
+        RAMP_ROLL_MIN_S,
         Math.min(RAMP_ROLL_DURATION_S, rollDistance / GATE_RELEASE_SOUTH_VELOCITY),
       );
 

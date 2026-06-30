@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pointInPolygon } from '@ftc-sim/field';
 import { getDecodeField, getMatchArtifactStaging } from '@ftc-sim/season-decode';
 import { DecodeRulesEngine } from '@ftc-sim/game-decode';
 import { ArtifactSimulation, type PhysicsAdapter } from './artifact-simulation.js';
@@ -10,6 +11,7 @@ import {
   planShot,
   rampSlotPositions,
   robotForwardUnit,
+  robotFootprintCorners,
   robotInGateZone,
   robotInLaunchZone,
 } from './geometry.js';
@@ -185,6 +187,18 @@ describe('launch zone', () => {
   it('rejects mid-field pose away from launch lines', () => {
     const pose = { x: 24, y: 48, heading: 0 };
     expect(robotInLaunchZone(pose, footprint, field)).toBe(false);
+  });
+
+  it('detects footprint overlap when center and corners are outside the zone', () => {
+    // Robot straddles the far launch triangle edge; OBB overlaps even if sample points miss.
+    const pose = { x: 72, y: 28, heading: Math.PI / 2 };
+    const corners = robotFootprintCorners(pose, footprint);
+    const launchZones = field.zones.filter((z) => z.type === 'launch_zone');
+    const anySampleInside = [...corners, { x: pose.x, y: pose.y }].some((point) =>
+      launchZones.some((zone) => pointInPolygon(point, zone.polygon)),
+    );
+    expect(anySampleInside).toBe(false);
+    expect(robotInLaunchZone(pose, footprint, field)).toBe(true);
   });
 });
 

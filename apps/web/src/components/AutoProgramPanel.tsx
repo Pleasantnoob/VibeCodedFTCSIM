@@ -1,10 +1,3 @@
-import type { AutoProgramRunnerDebug } from '@ftc-sim/pedro';
-import {
-  applyPerformancePreset,
-  type MechanismTimingConfig,
-  type PerformancePresetId,
-  type SimRobotConfig,
-} from '../robot/robot-config';
 import type { AutoMode } from '../input/player-settings';
 import { PanelsButton } from './panels';
 
@@ -32,8 +25,6 @@ export type BuiltinProgramId = (typeof BUILTIN_AUTO_PROGRAMS)[number]['id'];
 export interface AutoProgramPanelProps {
   autoMode: AutoMode;
   onAutoModeChange: (mode: AutoMode) => void;
-  robotConfig: SimRobotConfig;
-  onRobotConfigChange: (patch: Partial<SimRobotConfig>) => void;
   selectedPathId: BuiltinPathId;
   onSelectedPathIdChange: (id: BuiltinPathId) => void;
   selectedProgramId: BuiltinProgramId;
@@ -45,35 +36,15 @@ export interface AutoProgramPanelProps {
   pathWarnings: string[];
   showPlannedPath: boolean;
   onShowPlannedPathChange: (show: boolean) => void;
-  programDebug: AutoProgramRunnerDebug | null;
-  followerHud: {
-    progress: { completion: number };
-    errors: { translational: number; heading: number };
-    distRemaining: number;
-  } | null;
   onLoadBuiltinPath: (id: BuiltinPathId) => void;
   onLoadBuiltinProgram: (id: BuiltinProgramId) => void;
-  onPathUpload: (file: File) => void;
-  onProgramUpload: (file: File) => void;
   onClear: () => void;
-}
-
-function patchMechanismTiming(
-  robot: SimRobotConfig,
-  patch: Partial<MechanismTimingConfig>,
-): SimRobotConfig {
-  return {
-    ...robot,
-    performancePreset: 'custom',
-    mechanismTiming: { ...robot.mechanismTiming, ...patch },
-  };
+  onOpenAdvanced?: () => void;
 }
 
 export function AutoProgramPanel({
   autoMode,
   onAutoModeChange,
-  robotConfig,
-  onRobotConfigChange,
   selectedPathId,
   onSelectedPathIdChange,
   selectedProgramId,
@@ -85,22 +56,11 @@ export function AutoProgramPanel({
   pathWarnings,
   showPlannedPath,
   onShowPlannedPathChange,
-  programDebug,
-  followerHud,
   onLoadBuiltinPath,
   onLoadBuiltinProgram,
-  onPathUpload,
-  onProgramUpload,
   onClear,
+  onOpenAdvanced,
 }: AutoProgramPanelProps) {
-  const applyPreset = (preset: PerformancePresetId) => {
-    if (preset === 'custom') {
-      onRobotConfigChange({ performancePreset: 'custom' });
-      return;
-    }
-    onRobotConfigChange(applyPerformancePreset(preset));
-  };
-
   return (
     <>
       <label className="panel-field">
@@ -132,14 +92,13 @@ export function AutoProgramPanel({
             </select>
           </label>
           <div className="barrier-actions">
-            <PanelsButton onClick={() => onLoadBuiltinPath(selectedPathId)}>Add routine</PanelsButton>
+            <PanelsButton onClick={() => onLoadBuiltinPath(selectedPathId)}>Load</PanelsButton>
           </div>
         </>
       ) : (
         <>
-          <p className="hint">
-            Modular AUTO: separate .pp modules for collect / shoot / leave, with loop-until-leave timing
-            and wait-until-full / wait-until-empty steps.
+          <p className="hint hint--compact">
+            Modular AUTO with collect / shoot / leave modules and wait steps.
           </p>
           <label className="panel-field">
             Program template
@@ -156,42 +115,13 @@ export function AutoProgramPanel({
             </select>
           </label>
           <div className="barrier-actions">
-            <PanelsButton onClick={() => onLoadBuiltinProgram(selectedProgramId)}>
-              Load program
-            </PanelsButton>
+            <PanelsButton onClick={() => onLoadBuiltinProgram(selectedProgramId)}>Load</PanelsButton>
           </div>
           {loadedProgramLabel ? (
             <p className="hint hint--compact">Loaded: {loadedProgramLabel}</p>
           ) : null}
-          <label className="panel-btn panel-btn--secondary">
-            <input
-              type="file"
-              accept=".json"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onProgramUpload(file);
-                e.target.value = '';
-              }}
-            />
-            Upload program (.json)
-          </label>
         </>
       )}
-
-      <label className="panel-btn panel-btn--secondary">
-        <input
-          type="file"
-          accept=".json,.pp"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onPathUpload(file);
-            e.target.value = '';
-          }}
-        />
-        Upload routine (.json / .pp)
-      </label>
 
       <label className="panel-check">
         <input
@@ -218,152 +148,15 @@ export function AutoProgramPanel({
         </p>
       ))}
 
-      <p className="hint hint--compact">
-        Tune fire rate and wait timeouts in <strong>Performance</strong> below (shoot interval = ms between shots).
-      </p>
-
-      <details className="panel-details" open>
-        <summary>Performance</summary>
-        <label className="panel-field">
-          Preset
-          <select
-            className="panel-select"
-            value={robotConfig.performancePreset}
-            onChange={(e) => applyPreset(e.target.value as PerformancePresetId)}
-          >
-            <option value="stock">Stock</option>
-            <option value="competitive">Competitive</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
-        <label className="panel-field">
-          Top speed ({robotConfig.maxVelocity.toFixed(0)} in/s)
-          <input
-            type="range"
-            min={10}
-            max={80}
-            step={1}
-            value={robotConfig.maxVelocity}
-            onChange={(e) =>
-              onRobotConfigChange({
-                performancePreset: 'custom',
-                maxVelocity: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label className="panel-field">
-          Acceleration ({robotConfig.maxAcceleration.toFixed(0)} in/s²)
-          <input
-            type="range"
-            min={12}
-            max={120}
-            step={1}
-            value={robotConfig.maxAcceleration}
-            onChange={(e) =>
-              onRobotConfigChange({
-                performancePreset: 'custom',
-                maxAcceleration: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label className="panel-field">
-          Shoot interval ({(robotConfig.mechanismTiming.shootHoldIntervalSec * 1000).toFixed(0)} ms)
-          <input
-            type="range"
-            min={50}
-            max={500}
-            step={10}
-            value={robotConfig.mechanismTiming.shootHoldIntervalSec * 1000}
-            onChange={(e) =>
-              onRobotConfigChange(
-                patchMechanismTiming(robotConfig, {
-                  shootHoldIntervalSec: Number(e.target.value) / 1000,
-                }),
-              )
-            }
-          />
-        </label>
-        <label className="panel-field">
-          Intake-full wait ({robotConfig.mechanismTiming.intakeFullWaitTimeoutSec.toFixed(1)} s)
-          <input
-            type="range"
-            min={0.5}
-            max={8}
-            step={0.1}
-            value={robotConfig.mechanismTiming.intakeFullWaitTimeoutSec}
-            onChange={(e) =>
-              onRobotConfigChange(
-                patchMechanismTiming(robotConfig, {
-                  intakeFullWaitTimeoutSec: Number(e.target.value),
-                }),
-              )
-            }
-          />
-        </label>
-        <label className="panel-field">
-          Shoot-empty wait ({robotConfig.mechanismTiming.shootEmptyWaitTimeoutSec.toFixed(1)} s)
-          <input
-            type="range"
-            min={1}
-            max={10}
-            step={0.1}
-            value={robotConfig.mechanismTiming.shootEmptyWaitTimeoutSec}
-            onChange={(e) =>
-              onRobotConfigChange(
-                patchMechanismTiming(robotConfig, {
-                  shootEmptyWaitTimeoutSec: Number(e.target.value),
-                }),
-              )
-            }
-          />
-        </label>
-        <label className="panel-field">
-          Leave safety margin ({robotConfig.mechanismTiming.leaveSafetyMarginSec.toFixed(1)} s)
-          <input
-            type="range"
-            min={0.5}
-            max={6}
-            step={0.1}
-            value={robotConfig.mechanismTiming.leaveSafetyMarginSec}
-            onChange={(e) =>
-              onRobotConfigChange(
-                patchMechanismTiming(robotConfig, {
-                  leaveSafetyMarginSec: Number(e.target.value),
-                }),
-              )
-            }
-          />
-        </label>
-      </details>
-
-      {programDebug && programDebug.mode === 'program' && (
-        <ul className="metrics">
-          <li>
-            Program: <strong>loop {programDebug.loopCount}</strong>
-            {programDebug.waitKind ? ` · wait ${programDebug.waitKind}` : ''}
-            {` · leave budget ${programDebug.leaveBudgetSec.toFixed(1)}s`}
-          </li>
-        </ul>
-      )}
-
-      {followerHud && (
-        <ul className="metrics">
-          <li>
-            Progress: <strong>{(followerHud.progress.completion * 100).toFixed(0)}%</strong>
-          </li>
-          <li>
-            Trans. error: <strong>{followerHud.errors.translational.toFixed(2)} in</strong>
-          </li>
-          <li>
-            Heading error: <strong>{followerHud.errors.heading.toFixed(3)} rad</strong>
-          </li>
-          <li>
-            Dist. remaining: <strong>{followerHud.distRemaining.toFixed(1)} in</strong>
-          </li>
-        </ul>
-      )}
+      {onOpenAdvanced ? (
+        <p className="hint hint--compact">
+          Imports and performance tuning live in{' '}
+          <button type="button" className="panel-btn panel-btn--ghost" onClick={onOpenAdvanced}>
+            Advanced settings
+          </button>
+          .
+        </p>
+      ) : null}
     </>
   );
 }

@@ -15,7 +15,7 @@ import type { BotAutoPath, BotDebugState, BotRobotId, BotSlotConfig } from '../t
 import { BOT_AI_VERSION } from '../types.js';
 
 export function allianceForBotRobotId(robotId: BotRobotId): Alliance {
-  return robotId === 'red-far' || robotId === 'red-near' ? 'red' : 'blue';
+  return robotId.startsWith('red') ? 'red' : 'blue';
 }
 
 export function botAutoStartPose(autoPath: BotAutoPath, robotId: BotRobotId): Pose {

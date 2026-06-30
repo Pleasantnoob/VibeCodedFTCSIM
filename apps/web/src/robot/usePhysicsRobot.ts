@@ -468,7 +468,7 @@ export function usePhysicsRobot(
           follower.setContext({
             storedCount: artifactWorldRef.current?.getStoredCount() ?? 0,
             timeRemainingSec: matchSnapNow?.timeRemainingInPhase ?? 30,
-            inLaunchZone: robotInLaunchZone(poseRef.current, footprint, field),
+            inLaunchZone: robotInLaunchZone(poseRef.current, footprint, field, alliance),
           });
         }
 
@@ -623,7 +623,7 @@ export function usePhysicsRobot(
           shootEdge = false;
           shootHeld = false;
         } else if (autoMechanisms) {
-          const inLaunchZone = robotInLaunchZone(poseRef.current, footprint, field);
+          const inLaunchZone = robotInLaunchZone(poseRef.current, footprint, field, alliance);
           const inWait = follower?.isInAutoWait?.() ?? false;
           const intakeOn = inWait ? (follower?.shouldAutoIntake?.() ?? true) : true;
           if (intakeOn) {
@@ -638,7 +638,7 @@ export function usePhysicsRobot(
           shootEdge = false;
         }
 
-        const allianceForMech = simOptions?.alliance ?? 'blue';
+        const allianceForMech = alliance;
         artifactWorldRef.current?.tickRobots(
           dt,
           [

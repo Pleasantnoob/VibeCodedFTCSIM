@@ -55,6 +55,7 @@ function connectTimeoutMessage(address: string): string {
 const DEFAULT_TEAM_BY_ROBOT_ID: Record<string, string> = {
   [PLAYER_ROBOT_ID]: DEFAULT_PRACTICE_TEAMS.blueFar,
   'blue-near': DEFAULT_PRACTICE_TEAMS.blueNear,
+  'blue-far': DEFAULT_PRACTICE_TEAMS.blueFar,
   'red-far': DEFAULT_PRACTICE_TEAMS.redFar,
   'red-near': DEFAULT_PRACTICE_TEAMS.redNear,
 };

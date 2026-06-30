@@ -11,8 +11,8 @@ export interface MechanismTimingConfig {
 
 export const DEFAULT_MECHANISM_TIMING: MechanismTimingConfig = {
   shootHoldIntervalSec: 0.2,
-  intakeFullWaitTimeoutSec: 2.5,
-  shootEmptyWaitTimeoutSec: 4.0,
+  intakeFullWaitTimeoutSec: 3.0,
+  shootEmptyWaitTimeoutSec: 1.5,
   leaveSafetyMarginSec: 2.0,
 };
 

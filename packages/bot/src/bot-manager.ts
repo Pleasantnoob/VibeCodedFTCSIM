@@ -268,7 +268,7 @@ export class BotManager {
     }
 
     const runner = entry.runner;
-    const inLaunchZone = robotInLaunchZone(robot.pose, world.footprint, world.field);
+    const inLaunchZone = robotInLaunchZone(robot.pose, world.footprint, world.field, robot.alliance);
     const input = tickBotAutoRunner(runner, robot.pose, robot.linear, dt, world.limits, {
       storedCount: robot.stored.length,
       inLaunchZone,
@@ -379,7 +379,7 @@ export class BotManager {
   ): { sample: BotDriveSample; debug: BotDebugState; logLines: string[] } {
     const alliance =
       robot?.alliance ??
-      (slot.robotId === 'red-far' || slot.robotId === 'red-near' ? 'red' : 'blue');
+      (slot.robotId.startsWith('red') ? 'red' : 'blue');
     const pathPoints =
       autoPath && robot ? pathOverlayPoints(autoPath, robot.alliance) : [];
     return {
@@ -490,7 +490,7 @@ export function defaultPracticeBotSlots(difficulty: Difficulty = 'normal'): BotS
       autoPath: null,
     },
     {
-      robotId: 'red-far',
+      robotId: 'blue-far',
       enabled: true,
       difficulty,
       runAuto: false,
@@ -499,6 +499,13 @@ export function defaultPracticeBotSlots(difficulty: Difficulty = 'normal'): BotS
     {
       robotId: 'red-near',
       enabled: true,
+      difficulty,
+      runAuto: false,
+      autoPath: null,
+    },
+    {
+      robotId: 'red-far',
+      enabled: false,
       difficulty,
       runAuto: false,
       autoPath: null,

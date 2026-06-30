@@ -19,22 +19,13 @@ import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, botAutoSta
 import { netConfigFromBotSlots } from '@ftc-sim/session';
 import { usePhysicsRobot } from './robot/usePhysicsRobot';
 
-const PRACTICE_BOT_IDS: BotRobotId[] = ['blue-near', 'red-far', 'red-near'];
-const PRACTICE_BOT_LABELS: Record<BotRobotId, string> = {
-  player: 'Player',
-  'blue-near': 'Blue near',
-  'red-far': 'Red far',
-  'red-near': 'Red near',
-};
-import { playerSpawnPose, allianceForSpawnSlot, SOLO_SPAWN_SLOTS, SOLO_SPAWN_LABELS, practiceFieldRobots, humanOccupiedRobotIds, type SoloSpawnSlot } from './robot/match-robots';
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
-  SIM_ROBOT_PRESETS,
   simRobotConfigFromNet,
   simRobotFootprint,
   type SimRobotConfig,
 } from './robot/robot-config';
-import { ROBOT_SKIN_OPTIONS, type RobotSkinId } from './robot/robot-skins';
+import { type RobotSkinId } from './robot/robot-skins';
 import { FieldCanvas } from './field/FieldCanvas';
 import {
   barriersToExportJson,
@@ -56,6 +47,8 @@ import { useDriveInput } from './input/useDriveInput';
 import { DriveControlsPanel } from './input/DriveControlsPanel';
 import { loadPlayerSettings, patchPlayerSettings, type AutoMode, type PracticeBotId, type SavedAutoPathId } from './input/player-settings';
 import { useMatchGamepad } from './input/useMatchGamepad';
+import { useGamepadAllianceLight } from './input/useGamepadAllianceLight';
+import { syncGamepadAllianceLight, requestDs4HidDevice } from './input/gamepad-lightbar';
 import type { DriveFrame } from '@ftc-sim/robot';
 import { useMatchClock } from './match/useMatchClock';
 import type { MatchSnapshot } from '@ftc-sim/match';
@@ -72,12 +65,26 @@ import {
   type BuiltinProgramId,
 } from './components/AutoProgramPanel';
 import { DevToolsDrawer } from './components/DevToolsDrawer';
+import { AdvancedSettingsDrawer } from './components/AdvancedSettingsDrawer';
+import { PracticeBotsPanel } from './components/PracticeBotsPanel';
+import { MatchMenu } from './components/MatchMenu';
+import { DebugMenu } from './components/DebugMenu';
 import { installFtcSimDevApi } from './dev/inject-drive';
 import { getSessionModeFromUrl, type SessionMode } from './session/session-mode';
 import { buildHostRoomSettings } from './session/host-room';
 import { useSessionClient } from './session/useSessionClient';
 import { useOwnedRobotPrediction } from './net/useOwnedRobotPrediction';
 import { LobbyScreen } from './session/LobbyScreen';
+import {
+  allianceForSpawnSlot,
+  humanOccupiedRobotIds,
+  npcSpawnSlotsForPlayer,
+  playerSpawnPose,
+  practiceFieldRobots,
+  SOLO_SPAWN_LABELS,
+  SOLO_SPAWN_SLOTS,
+  type SoloSpawnSlot,
+} from './robot/match-robots';
 import './panels.css';
 
 /** Placeholder until the first server snapshot arrives — never use solo clock in net mode. */
@@ -127,14 +134,14 @@ function clampMapSelection(
 }
 
 function overlayTeamsFromCatalog(
-  catalog: Array<{ id: string; teamNumber: string }>,
+  catalog: Array<{ id: string; alliance: 'blue' | 'red'; teamNumber: string }>,
   fallback: { red: [string, string]; blue: [string, string] },
 ): { red: [string, string]; blue: [string, string] } {
-  const team = (id: string, defaultLabel: string) =>
-    catalog.find((entry) => entry.id === id)?.teamNumber ?? defaultLabel;
+  const blue = catalog.filter((entry) => entry.alliance === 'blue').map((entry) => entry.teamNumber);
+  const red = catalog.filter((entry) => entry.alliance === 'red').map((entry) => entry.teamNumber);
   return {
-    blue: [team('player', fallback.blue[0]), team('blue-near', fallback.blue[1])],
-    red: [team('red-far', fallback.red[0]), team('red-near', fallback.red[1])],
+    blue: [blue[0] ?? fallback.blue[0], blue[1] ?? fallback.blue[1]],
+    red: [red[0] ?? fallback.red[0], red[1] ?? fallback.red[1]],
   };
 }
 
@@ -185,6 +192,7 @@ export function App() {
   const [selectedVertex, setSelectedVertex] = useState<MapVertexSelection | null>(null);
   const [spawnSlot, setSpawnSlot] = useState<SoloSpawnSlot>(savedPlayer.spawnSlot);
   const alliance = allianceForSpawnSlot(spawnSlot);
+  const practiceNpcSlots = useMemo(() => npcSpawnSlotsForPlayer(spawnSlot), [spawnSlot]);
   const [robotPreload, setRobotPreload] = useState(savedPlayer.robotPreload);
   const robotPreloadRef = useRef(robotPreload);
   robotPreloadRef.current = robotPreload;
@@ -242,6 +250,7 @@ export function App() {
   const lastPathTextRef = useRef<string | null>(null);
   const [controlsDrawerOpen, setControlsDrawerOpen] = useState(false);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [driveModeLabel, setDriveModeLabel] = useState<'Robot' | 'Field'>(() =>
     savedPlayer.driveFrame === 'field' ? 'Field' : 'Robot',
   );
@@ -365,6 +374,28 @@ export function App() {
     [updateBotSlot],
   );
 
+  const openAdvanced = useCallback(() => {
+    setDevToolsOpen(false);
+    setControlsDrawerOpen(false);
+    setAdvancedOpen(true);
+  }, []);
+
+  const openDevTools = useCallback(() => {
+    setAdvancedOpen(false);
+    setControlsDrawerOpen(false);
+    setDevToolsOpen((open) => !open);
+  }, []);
+
+  const openControlsDrawer = useCallback(() => {
+    setControlsDrawerOpen(true);
+  }, []);
+
+  const practiceBotsBadge = useMemo(() => {
+    if (!botsEnabled) return 'off';
+    const count = botSlotConfigs.filter((slot) => slot.enabled).length;
+    return `${botDifficulty} · ${count} on`;
+  }, [botsEnabled, botDifficulty, botSlotConfigs]);
+
   const isHostSession = isNetActive && net.role === 'host';
   const showPracticeBots = !isNetSession || isHostSession;
 
@@ -388,15 +419,15 @@ export function App() {
       botSlotConfigs.filter((slot) => slot.enabled).map((slot) => slot.robotId),
     );
     if (enabledIds.size === 0) return [] as ReturnType<typeof practiceFieldRobots>;
-    const base = practiceFieldRobots(simRobotFootprint(robotConfig)).filter((robot) =>
-      enabledIds.has(robot.id as BotRobotId),
-    );
+    const base = practiceFieldRobots(simRobotFootprint(robotConfig))
+      .filter((robot) => enabledIds.has(robot.id as BotRobotId))
+      .filter((robot) => isNetSession || robot.id !== spawnSlot);
     if (botSpawnOverrides.size === 0) return base;
     return base.map((robot) => {
       const override = botSpawnOverrides.get(robot.id as BotRobotId);
       return override ? { ...robot, pose: override } : robot;
     });
-  }, [botsEnabled, botSlotConfigs, robotConfig, botSpawnOverrides]);
+  }, [botsEnabled, botSlotConfigs, robotConfig, botSpawnOverrides, isNetSession, spawnSlot]);
   const practiceRobotsRef = useRef(practiceRobots);
   practiceRobotsRef.current = practiceRobots;
 
@@ -766,6 +797,7 @@ export function App() {
     resetGamepad,
     applyKeybinds,
   } = useDriveInput(driveEnabled, listenForInput);
+  useGamepadAllianceLight(alliance, gamepadConnected, displayMatchSnap.phase);
 
   const onHudTick = useCallback(
     (debug: NonNullable<typeof driveDebug>, source: string, connected: boolean) => {
@@ -1270,6 +1302,9 @@ export function App() {
   };
 
   const handleInit = () => {
+    void requestDs4HidDevice().then((granted) => {
+      if (granted) void syncGamepadAllianceLight(alliance);
+    });
     if (isNetActive && net.role === 'host') {
       tapMatchAudio();
       applyBotAutoStarts(botSlotConfigsRef.current);
@@ -1505,7 +1540,7 @@ export function App() {
         onHostStartDriving={() => net.sendHostCommand('infinite')}
         onOpenControls={() => setControlsDrawerOpen(true)}
       />
-      {controlsDrawerOpen && (isNetJoinPlayer || isNetHost) && (
+      {controlsDrawerOpen && (
         <aside className="controls-drawer" aria-label="Drive controls">
           <div className="controls-drawer__header">
             <strong>Keyboard &amp; drive mode</strong>
@@ -1514,6 +1549,7 @@ export function App() {
             </button>
           </div>
           <DriveControlsPanel
+            variant="full"
             onSettingsChange={(settings) => {
               teleopDriveFrameRef.current = settings.driveFrame;
               setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
@@ -1521,6 +1557,34 @@ export function App() {
             }}
           />
         </aside>
+      )}
+      {advancedOpen && showSidePanels && (
+        <AdvancedSettingsDrawer
+          onClose={() => setAdvancedOpen(false)}
+          robotConfig={robotConfig}
+          onRobotConfigChange={patchRobotConfig}
+          onRobotPresetChange={applyRobotPreset}
+          robotSkinId={robotSkinId}
+          onRobotSkinIdChange={(next) => {
+            setRobotSkinId(next);
+            patchPlayerSettings({ robotSkinId: next });
+          }}
+          onPathUpload={handlePathUpload}
+          onProgramUpload={handleProgramUpload}
+          autoMode={autoMode}
+          overlayEventName={overlayEventName}
+          onOverlayEventNameChange={setOverlayEventName}
+          overlayMatchName={overlayMatchName}
+          onOverlayMatchNameChange={setOverlayMatchName}
+          overlayRedTeams={overlayRedTeams}
+          onOverlayRedTeamsChange={setOverlayRedTeams}
+          overlayBlueTeams={overlayBlueTeams}
+          onOverlayBlueTeamsChange={setOverlayBlueTeams}
+          matchSounds={matchSounds}
+          onMatchSoundsChange={setMatchSounds}
+          matchSoundVolume={matchSoundVolume}
+          onMatchSoundVolumeChange={setMatchSoundVolume}
+        />
       )}
       {devToolsOpen && showSidePanels && (
         <DevToolsDrawer
@@ -1567,6 +1631,16 @@ export function App() {
           poseLabel={`(${pose.x.toFixed(1)}, ${pose.y.toFixed(1)}, ${headingDeg.toFixed(0)}°)`}
           speed={speed}
           angularSpeed={angularSpeed}
+          programDebug={programDebug}
+          followerHud={
+            followerHud
+              ? {
+                  progress: followerHud.progress,
+                  errors: followerHud.errors,
+                  distRemaining: followerHud.progress.distanceRemaining,
+                }
+              : null
+          }
         />
       )}
       {showMatchNav && (
@@ -1574,13 +1648,35 @@ export function App() {
         <div className="panels-nav__brand">
           <PanelsLogo />
           {showSidePanels && (
-            <PanelsButton
-              variant={devToolsOpen ? 'primary' : 'ghost'}
-              className="panels-nav__dev-btn"
-              onClick={() => setDevToolsOpen((open) => !open)}
-            >
-              Dev
-            </PanelsButton>
+            <DebugMenu
+              devToolsOpen={devToolsOpen}
+              onToggleDevTools={openDevTools}
+              showBotFieldDebug={showBotFieldDebug}
+              onShowBotFieldDebugChange={(next) => {
+                setShowBotFieldDebug(next);
+                patchPlayerSettings({ showBotFieldDebug: next });
+              }}
+              showPlannedPath={showPlannedPath}
+              onShowPlannedPathChange={setShowPlannedPath}
+              showZones={showZones}
+              onShowZonesChange={setShowZones}
+              showGateDetector={showGateDetector}
+              onShowGateDetectorChange={setShowGateDetector}
+              showDebugZones={showDebugZones}
+              onShowDebugZonesChange={setShowDebugZones}
+              showArtifacts={showArtifacts}
+              onShowArtifactsChange={setShowArtifacts}
+              showCenterLine={showCenterLine}
+              onShowCenterLineChange={setShowCenterLine}
+              showBarriers={showBarriers}
+              onShowBarriersChange={setShowBarriers}
+              showMatchOverlay={showMatchOverlay}
+              onShowMatchOverlayChange={setShowMatchOverlay}
+              editZones={editZones}
+              onEditZonesChange={setEditZones}
+              editBarriers={editBarriers}
+              onEditBarriersChange={setEditBarriers}
+            />
           )}
           <span className="panels-nav__title">DECODE Sim</span>
           {isNetHost && <span className="panels-nav__net-badge panels-nav__net-badge--host">HOST</span>}
@@ -1653,19 +1749,17 @@ export function App() {
           <PanelsButton disabled={matchControlsLocked || !canTeleop} onClick={handleStartTeleop}>
             TELEOP
           </PanelsButton>
-          <PanelsButton disabled={matchControlsLocked || !canInfinite} onClick={handleInfinitePractice}>
-            INF
-          </PanelsButton>
-          <span className="panels-nav__actions-sep" aria-hidden />
-          <PanelsButton disabled={matchControlsLocked || !canPause} onClick={handlePause}>
-            {displayMatchSnap.paused ? 'RESUME' : 'PAUSE'}
-          </PanelsButton>
-          <PanelsButton disabled={matchControlsLocked || !canEndMatch} onClick={handleEndMatch}>
-            END MATCH
-          </PanelsButton>
-          <PanelsButton disabled={matchControlsLocked} onClick={resetField}>
-            RESET
-          </PanelsButton>
+          <MatchMenu
+            disabled={matchControlsLocked}
+            canInfinite={canInfinite}
+            canPause={canPause}
+            canEndMatch={canEndMatch}
+            paused={displayMatchSnap.paused}
+            onInfinite={handleInfinitePractice}
+            onPause={handlePause}
+            onEndMatch={handleEndMatch}
+            onReset={resetField}
+          />
             </>
           )}
         </div>
@@ -1676,8 +1770,8 @@ export function App() {
         {showSidePanels && (
         <div className="panels-column">
           <PanelSection
-            title={isNetSession ? 'Alliance' : 'Start position'}
-            badge={alliance === 'blue' ? 'Blue' : 'Red'}
+            title="Setup"
+            badge={`${alliance === 'blue' ? 'Blue' : 'Red'} · ${robotTeamName}`}
           >
             {isNetSession ? (
               <p className="hint">
@@ -1703,189 +1797,28 @@ export function App() {
                 ) : null}
               </>
             )}
-          </PanelSection>
-
-          {showPracticeBots && (
-            <PanelSection
-              title="Practice bots"
-              badge={botsEnabled ? `${botDifficulty} · collect` : 'off'}
-              defaultOpen
-            >
-              <p className="hint">
-                Enable bots, then pick which NPC slots spawn on the field. Collectors preload 3 balls,
-                score at launch, repeat.
-                {isHostSession ? ' Unclaimed robot slots are filled on the match server.' : ''}
-              </p>
-              <label className="panel-check">
+            <div className="setup-fields-row">
+              <label className="panel-field">
+                Your name
                 <input
-                  type="checkbox"
-                  checked={botsEnabled}
-                  onChange={(e) => {
-                    const enabled = e.target.checked;
-                    setBotsEnabled(enabled);
-                    patchPlayerSettings({ practiceBotsEnabled: enabled });
-                  }}
+                  className="panel-select"
+                  type="text"
+                  value={lobbyPlayerName}
+                  maxLength={32}
+                  onChange={(e) => applyLobbyPlayerName(e.target.value)}
                 />
-                Enable practice bots
               </label>
               <label className="panel-field">
-                Difficulty
-                <select
-                  className="panel-select"
-                  value={botDifficulty}
-                  disabled={!botsEnabled}
-                  onChange={(e) => {
-                    const difficulty = e.target.value as Difficulty;
-                    setBotDifficulty(difficulty);
-                    patchPlayerSettings({ botDifficulty: difficulty });
-                    setBotSlotConfigs((prev) => prev.map((slot) => ({ ...slot, difficulty })));
-                  }}
-                >
-                  <option value="easy">Easy</option>
-                  <option value="normal">Normal</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </label>
-              {PRACTICE_BOT_IDS.map((robotId) => {
-                const slot =
-                  botSlotConfigs.find((entry) => entry.robotId === robotId) ??
-                  defaultPracticeBotSlots(botDifficulty).find((entry) => entry.robotId === robotId)!;
-                const autoPath = slot.autoPath;
-                const humanDrivesSlot = humanInputRobotIds.has(robotId);
-                return (
-                  <div key={robotId} className="bot-slot-config">
-                    <div className="bot-slot-config__title">{PRACTICE_BOT_LABELS[robotId]}</div>
-                    {humanDrivesSlot ? (
-                      <p className="hint">You drive this slot — bot AI disabled.</p>
-                    ) : null}
-                    <label className="panel-check">
-                      <input
-                        type="checkbox"
-                        checked={slot.enabled && !humanDrivesSlot}
-                        disabled={!botsEnabled || humanDrivesSlot}
-                        onChange={(e) => updateBotSlot(robotId, { enabled: e.target.checked })}
-                      />
-                      Spawn on field
-                    </label>
-                    <label className="panel-check">
-                      <input
-                        type="checkbox"
-                        checked={slot.runAuto}
-                        disabled={!botsEnabled || !slot.enabled || !autoPath}
-                        onChange={(e) => updateBotSlot(robotId, { runAuto: e.target.checked })}
-                      />
-                      Run AUTO
-                    </label>
-                    <div className="bot-slot-config__path">
-                      <div className="bot-slot-config__path-label">
-                        AUTO path
-                        {autoPath ? (
-                          <span className="bot-slot-config__path-meta">
-                            {autoPath.label}
-                            {autoPath.basePathChain.paths.length > 0
-                              ? ` · ${autoPath.basePathChain.paths.length} seg`
-                              : ''}
-                          </span>
-                        ) : (
-                          <span className="bot-slot-config__path-meta">None loaded</span>
-                        )}
-                      </div>
-                      <label className="panel-field">
-                        Example
-                        <select
-                          className="panel-select"
-                          value=""
-                          disabled={!botsEnabled || !slot.enabled}
-                          onChange={(e) => {
-                            const id = e.target.value as BuiltinPathId;
-                            if (!id) return;
-                            void loadBotBuiltinAutoPath(robotId, id).catch((err) => {
-                              console.error(err);
-                            });
-                            e.target.value = '';
-                          }}
-                        >
-                          <option value="">Load example…</option>
-                          {BUILTIN_PATHS.map((path) => (
-                            <option key={path.id} value={path.id}>
-                              {path.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="panel-btn panel-btn--secondary bot-slot-config__upload">
-                        <input
-                          type="file"
-                          accept=".json,.pp"
-                          hidden
-                          disabled={!botsEnabled || !slot.enabled}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = '';
-                            if (!file) return;
-                            void file.text().then(
-                              (text) => loadBotAutoPathFromText(robotId, text, file.name),
-                              (err) => console.error(err),
-                            );
-                          }}
-                        />
-                        Upload .json / .pp
-                      </label>
-                      {autoPath ? (
-                        <button
-                          type="button"
-                          className="panel-btn panel-btn--ghost bot-slot-config__clear"
-                          disabled={!botsEnabled || !slot.enabled}
-                          onClick={() => clearBotAutoPath(robotId)}
-                        >
-                          Clear path
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-              <label className="panel-check">
+                Team #
                 <input
-                  type="checkbox"
-                  checked={showBotFieldDebug}
-                  disabled={!botsEnabled}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    setShowBotFieldDebug(next);
-                    patchPlayerSettings({ showBotFieldDebug: next });
-                  }}
+                  className="panel-select"
+                  type="text"
+                  value={robotTeamName}
+                  maxLength={12}
+                  onChange={(e) => applyRobotTeamName(e.target.value)}
                 />
-                Show bot task + path overlay
               </label>
-            </PanelSection>
-          )}
-
-          <PanelSection title="Player" badge={lobbyPlayerName}>
-            <label className="panel-field">
-              Your name
-              <input
-                className="panel-select"
-                type="text"
-                value={lobbyPlayerName}
-                maxLength={32}
-                onChange={(e) => applyLobbyPlayerName(e.target.value)}
-              />
-            </label>
-            <label className="panel-field">
-              Team # (on robot)
-              <input
-                className="panel-select"
-                type="text"
-                value={robotTeamName}
-                maxLength={12}
-                onChange={(e) => applyRobotTeamName(e.target.value)}
-              />
-            </label>
-          </PanelSection>
-
-          <PanelSection title="Robot" badge={`${robotConfig.footprintLength}×${robotConfig.footprintWidth} in`}>
-            <p className="hint">Drive limits for teleop and auto.</p>
+            </div>
             <label className="panel-check">
               <input
                 type="checkbox"
@@ -1897,133 +1830,6 @@ export function App() {
               />
               Preload 2 purple + 1 green
             </label>
-            <label className="panel-field">
-              Preset
-              <select
-                className="panel-select"
-                value={robotConfig.presetId}
-                onChange={(e) => applyRobotPreset(e.target.value)}
-              >
-                {SIM_ROBOT_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="panel-field">
-              Skin
-              <select
-                className="panel-select"
-                value={robotSkinId}
-                onChange={(e) => {
-                  const next = e.target.value as RobotSkinId;
-                  setRobotSkinId(next);
-                  patchPlayerSettings({ robotSkinId: next });
-                }}
-              >
-                {ROBOT_SKIN_OPTIONS.map((skin) => (
-                  <option key={skin.id} value={skin.id}>
-                    {skin.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <details className="panel-details">
-              <summary>Advanced drivetrain</summary>
-            <label className="panel-label">
-              Top speed: <strong>{robotConfig.maxVelocity.toFixed(0)} in/s</strong>
-              <input
-                type="range"
-                min={10}
-                max={80}
-                step={1}
-                value={robotConfig.maxVelocity}
-                onChange={(e) => patchRobotConfig({ maxVelocity: Number(e.target.value) })}
-              />
-            </label>
-            <label className="panel-label">
-              Acceleration: <strong>{robotConfig.maxAcceleration.toFixed(0)} in/s²</strong>
-              <input
-                type="range"
-                min={12}
-                max={120}
-                step={1}
-                value={robotConfig.maxAcceleration}
-                onChange={(e) => patchRobotConfig({ maxAcceleration: Number(e.target.value) })}
-              />
-            </label>
-            <label className="panel-label">
-              Weight: <strong>{robotConfig.mass.toFixed(0)} lb</strong>
-              <input
-                type="range"
-                min={5}
-                max={40}
-                step={1}
-                value={robotConfig.mass}
-                onChange={(e) => patchRobotConfig({ mass: Number(e.target.value) })}
-              />
-            </label>
-            <label className="panel-label">
-              Turn speed: <strong>{robotConfig.maxAngularVelocity.toFixed(1)} rad/s</strong>
-              <input
-                type="range"
-                min={1}
-                max={8}
-                step={0.1}
-                value={robotConfig.maxAngularVelocity}
-                onChange={(e) => patchRobotConfig({ maxAngularVelocity: Number(e.target.value) })}
-              />
-            </label>
-            <label className="panel-label">
-              Turn acceleration: <strong>{robotConfig.maxAngularAcceleration.toFixed(0)} rad/s²</strong>
-              <input
-                type="range"
-                min={6}
-                max={36}
-                step={1}
-                value={robotConfig.maxAngularAcceleration}
-                onChange={(e) =>
-                  patchRobotConfig({ maxAngularAcceleration: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label className="panel-label">
-              Length: <strong>{robotConfig.footprintLength.toFixed(0)} in</strong>
-              <input
-                type="range"
-                min={10}
-                max={18}
-                step={1}
-                value={robotConfig.footprintLength}
-                onChange={(e) => patchRobotConfig({ footprintLength: Number(e.target.value) })}
-              />
-            </label>
-            <label className="panel-label">
-              Width: <strong>{robotConfig.footprintWidth.toFixed(0)} in</strong>
-              <input
-                type="range"
-                min={10}
-                max={18}
-                step={1}
-                value={robotConfig.footprintWidth}
-                onChange={(e) => patchRobotConfig({ footprintWidth: Number(e.target.value) })}
-              />
-            </label>
-            </details>
-          </PanelSection>
-
-          <PanelSection title="Teleop" badge={driveModeLabel}>
-            <DriveControlsPanel
-              onSettingsChange={(settings) => {
-                teleopDriveFrameRef.current = settings.driveFrame;
-                setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
-                applyKeybinds(settings.keybinds);
-              }}
-            />
-            {(editBarriers || editZones) && (
-              <p className="hint">Turn off map editing to drive.</p>
-            )}
           </PanelSection>
 
           <PanelSection
@@ -2047,8 +1853,6 @@ export function App() {
                 setAutoMode(mode);
                 patchPlayerSettings({ autoMode: mode });
               }}
-              robotConfig={robotConfig}
-              onRobotConfigChange={patchRobotConfig}
               selectedPathId={selectedPathId}
               onSelectedPathIdChange={setSelectedPathId}
               selectedProgramId={selectedProgramId}
@@ -2060,109 +1864,56 @@ export function App() {
               pathWarnings={pathWarnings}
               showPlannedPath={showPlannedPath}
               onShowPlannedPathChange={setShowPlannedPath}
-              programDebug={programDebug}
-              followerHud={
-                followerHud
-                  ? {
-                      progress: followerHud.progress,
-                      errors: followerHud.errors,
-                      distRemaining: followerHud.progress.distanceRemaining,
-                    }
-                  : null
-              }
               onLoadBuiltinPath={(id) => void loadBuiltinPath(id)}
               onLoadBuiltinProgram={(id) => void loadBuiltinProgram(id)}
-              onPathUpload={handlePathUpload}
-              onProgramUpload={handleProgramUpload}
               onClear={clearPath}
+              onOpenAdvanced={openAdvanced}
             />
           </PanelSection>
 
-          <PanelSection title="Broadcast HUD" badge={overlayMatchName}>
-            <p className="hint">Scoreboard overlay labels only.</p>
-            <label className="panel-field">
-              Event name
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayEventName}
-                onChange={(e) => setOverlayEventName(e.target.value)}
-              />
-            </label>
-            <label className="panel-field">
-              Match name
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayMatchName}
-                onChange={(e) => setOverlayMatchName(e.target.value)}
-              />
-            </label>
-            <label className="panel-field">
-              Red team 1
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayRedTeams[0]}
-                onChange={(e) =>
-                  setOverlayRedTeams(([_, second]) => [e.target.value, second])
-                }
-              />
-            </label>
-            <label className="panel-field">
-              Red team 2
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayRedTeams[1]}
-                onChange={(e) =>
-                  setOverlayRedTeams(([first]) => [first, e.target.value])
-                }
-              />
-            </label>
-            <label className="panel-field">
-              Blue team 1
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayBlueTeams[0]}
-                onChange={(e) =>
-                  setOverlayBlueTeams(([_, second]) => [e.target.value, second])
-                }
-              />
-            </label>
-            <label className="panel-field">
-              Blue team 2
-              <input
-                className="panel-select"
-                type="text"
-                value={overlayBlueTeams[1]}
-                onChange={(e) =>
-                  setOverlayBlueTeams(([first]) => [first, e.target.value])
-                }
-              />
-            </label>
-            <label className="panel-check">
-              <input
-                type="checkbox"
-                checked={matchSounds}
-                onChange={(e) => setMatchSounds(e.target.checked)}
-              />
-              Match sounds (FTC Live audio)
-            </label>
-            <label className="panel-label">
-              Game volume: <strong>{Math.round(matchSoundVolume * 100)}%</strong>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={Math.round(matchSoundVolume * 100)}
-                disabled={!matchSounds}
-                onChange={(e) => setMatchSoundVolume(Number(e.target.value) / 100)}
-              />
-            </label>
+          <PanelSection title="Teleop" badge={driveModeLabel}>
+            <DriveControlsPanel
+              variant="compact"
+              onOpenFullControls={openControlsDrawer}
+              onSettingsChange={(settings) => {
+                teleopDriveFrameRef.current = settings.driveFrame;
+                setDriveModeLabel(settings.driveFrame === 'field' ? 'Field' : 'Robot');
+                applyKeybinds(settings.keybinds);
+              }}
+            />
+            {(editBarriers || editZones) && (
+              <p className="hint">Turn off map editing to drive.</p>
+            )}
           </PanelSection>
+
+          {showPracticeBots && (
+            <PanelSection title="Practice bots" badge={practiceBotsBadge} defaultOpen={false}>
+              <PracticeBotsPanel
+                botsEnabled={botsEnabled}
+                onBotsEnabledChange={setBotsEnabled}
+                botDifficulty={botDifficulty}
+                onBotDifficultyChange={(difficulty) => {
+                  setBotDifficulty(difficulty);
+                  patchPlayerSettings({ botDifficulty: difficulty });
+                  setBotSlotConfigs((prev) => prev.map((slot) => ({ ...slot, difficulty })));
+                }}
+                practiceNpcSlots={practiceNpcSlots}
+                botSlotConfigs={botSlotConfigs}
+                humanInputRobotIds={humanInputRobotIds}
+                isHostSession={isHostSession}
+                onUpdateBotSlot={updateBotSlot}
+                onLoadBuiltinPath={loadBotBuiltinAutoPath}
+                onLoadPathFromFile={loadBotAutoPathFromText}
+                onClearPath={clearBotAutoPath}
+              />
+            </PanelSection>
+          )}
+
+          <div className="panels-column__footer">
+            <PanelsButton className="panels-column__advanced-btn" onClick={openAdvanced}>
+              Advanced settings
+            </PanelsButton>
+          </div>
         </div>
         )}
 

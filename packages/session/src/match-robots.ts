@@ -138,6 +138,18 @@ export const SOLO_SPAWN_LABELS: Record<SoloSpawnSlot, string> = {
   'red-far': 'Red far',
 };
 
+/** Non-player corner slots (same ids as solo spawn corners). */
+export type NpcRobotId = SoloSpawnSlot;
+
+export function isNpcRobotId(id: string): id is NpcRobotId {
+  return (SOLO_SPAWN_SLOTS as readonly string[]).includes(id);
+}
+
+/** The three NPC corners available when the human spawns at `playerSlot`. */
+export function npcSpawnSlotsForPlayer(playerSlot: SoloSpawnSlot): NpcRobotId[] {
+  return SOLO_SPAWN_SLOTS.filter((slot) => slot !== playerSlot);
+}
+
 export function allianceForSpawnSlot(slot: SoloSpawnSlot): MatchAlliance {
   return slot.startsWith('blue') ? 'blue' : 'red';
 }
@@ -169,6 +181,9 @@ export function humanOccupiedRobotIds(options: {
     case 'blue-near':
       ids.add('blue-near');
       break;
+    case 'blue-far':
+      ids.add('blue-far');
+      break;
     case 'red-near':
       ids.add('red-near');
       break;
@@ -192,6 +207,14 @@ export function practiceFieldRobots(
       alliance: 'blue',
       teamNumber: teams.blueNear,
       pose: ALLIANCE_NEAR_SPAWN.blue,
+      width: footprint.width,
+      length: footprint.length,
+    },
+    {
+      id: 'blue-far',
+      alliance: 'blue',
+      teamNumber: teams.blueFar,
+      pose: BLUE_FAR_SPAWN,
       width: footprint.width,
       length: footprint.length,
     },

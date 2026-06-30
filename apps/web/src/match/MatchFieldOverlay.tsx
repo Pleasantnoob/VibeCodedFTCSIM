@@ -169,11 +169,14 @@ interface ScorePillProps {
   value: React.ReactNode;
   goal?: string;
   className?: string;
+  gamepadAlliance?: Alliance;
 }
 
-function ScorePill({ icon, value, goal, className = '' }: ScorePillProps) {
+function ScorePill({ icon, value, goal, className = '', gamepadAlliance }: ScorePillProps) {
+  const gamepadClass =
+    icon === 'gamepad' && gamepadAlliance ? `scorePill--player-gamepad scorePill--player-gamepad-${gamepadAlliance}` : '';
   return (
-    <div className={`scorePill ${className}`.trim()} style={{ '--pill-item-count': 1 } as React.CSSProperties}>
+    <div className={`scorePill ${className} ${gamepadClass}`.trim()} style={{ '--pill-item-count': 1 } as React.CSSProperties}>
       <div className="label">
         {icon === 'pattern' ? (
           <PatternMotifLabel />
@@ -199,6 +202,8 @@ interface AllianceScoreColumnProps {
   classifiedCount: number;
   patternCount: number;
   mirrored?: boolean;
+  columnAlliance: Alliance;
+  playerAlliance?: Alliance;
 }
 
 function AllianceScoreColumn({
@@ -207,12 +212,16 @@ function AllianceScoreColumn({
   classifiedCount,
   patternCount,
   mirrored = false,
+  columnAlliance,
+  playerAlliance,
 }: AllianceScoreColumnProps) {
+  const highlightGamepad = playerAlliance && columnAlliance === playerAlliance ? playerAlliance : undefined;
   return (
     <div className={`scoreSection ${mirrored ? 'right' : ''}`.trim()}>
       <div className="d-flex flex-column">
         <ScorePill
           icon="gamepad"
+          gamepadAlliance={highlightGamepad}
           value={
             <span className="leave-marks">
               <LeaveMarks left={leaveMarks[0]} />
@@ -263,6 +272,7 @@ export function MatchFieldOverlay({
   matchName = 'Practice Match',
   redTeams = DEFAULT_RED_TEAMS,
   blueTeams = DEFAULT_BLUE_TEAMS,
+  alliance: playerAlliance,
   matchGameState = null,
   fieldRobotCatalog = [],
 }: MatchFieldOverlayProps) {
@@ -369,6 +379,8 @@ export function MatchFieldOverlay({
                 overflowCount={redStats.overflow}
                 classifiedCount={redStats.classified}
                 patternCount={redStats.pattern}
+                columnAlliance="red"
+                playerAlliance={playerAlliance}
               />
             </div>
 
@@ -379,6 +391,8 @@ export function MatchFieldOverlay({
                 classifiedCount={blueStats.classified}
                 patternCount={blueStats.pattern}
                 mirrored
+                columnAlliance="blue"
+                playerAlliance={playerAlliance}
               />
             </div>
 

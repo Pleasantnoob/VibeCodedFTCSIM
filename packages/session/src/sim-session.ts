@@ -32,6 +32,7 @@ import {
   PLAYER_ROBOT_ID,
   spawnPoseForClaimableSlot,
   isClaimableRobotId,
+  isNpcRobotId,
   type ClaimableRobotId,
   type FieldRobotCatalogEntry,
   type FieldRobotRenderState,
@@ -307,7 +308,7 @@ export class SimSession {
   }
 
   private clearBotOnlyClaim(robotId: string): void {
-    if (robotId === 'blue-near' || robotId === 'red-far' || robotId === 'red-near') {
+    if (isNpcRobotId(robotId)) {
       this.botOnlyClaims.delete(robotId);
     }
   }
@@ -595,7 +596,7 @@ export class SimSession {
       this.autoFollower.setContext({
         storedCount: this.world.getStoredCount(PLAYER_ROBOT_ID),
         timeRemainingSec: matchSnap.timeRemainingInPhase,
-        inLaunchZone: robotInLaunchZone(this.pose, footprint, this.getField()),
+        inLaunchZone: robotInLaunchZone(this.pose, footprint, this.getField(), this.config.alliance),
       });
       const resolved = resolveDriveInput(
         sample,
@@ -907,7 +908,7 @@ export class SimSession {
 
     if (autoMechanisms && robotId === PLAYER_ROBOT_ID) {
       const footprint = simRobotFootprint(this.robotConfig);
-      const inLaunchZone = robotInLaunchZone(pose, footprint, this.getField());
+      const inLaunchZone = robotInLaunchZone(pose, footprint, this.getField(), alliance);
       const inWait = this.follower?.isInAutoWait?.() ?? false;
       const intakeOn = inWait ? (this.follower?.shouldAutoIntake?.() ?? true) : true;
       if (intakeOn) {

@@ -1,5 +1,5 @@
 import type { FieldDefinition, FieldZoneDefinition, Pose, Vector2 } from '@ftc-sim/field';
-import { pointInPolygon } from '@ftc-sim/field';
+import { isInLaunchZone, pointInPolygon } from '@ftc-sim/field';
 import type { RobotFootprint } from '@ftc-sim/robot';
 import { buildObb, obbPenetratingPolygon, robotCorners } from '@ftc-sim/robot';
 import type { Alliance, ArtifactColor } from '@ftc-sim/game-decode';
@@ -11,10 +11,13 @@ export const MAX_SHOT_SPEED_IN_S = 165;
 export const SHOT_SPEED_PER_INCH = 0.95;
 export const SHOT_SPEED_BASE = 30;
 export const OVERFLOW_SOUTH_VELOCITY = 18;
-export const GATE_RELEASE_SOUTH_VELOCITY = 26;
-/** Stagger between gate releases (~3 artifacts/s); a full 9-ball ramp clears in ~3s. */
-export const GATE_RELEASE_INTERVAL_S = 1 / 3;
-export const RAMP_ROLL_DURATION_S = 0.9;
+/** Gate/ramp rollout speed multiplier (interval, roll duration, south velocity). */
+export const GATE_RAMP_SPEED_FACTOR = 1.5;
+export const GATE_RELEASE_SOUTH_VELOCITY = 26 * GATE_RAMP_SPEED_FACTOR;
+/** Stagger between gate releases; full 9-ball ramp clears ~2s at 1.5×. */
+export const GATE_RELEASE_INTERVAL_S = 1 / 3 / GATE_RAMP_SPEED_FACTOR;
+export const RAMP_ROLL_DURATION_S = 0.9 / GATE_RAMP_SPEED_FACTOR;
+export const RAMP_ROLL_MIN_S = 0.55 / GATE_RAMP_SPEED_FACTOR;
 export const RAMP_BOTTOM_Y = 70;
 export const RAMP_STACK_DIAMETER = ARTIFACT_RADIUS_IN * 2;
 
@@ -56,15 +59,24 @@ export function artifactTouchesFrontEdge(
   return distancePointToSegment(artifactCenter, edge) <= radius + epsilon;
 }
 
+/** Same eligibility as teleop / mechanism shooting (OBB overlap + corner / south-wall rules). */
 export function robotInLaunchZone(
   pose: Pose,
   footprint: RobotFootprint,
   field: FieldDefinition,
+  alliance?: Alliance,
 ): boolean {
   const launchZones = field.zones.filter((z) => z.type === 'launch_zone');
-  const corners = robotCorners(pose, footprint);
-  const samples: Vector2[] = [...corners, { x: pose.x, y: pose.y }];
-  return samples.some((point) => launchZones.some((zone) => pointInPolygon(point, zone.polygon)));
+  if (launchZones.length > 0) {
+    const obb = buildObb(pose, footprint);
+    if (launchZones.some((zone) => obbPenetratingPolygon(obb, zone.polygon))) {
+      return true;
+    }
+  }
+  if (alliance) {
+    return isInLaunchZone(pose, field, footprint, alliance);
+  }
+  return false;
 }
 
 export function getZoneByType(

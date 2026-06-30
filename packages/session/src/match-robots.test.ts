@@ -5,6 +5,7 @@ import {
   BLUE_NEAR_SPAWN,
   CLAIMABLE_ROBOT_IDS,
   LOBBY_SLOT_ORDER,
+  npcSpawnSlotsForPlayer,
   playerSpawnPose,
   practiceFieldRobots,
   RED_FAR_SPAWN,
@@ -32,6 +33,19 @@ describe('practice robot spawns', () => {
     expect(playerSpawnPose('blue-near')).toEqual(BLUE_NEAR_SPAWN);
     expect(playerSpawnPose('red-far')).toEqual(RED_FAR_SPAWN);
     expect(playerSpawnPose('red-near')).toEqual(RED_NEAR_SPAWN);
+  });
+
+  it('practice field includes all four corner slots', () => {
+    const footprint = simRobotFootprint(DEFAULT_SIM_ROBOT_CONFIG);
+    const npcs = practiceFieldRobots(footprint);
+    expect(npcs.map((npc) => npc.id).sort()).toEqual(['blue-far', 'blue-near', 'red-far', 'red-near']);
+  });
+
+  it('npc spawn slots exclude the player corner', () => {
+    expect(npcSpawnSlotsForPlayer('blue-near')).toEqual(['blue-far', 'red-near', 'red-far']);
+    expect(npcSpawnSlotsForPlayer('blue-far')).toEqual(['blue-near', 'red-near', 'red-far']);
+    expect(npcSpawnSlotsForPlayer('red-near')).toEqual(['blue-near', 'blue-far', 'red-far']);
+    expect(npcSpawnSlotsForPlayer('red-far')).toEqual(['blue-near', 'blue-far', 'red-near']);
   });
 
   it('lobby slot labels match launch zones', () => {

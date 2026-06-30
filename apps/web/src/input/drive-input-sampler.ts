@@ -5,6 +5,7 @@ import {
   isActionPressed,
   type DriveKeybinds,
 } from './drive-keybinds';
+import { tickShootRumble } from './gamepad-rumble';
 
 const AXIS_DEADZONE = 0.15;
 const TURN_DEADZONE = 0.15;
@@ -167,6 +168,11 @@ export function sampleDriveInput(state: DriveInputSamplerState): {
   const pad = readActiveGamepad();
   state.gamepadConnected = pad !== null;
   const mechanism = sampleMechanism(state, pad);
+  if (pad && mechanism.shootHeld) {
+    tickShootRumble(pad, true);
+  } else {
+    tickShootRumble(pad, false);
+  }
 
   if (state.injectInput) {
     const input = state.injectInput;

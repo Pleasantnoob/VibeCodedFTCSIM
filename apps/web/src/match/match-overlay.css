@@ -173,3 +173,15 @@
   height: 14px;
   width: 14px;
 }
+
+.ftc-broadcast-overlay .scorePill--player-gamepad .svgWrapper svg {
+  fill: currentColor;
+}
+
+.ftc-broadcast-overlay .scorePill--player-gamepad-blue {
+  color: #3b82f6;
+}
+
+.ftc-broadcast-overlay .scorePill--player-gamepad-red {
+  color: #ef4444;
+}

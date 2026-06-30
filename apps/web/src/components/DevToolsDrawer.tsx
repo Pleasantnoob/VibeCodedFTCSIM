@@ -7,6 +7,7 @@ import type { DriveInputDebug } from '../input/drive-input-sampler';
 import { barrierSelection, zoneSelection } from '../field/map-selection';
 import type { EditableBarrier } from '../field/barrier-editor';
 import type { EditableZone } from '../field/zone-editor';
+import type { AutoProgramRunnerDebug } from '@ftc-sim/pedro';
 import { PanelSection, PanelsButton } from './panels';
 
 export interface DevToolsDrawerProps {
@@ -53,6 +54,12 @@ export interface DevToolsDrawerProps {
   poseLabel?: string;
   speed?: number;
   angularSpeed?: number;
+  programDebug?: AutoProgramRunnerDebug | null;
+  followerHud?: {
+    progress: { completion: number };
+    errors: { translational: number; heading: number };
+    distRemaining: number;
+  } | null;
 }
 
 const BOT_LOG_CATEGORIES: Array<BotDebugLogCategory | 'all'> = [
@@ -118,6 +125,8 @@ export function DevToolsDrawer({
   poseLabel,
   speed,
   angularSpeed,
+  programDebug,
+  followerHud,
 }: DevToolsDrawerProps) {
   const [botLogCategory, setBotLogCategory] = useState<BotDebugLogCategory | 'all'>('all');
   const [botLogRobot, setBotLogRobot] = useState<string>('all');
@@ -148,7 +157,7 @@ export function DevToolsDrawer({
       </div>
 
       <p className="hint dev-tools-drawer__sidebar-link">
-        Practice bots (enable, difficulty, AUTO paths) are in the sidebar under <strong>Practice bots</strong>.
+        Bot path overlay and field overlays are in the <strong>Debug</strong> nav menu. Practice bots are in the sidebar.
       </p>
 
       <PanelSection title="Drive debug" badge={controlSource ?? 'none'} defaultOpen={false}>
@@ -196,7 +205,7 @@ export function DevToolsDrawer({
         </ul>
       </PanelSection>
 
-      <PanelSection title="Mechanism debug" badge={`${mechanismDebugLogs.length} logs`} defaultOpen>
+      <PanelSection title="Mechanism debug" badge={`${mechanismDebugLogs.length} logs`} defaultOpen={false}>
         <p className="hint">
           Shoot / intake / gate proximity events. Also printed to the browser console (F12).
         </p>
@@ -221,7 +230,7 @@ export function DevToolsDrawer({
         </ul>
       </PanelSection>
 
-      <PanelSection title="Bot AI debug" badge={`${filteredBotLogs.length}/${botDebugLogs.length}`} defaultOpen>
+      <PanelSection title="Bot AI debug" badge={`${filteredBotLogs.length}/${botDebugLogs.length}`} defaultOpen={false}>
         <p className="hint">
           One-line bot logs: TARGET / LAUNCH / SHOOT / STORED / EMPTY. Enable practice bots and run teleop.
         </p>
@@ -429,6 +438,36 @@ export function DevToolsDrawer({
           </>
         )}
       </PanelSection>
+
+      {(programDebug || followerHud) && (
+        <PanelSection title="AUTO live metrics" defaultOpen={false}>
+          {programDebug && programDebug.mode === 'program' && (
+            <ul className="metrics">
+              <li>
+                Program: <strong>loop {programDebug.loopCount}</strong>
+                {programDebug.waitKind ? ` · wait ${programDebug.waitKind}` : ''}
+                {` · leave budget ${programDebug.leaveBudgetSec.toFixed(1)}s`}
+              </li>
+            </ul>
+          )}
+          {followerHud && (
+            <ul className="metrics">
+              <li>
+                Progress: <strong>{(followerHud.progress.completion * 100).toFixed(0)}%</strong>
+              </li>
+              <li>
+                Trans. error: <strong>{followerHud.errors.translational.toFixed(2)} in</strong>
+              </li>
+              <li>
+                Heading error: <strong>{followerHud.errors.heading.toFixed(3)} rad</strong>
+              </li>
+              <li>
+                Dist. remaining: <strong>{followerHud.distRemaining.toFixed(1)} in</strong>
+              </li>
+            </ul>
+          )}
+        </PanelSection>
+      )}
 
       {copyStatus && <p className="hint dev-tools-drawer__status">{copyStatus}</p>}
     </aside>

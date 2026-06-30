@@ -25,8 +25,8 @@ export interface AutoSequence {
 export const AUTO_STORED_FULL_COUNT = 3;
 
 export const DEFAULT_SEQUENCE_WAIT_TIMEOUTS = {
-  intakeFullWaitTimeoutSec: 2.5,
-  shootEmptyWaitTimeoutSec: 4.0,
+  intakeFullWaitTimeoutSec: 3.0,
+  shootEmptyWaitTimeoutSec: 1.5,
 } as const;
 
 export interface AutoSequenceContext {
@@ -41,13 +41,6 @@ export interface AutoSequenceWaitTimeouts {
 
 type RunnerPhase = 'idle' | 'path' | 'wait';
 type WaitMode = 'intake' | 'shoot';
-
-function classifyWaitStep(step: Extract<AutoSequenceStep, { kind: 'wait' }>, inLaunchZone: boolean): WaitMode {
-  const name = step.name?.toLowerCase() ?? '';
-  if (/shoot|score|fire|launch|empty/.test(name)) return 'shoot';
-  if (/intake|collect|full/.test(name)) return 'intake';
-  return inLaunchZone ? 'shoot' : 'intake';
-}
 
 function waitConditionMet(mode: WaitMode, storedCount: number): boolean {
   if (mode === 'shoot') return storedCount <= 0;
@@ -64,6 +57,8 @@ export class AutoSequenceRunner {
   private stepIndex = 0;
   private phase: RunnerPhase = 'idle';
   private waitMode: WaitMode = 'intake';
+  /** Locked when a wait step begins — intake vs score intent for unnamed waits. */
+  private waitIntent: WaitMode = 'intake';
   private waitElapsedSec = 0;
   private waitTimeoutSec = 0;
   private context: AutoSequenceContext = { storedCount: 0, inLaunchZone: false };
@@ -183,19 +178,58 @@ export class AutoSequenceRunner {
   }
 
   /** True while paused on a wait step before the state condition or timeout is met. */
-  isInAutoWait(): boolean {
+  isInAutoWait(inLaunchZone = this.context.inLaunchZone): boolean {
     if (this.phase !== 'wait') return false;
-    return !waitConditionMet(this.waitMode, this.context.storedCount) && this.waitElapsedSec < this.waitTimeoutSec;
+    const mode = this.effectiveWaitMode(inLaunchZone);
+    return (
+      !waitConditionMet(mode, this.context.storedCount) &&
+      this.waitElapsedSec < this.waitTimeoutSec
+    );
   }
 
-  /** True during a shoot wait when part of the robot is inside a launch zone. */
+  /**
+   * Fire while overlapping a launch zone with stored artifacts — during path segments
+   * (e.g. shoot approach) and during shoot waits.
+   */
   shouldAutoShoot(inLaunchZone: boolean): boolean {
-    return this.isInAutoWait() && this.waitMode === 'shoot' && inLaunchZone;
+    if (!inLaunchZone || this.context.storedCount <= 0) return false;
+    if (this.phase === 'path') return true;
+    if (this.phase !== 'wait') return false;
+    return this.effectiveWaitMode(inLaunchZone) === 'shoot';
   }
 
   /** True during an intake wait — hold intake until storage is full. */
-  shouldAutoIntake(): boolean {
-    return this.isInAutoWait() && this.waitMode === 'intake';
+  shouldAutoIntake(inLaunchZone = this.context.inLaunchZone): boolean {
+    if (this.phase !== 'wait') return false;
+    return this.effectiveWaitMode(inLaunchZone) === 'intake' && this.isInAutoWait(inLaunchZone);
+  }
+
+  /** Re-evaluate each tick so straddling / late zone entry still shoots. */
+  private inferWaitIntent(inLaunchZone: boolean): WaitMode {
+    const step = this.currentWaitStep();
+    if (step) {
+      const name = step.name?.toLowerCase() ?? '';
+      if (/shoot|score|fire|launch|empty/.test(name)) return 'shoot';
+      if (/intake|collect|full/.test(name)) return 'intake';
+    }
+    if (inLaunchZone) return 'shoot';
+    return 'intake';
+  }
+
+  private effectiveWaitMode(inLaunchZone: boolean): WaitMode {
+    if (this.waitIntent === 'shoot') return 'shoot';
+
+    const step = this.currentWaitStep();
+    if (step) {
+      const name = step.name?.toLowerCase() ?? '';
+      if (/intake|collect|full/.test(name)) {
+        if (this.context.storedCount >= AUTO_STORED_FULL_COUNT && inLaunchZone) return 'shoot';
+        if (this.context.storedCount >= AUTO_STORED_FULL_COUNT && !inLaunchZone) return 'intake';
+      }
+    }
+
+    if (this.context.storedCount >= AUTO_STORED_FULL_COUNT && !inLaunchZone) return 'intake';
+    return 'intake';
   }
 
   getTargetPose(): Pose | null {
@@ -213,8 +247,10 @@ export class AutoSequenceRunner {
   updateHolonomic(dt: number, limits: KinematicLimits): HolonomicInput {
     if (this.phase === 'wait') {
       this.waitElapsedSec += dt;
+      const inLaunchZone = this.context.inLaunchZone;
+      const mode = this.effectiveWaitMode(inLaunchZone);
       if (
-        waitConditionMet(this.waitMode, this.context.storedCount) ||
+        waitConditionMet(mode, this.context.storedCount) ||
         this.waitElapsedSec >= this.waitTimeoutSec
       ) {
         this.waitElapsedSec = 0;
@@ -256,17 +292,20 @@ export class AutoSequenceRunner {
       const step = this.steps[this.stepIndex]!;
       if (step.kind === 'wait') {
         this.phase = 'wait';
-        this.waitMode = classifyWaitStep(step, this.context.inLaunchZone);
         this.waitElapsedSec = 0;
+        this.waitIntent = this.inferWaitIntent(this.context.inLaunchZone);
+        const mode = this.effectiveWaitMode(this.context.inLaunchZone);
+        this.waitMode = mode;
         const configTimeout =
-          this.waitMode === 'shoot'
+          mode === 'shoot'
             ? (this.waitTimeouts.shootEmptyWaitTimeoutSec ??
               DEFAULT_SEQUENCE_WAIT_TIMEOUTS.shootEmptyWaitTimeoutSec)
             : (this.waitTimeouts.intakeFullWaitTimeoutSec ??
               DEFAULT_SEQUENCE_WAIT_TIMEOUTS.intakeFullWaitTimeoutSec);
-        this.waitTimeoutSec = Math.max(step.durationSec, configTimeout);
+        this.waitTimeoutSec =
+          step.durationSec > 0 ? Math.max(step.durationSec, configTimeout) : configTimeout;
         this.follower.cancelPath();
-        if (waitConditionMet(this.waitMode, this.context.storedCount)) {
+        if (waitConditionMet(mode, this.context.storedCount)) {
           this.stepIndex++;
           continue;
         }

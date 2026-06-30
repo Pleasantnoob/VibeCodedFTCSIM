@@ -119,8 +119,7 @@ function flankedArtifactStandoff(
 }
 
 function allianceForRobotId(robotId: string): BotDebugState['alliance'] {
-  if (robotId === 'red-far' || robotId === 'red-near') return 'red';
-  return 'blue';
+  return robotId.startsWith('red') ? 'red' : 'blue';
 }
 
 function allowsBotDrive(world: BotWorldSnapshot): boolean {
