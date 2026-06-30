@@ -64,6 +64,25 @@ const HP_STATION_ARTIFACT_COLLISION_GROUPS = collisionGroups(
 /** Parked artifacts (held, in flight, on ramp) collide with nothing. */
 const PARKED_COLLISION_GROUPS = collisionGroups(0, 0);
 
+export interface ArtifactColliderState {
+  enabled: boolean;
+  groups: number;
+  isParked: boolean;
+  isActiveField: boolean;
+  isActiveStation: boolean;
+}
+
+/** Sim artifact phases mapped to expected physics collider state. */
+export type ArtifactColliderPhase =
+  | 'onField'
+  | 'overflow'
+  | 'humanPlayerStation'
+  | 'humanPlayerReserve'
+  | 'held'
+  | 'inFlight'
+  | 'onRamp'
+  | 'parked';
+
 export class PhysicsWorld {
   private world!: RAPIER.World;
   private eventQueue!: RAPIER.EventQueue;
@@ -71,6 +90,8 @@ export class PhysicsWorld {
   private config: PhysicsConfig;
   private initialized = false;
   private pendingForces = new Map<string, ForceTorque>();
+  /** Per-robot artifact collision filter (false = intake bypass). */
+  private robotArtifactCollisionEnabled = new Map<string, boolean>();
 
   constructor(config: Partial<PhysicsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -289,6 +310,7 @@ export class PhysicsWorld {
     const collider = this.world.createCollider(colliderDesc, body);
     const handle: BodyHandle = { id, handle: body, collider };
     this.bodies.set(id, handle);
+    this.robotArtifactCollisionEnabled.set(id, true);
     return handle;
   }
 
@@ -301,7 +323,7 @@ export class PhysicsWorld {
   ): void {
     const bodyHandle = this.bodies.get(id);
     if (!bodyHandle) return;
-    const artifactCollision = bodyHandle.collider.collisionGroups() !== collisionGroups(PHYSICS_GROUP_ROBOT, PHYSICS_GROUP_STATIC);
+    const artifactCollision = this.robotHasArtifactCollision(id);
     this.world.removeCollider(bodyHandle.collider, true);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       (widthInches * INCHES_TO_METERS) / 2,
@@ -312,7 +334,7 @@ export class PhysicsWorld {
       .setCollisionGroups(
         artifactCollision
           ? ROBOT_COLLISION_GROUPS
-          : collisionGroups(PHYSICS_GROUP_ROBOT, PHYSICS_GROUP_STATIC),
+          : collisionGroups(PHYSICS_GROUP_ROBOT, PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION),
       );
     bodyHandle.collider = this.world.createCollider(colliderDesc, bodyHandle.handle);
   }
@@ -348,12 +370,81 @@ export class PhysicsWorld {
 
   /** When false, robot collider ignores field artifacts (intake running) but still hits walls + HP station. */
   setRobotArtifactCollision(id: string, enabled: boolean): void {
+    this.robotArtifactCollisionEnabled.set(id, enabled);
+    this.ensureRobotArtifactFilter(id, enabled);
+  }
+
+  /** Apply robot collision filter from stored bypass flag. */
+  ensureRobotArtifactFilter(id: string, artifactCollisionEnabled: boolean): void {
     const bodyHandle = this.bodies.get(id);
     if (!bodyHandle) return;
-    const filter = enabled
+    const filter = artifactCollisionEnabled
       ? PHYSICS_GROUP_ARTIFACT | PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION
       : PHYSICS_GROUP_STATIC | PHYSICS_GROUP_HP_STATION;
     bodyHandle.collider.setCollisionGroups(collisionGroups(PHYSICS_GROUP_ROBOT, filter));
+  }
+
+  robotHasArtifactCollision(id: string): boolean {
+    return this.robotArtifactCollisionEnabled.get(id) ?? true;
+  }
+
+  getArtifactColliderState(bodyId: string): ArtifactColliderState | null {
+    const bodyHandle = this.bodies.get(bodyId);
+    if (!bodyHandle) return null;
+    const groups = bodyHandle.collider.collisionGroups();
+    const enabled = bodyHandle.collider.isEnabled();
+    const isParked = groups === PARKED_COLLISION_GROUPS || !enabled;
+    return {
+      enabled,
+      groups,
+      isParked,
+      isActiveField: enabled && groups === ARTIFACT_COLLISION_GROUPS,
+      isActiveStation: enabled && groups === HP_STATION_ARTIFACT_COLLISION_GROUPS,
+    };
+  }
+
+  isArtifactFieldColliderActive(bodyId: string): boolean {
+    const state = this.getArtifactColliderState(bodyId);
+    return state?.isActiveField ?? false;
+  }
+
+  isArtifactStationColliderActive(bodyId: string): boolean {
+    const state = this.getArtifactColliderState(bodyId);
+    return state?.isActiveStation ?? false;
+  }
+
+  /** Idempotent: restore collider groups + enabled state for sim phase. */
+  ensureArtifactColliderForPhase(
+    bodyId: string,
+    phase: ArtifactColliderPhase,
+    pose: Pose,
+    vx = 0,
+    vy = 0,
+  ): void {
+    if (phase === 'onField' || phase === 'overflow') {
+      if (!this.isArtifactFieldColliderActive(bodyId)) {
+        this.activateArtifactBody(bodyId, pose, vx, vy);
+      }
+      return;
+    }
+    if (phase === 'humanPlayerStation') {
+      if (!this.isArtifactStationColliderActive(bodyId)) {
+        this.activateStationArtifactBody(bodyId, pose, vx, vy);
+      }
+      return;
+    }
+    if (
+      phase === 'held' ||
+      phase === 'inFlight' ||
+      phase === 'onRamp' ||
+      phase === 'humanPlayerReserve' ||
+      phase === 'parked'
+    ) {
+      const state = this.getArtifactColliderState(bodyId);
+      if (!state?.isParked) {
+        this.parkArtifactBody(bodyId, pose);
+      }
+    }
   }
 
   setBodyPose(id: string, pose: Pose): void {
@@ -454,8 +545,7 @@ export class PhysicsWorld {
     bodyHandle.collider.setEnabled(enabled);
     if (enabled) {
       if (this.isRobotBodyId(id)) {
-        bodyHandle.collider.setCollisionGroups(ROBOT_COLLISION_GROUPS);
-        this.setRobotArtifactCollision(id, true);
+        this.ensureRobotArtifactFilter(id, this.robotHasArtifactCollision(id));
       } else {
         bodyHandle.collider.setCollisionGroups(ARTIFACT_COLLISION_GROUPS);
       }
@@ -587,6 +677,7 @@ export class PhysicsWorld {
 
   destroy(): void {
     this.bodies.clear();
+    this.robotArtifactCollisionEnabled.clear();
     this.pendingForces.clear();
     if (this.initialized) {
       this.world.free();

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { isPageVisible } from '../match/page-visible';
 
 /** W3C Standard Gamepad: Select/Share/View (PS Share, Xbox View). */
 export const GAMEPAD_MATCH_RESET_BUTTON = 8;
@@ -50,7 +51,12 @@ export function useMatchGamepad(actions: MatchGamepadActions, enabled = true): v
     if (!enabled) return;
 
     let raf = 0;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const poll = () => {
+      if (!isPageVisible()) {
+        idleTimer = setTimeout(poll, 250);
+        return;
+      }
       const pad = readActiveGamepad();
       const prev = prevRef.current;
       const startNow = pad ? buttonPressed(pad, GAMEPAD_MATCH_START_BUTTON) : false;
@@ -87,6 +93,9 @@ export function useMatchGamepad(actions: MatchGamepadActions, enabled = true): v
     };
 
     raf = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (idleTimer !== null) clearTimeout(idleTimer);
+    };
   }, [enabled]);
 }

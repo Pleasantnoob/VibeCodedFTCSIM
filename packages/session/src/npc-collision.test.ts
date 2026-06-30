@@ -40,7 +40,7 @@ describe('practice NPC physics bodies', () => {
     }
     const end = session.getState().npcRobots[0]!.pose;
     const moved = Math.hypot(end.x - start.x, end.y - start.y);
-    expect(session.getState().npcRobots.length).toBe(3);
+    expect(session.getState().npcRobots.length).toBe(practiceFieldRobots(footprint).length);
     expect(moved).toBeGreaterThan(5);
   }, 30_000);
 });

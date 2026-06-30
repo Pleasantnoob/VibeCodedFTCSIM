@@ -9,6 +9,24 @@ import {
 } from './drive-input-sampler';
 import { loadDriveKeybinds, type DriveKeybinds } from './drive-keybinds';
 
+function driveDebugEqual(a: DriveInputDebug, b: DriveInputDebug): boolean {
+  return (
+    a.forward === b.forward &&
+    a.strafe === b.strafe &&
+    a.turn === b.turn &&
+    a.intake === b.intake &&
+    a.shoot === b.shoot &&
+    a.gate === b.gate &&
+    a.rawForward === b.rawForward &&
+    a.rawStrafe === b.rawStrafe &&
+    a.rawTurn === b.rawTurn &&
+    a.padAxes[0] === b.padAxes[0] &&
+    a.padAxes[1] === b.padAxes[1] &&
+    a.padAxes[2] === b.padAxes[2] &&
+    a.padAxes[3] === b.padAxes[3]
+  );
+}
+
 export function useDriveInput(driveEnabled: boolean, listenForInput = false) {
   const samplerRef = useRef<DriveInputSamplerState>(createDriveInputSampler(loadDriveKeybinds()));
   const [controlSource, setControlSource] = useState<ControlSource>('none');
@@ -42,8 +60,21 @@ export function useDriveInput(driveEnabled: boolean, listenForInput = false) {
   }, [listen]);
 
   const sampleRef = useRef(() => sampleDriveInput(samplerRef.current));
+  const hudRef = useRef<{ debug: DriveInputDebug; source: ControlSource; connected: boolean } | null>(
+    null,
+  );
 
   const updateHud = useCallback((debug: DriveInputDebug, source: ControlSource, connected: boolean) => {
+    const prev = hudRef.current;
+    if (
+      prev &&
+      prev.source === source &&
+      prev.connected === connected &&
+      driveDebugEqual(prev.debug, debug)
+    ) {
+      return;
+    }
+    hudRef.current = { debug, source, connected };
     setDriveDebug(debug);
     setControlSource(source);
     setGamepadConnected(connected);

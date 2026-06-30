@@ -125,4 +125,83 @@ describe('physics world', () => {
 
     world.destroy();
   });
+
+  it('kinematic robot pushes field artifact when artifact collision is enabled', async () => {
+    const world = new PhysicsWorld();
+    await world.init();
+
+    world.createBodyFromDef('wall_north', {
+      id: 'wall_north',
+      type: 'static',
+      shape: 'rectangle',
+      center: { x: 50, y: 100 },
+      width: 80,
+      height: 4,
+      material: { friction: 1, restitution: 0 },
+    });
+    world.createKinematicRobotBody('robot', { x: 30, y: 50, heading: 0 }, 18, 18, 0.8);
+    world.createDynamicCircle(
+      'artifact_ball',
+      { x: 38, y: 50, heading: 0 },
+      2.5,
+      0.0748,
+      { friction: 0.25, restitution: 0.02 },
+    );
+    world.setRobotArtifactCollision('robot', true);
+
+    for (let i = 0; i < 90; i++) {
+      world.syncKinematicRobot('robot', { x: 30 + i * 0.15, y: 50, heading: 0 }, 18, 0);
+      world.step();
+    }
+
+    const artifactPose = world.getBodyPose('artifact_ball');
+    expect(artifactPose.x).toBeGreaterThan(38.5);
+    expect(world.isArtifactFieldColliderActive('artifact_ball')).toBe(true);
+
+    world.destroy();
+  });
+
+  it('kinematic robot passes through field artifact when intake bypass is active', async () => {
+    const world = new PhysicsWorld();
+    await world.init();
+
+    world.createKinematicRobotBody('robot', { x: 30, y: 50, heading: 0 }, 18, 18, 0.8);
+    world.createDynamicCircle(
+      'artifact_ball',
+      { x: 38, y: 50, heading: 0 },
+      2.5,
+      0.0748,
+      { friction: 0.25, restitution: 0.02 },
+    );
+    world.setRobotArtifactCollision('robot', false);
+
+    for (let i = 0; i < 90; i++) {
+      world.syncKinematicRobot('robot', { x: 30 + i * 0.15, y: 50, heading: 0 }, 18, 0);
+      world.step();
+    }
+
+    const artifactPose = world.getBodyPose('artifact_ball');
+    expect(artifactPose.x).toBeCloseTo(38, 0);
+    expect(world.robotHasArtifactCollision('robot')).toBe(false);
+
+    world.destroy();
+  });
+
+  it('ensureArtifactColliderForPhase restores parked on-field collider', async () => {
+    const world = new PhysicsWorld();
+    await world.init();
+
+    const pose = { x: 40, y: 50, heading: 0 };
+    world.createDynamicCircle('artifact_ball', pose, 2.5, 0.0748, {
+      friction: 0.25,
+      restitution: 0.02,
+    });
+    world.parkArtifactBody('artifact_ball', pose);
+    expect(world.isArtifactFieldColliderActive('artifact_ball')).toBe(false);
+
+    world.ensureArtifactColliderForPhase('artifact_ball', 'onField', pose, 0, 0);
+    expect(world.isArtifactFieldColliderActive('artifact_ball')).toBe(true);
+
+    world.destroy();
+  });
 });

@@ -163,6 +163,7 @@ export function useSessionClient() {
   const liveArtifactsRef = useRef<SimArtifactState[]>([]);
   const gameStateRef = useRef<MatchState | null>(null);
   const robotIdRef = useRef<string | null>(null);
+  const messageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
   const connectGenRef = useRef(0);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRttRef = useRef<number | null>(null);
@@ -190,6 +191,10 @@ export function useSessionClient() {
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws) {
+      if (messageHandlerRef.current) {
+        ws.removeEventListener('message', messageHandlerRef.current);
+        messageHandlerRef.current = null;
+      }
       ws.onopen = null;
       ws.onmessage = null;
       ws.onerror = null;
@@ -492,6 +497,7 @@ export function useSessionClient() {
       };
 
       ws.addEventListener('message', handleMessage);
+      messageHandlerRef.current = handleMessage;
       ws.onopen = () => {
         if (connectGenRef.current !== gen) return;
         sendHello();
