@@ -18,6 +18,7 @@ import {
   SNAPSHOT_HZ,
   type ClientMessage,
   type ServerMessage,
+  type StateSnapshot,
 } from '@ftc-sim/net';
 import { getDecodeField, getMatchArtifactStaging } from '@ftc-sim/season-decode';
 import {
@@ -158,6 +159,22 @@ function syncHostBots(
   session.setBotSlots(slots);
 }
 
+function snapshotHash(snapshot: StateSnapshot): string {
+  const match = snapshot.match;
+  let hash = `${snapshot.tick}|${match.phase}|${match.timeElapsed}|${match.running}|${match.paused}`;
+  for (const robot of snapshot.robots) {
+    hash += `|${robot.id}:${robot.pose.x.toFixed(2)},${robot.pose.y.toFixed(2)}`;
+  }
+  for (const artifact of snapshot.artifacts) {
+    hash += `|${artifact.id}:${artifact.phase}:${artifact.pose.x.toFixed(2)},${artifact.pose.y.toFixed(2)}`;
+  }
+  return hash;
+}
+
+function isActiveSimulationPhase(phase: string): boolean {
+  return phase === 'auto' || phase === 'transition' || phase === 'teleop';
+}
+
 async function main(): Promise<void> {
   const port = Number(process.env.MATCH_PORT ?? DEFAULT_MATCH_PORT);
   const session = buildSession();
@@ -190,6 +207,14 @@ async function main(): Promise<void> {
         sendQueueBytes: c.sendQueueBytes,
       })),
     });
+  };
+
+  let lastRoomInfoBroadcastAt = 0;
+  const sendRoomInfoDebounced = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastRoomInfoBroadcastAt < 5_000) return;
+    lastRoomInfoBroadcastAt = now;
+    sendRoomInfo();
   };
 
   const robotIdTaken = (robotId: string, except?: ClientRecord): boolean => {
@@ -230,7 +255,7 @@ async function main(): Promise<void> {
       teamLabel: label,
     });
     broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
-    sendRoomInfo();
+    sendRoomInfoDebounced(true);
     syncHostBots(session, clients, hostBotTemplate);
   };
 
@@ -274,18 +299,21 @@ async function main(): Promise<void> {
         session.releaseRobotSlot(releasedRobot);
         broadcast({ type: 'slot_released', robotId: releasedRobot, playerId: client.id });
         broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
+        syncHostBots(session, clients, hostBotTemplate);
       }
       if (client === hostClient) {
         hostClient = null;
         broadcast({ type: 'match_ended', reason: 'host_disconnected' });
       }
       console.log(`[match-server] left ${client.name} (${client.id})`);
-      sendRoomInfo();
+      sendRoomInfoDebounced(true);
     });
   });
 
   let tickCounter = 0;
   let prevMatchSnapshot: MatchSnapshot | null = null;
+  let lastSnapshotHash = '';
+  const IDLE_TICK_STRIDE = Math.max(1, Math.round(SERVER_TICK_HZ / 10));
 
   const broadcastAudioCues = (prev: MatchSnapshot | null, next: MatchSnapshot) => {
     for (const cue of matchAudioCues(prev, next)) {
@@ -391,7 +419,7 @@ async function main(): Promise<void> {
         if (ws.readyState !== ws.OPEN) return;
         ws.send(encodeMessage({ type: 'server_ready', motif }));
         ws.send(encodeMessage(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS)));
-        sendRoomInfo();
+        sendRoomInfoDebounced(true);
         console.log(`[match-server] joined ${record.name} (${record.id}) as ${record.role} from ${record.remoteAddress}`);
       });
       return;
@@ -477,7 +505,7 @@ async function main(): Promise<void> {
       client.rttMs = Math.max(0, Math.round(message.rttMs));
       client.sendQueueBytes = ws.bufferedAmount;
       logClientLatency(client);
-      sendRoomInfo();
+      sendRoomInfoDebounced();
       return;
     }
   }
@@ -487,7 +515,14 @@ async function main(): Promise<void> {
   startFixedTickLoop({
     hz: SERVER_TICK_HZ,
     onTick: () => {
-      syncHostBots(session, clients, hostBotTemplate);
+      tickCounter += 1;
+      const matchSnap = session.clock.snapshot();
+      const lobbyIdle =
+        !matchSnap.running || matchSnap.phase === 'setup' || matchSnap.phase === 'init';
+      if (lobbyIdle && tickCounter % IDLE_TICK_STRIDE !== 0) {
+        return;
+      }
+
       for (const client of clients.values()) {
         if (!client.robotId) continue;
         const frame = client.input.peekLatest();
@@ -504,10 +539,17 @@ async function main(): Promise<void> {
       const afterSnap = session.clock.snapshot();
       broadcastAudioCues(prevMatchSnapshot, afterSnap);
       prevMatchSnapshot = afterSnap;
-      tickCounter += 1;
 
-      if (tickCounter % SNAPSHOT_EVERY === 0) {
-        broadcast(session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS));
+      const gateBurst = session.isGateReleaseInProgress();
+      const activeSim = matchSnap.running && !matchSnap.paused && isActiveSimulationPhase(matchSnap.phase);
+      const snapshotInterval = gateBurst ? 1 : SNAPSHOT_EVERY;
+      if (tickCounter % snapshotInterval !== 0) return;
+
+      const snapshot = session.buildNetSnapshot(MAX_SNAPSHOT_EVENTS);
+      const hash = snapshotHash(snapshot);
+      if (gateBurst || activeSim || hash !== lastSnapshotHash) {
+        lastSnapshotHash = hash;
+        broadcast(snapshot);
       }
     },
   });

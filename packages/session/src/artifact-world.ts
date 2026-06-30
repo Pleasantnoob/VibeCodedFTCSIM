@@ -54,6 +54,7 @@ export class ArtifactWorld {
   private editableBarrierIds: string[] = [];
   private artifactFriction = DEFAULT_ARTIFACT_FRICTION;
   private pendingNpcSync: NpcRobotSync[] = [];
+  private pendingRobotArtifactCollision = new Map<string, boolean>();
   private footprint: RobotFootprint | null = null;
   private static readonly MAX_ARTIFACT_SPEED_IN_S = 68;
 
@@ -261,7 +262,17 @@ export class ArtifactWorld {
       const bodyId = `npc_${npc.id}`;
       if (!this.npcBodyIds.includes(bodyId)) continue;
       this.physics.syncKinematicRobot(bodyId, npc.pose, npc.linear.x, npc.linear.y);
-      this.physics.setRobotArtifactCollision(bodyId, true);
+      const artifactCollision = this.pendingRobotArtifactCollision.get(bodyId) ?? true;
+      this.physics.setRobotArtifactCollision(bodyId, artifactCollision);
+    }
+  }
+
+  /** Re-apply robot artifact collision filters after physics step (NPC sync must not override bypass). */
+  private reapplyRobotArtifactCollision(): void {
+    for (const [bodyId, enabled] of this.pendingRobotArtifactCollision) {
+      if (!this.physics.isColliderEnabled(bodyId)) continue;
+      if (this.physics.robotHasArtifactCollision(bodyId) === enabled) continue;
+      this.physics.setRobotArtifactCollision(bodyId, enabled);
     }
   }
 
@@ -343,6 +354,10 @@ export class ArtifactWorld {
           footprint,
           scoringPhase,
         ),
+      );
+      this.pendingRobotArtifactCollision.set(
+        bodyId,
+        this.physics.robotHasArtifactCollision(bodyId),
       );
     }
 
@@ -440,6 +455,10 @@ export class ArtifactWorld {
     return this.sim.getSnapshot();
   }
 
+  isGateReleaseInProgress(): boolean {
+    return this.sim.isGateReleaseInProgress();
+  }
+
   getDebugLogs() {
     return this.sim.getDebugLogs();
   }
@@ -509,24 +528,38 @@ export class ArtifactWorld {
 
   private adapter(): PhysicsAdapter {
     const friction = this.artifactFriction;
+    const physics = this.physics;
     return {
-      getArtifactPose: (bodyId) => this.physics.getBodyPose(bodyId),
-      setArtifactPose: (bodyId, pose) => this.physics.setBodyPose(bodyId, pose),
+      getArtifactPose: (bodyId) => physics.getBodyPose(bodyId),
+      setArtifactPose: (bodyId, pose) => physics.setBodyPose(bodyId, pose),
       setArtifactVelocity: (bodyId, vx, vy) =>
-        this.physics.setLinearVelocityInches(bodyId, vx, vy),
-      setArtifactEnabled: (bodyId, enabled) => this.physics.setColliderEnabled(bodyId, enabled),
-      isArtifactColliderEnabled: (bodyId) => this.physics.isColliderEnabled(bodyId),
-      getArtifactVelocity: (bodyId) => this.physics.getBodyVelocity(bodyId).linear,
-      parkArtifactBody: (bodyId, pose) => this.physics.parkArtifactBody(bodyId, pose),
+        physics.setLinearVelocityInches(bodyId, vx, vy),
+      setArtifactEnabled: (bodyId, enabled) => physics.setColliderEnabled(bodyId, enabled),
+      isArtifactColliderEnabled: (bodyId) => physics.isColliderEnabled(bodyId),
+      isArtifactColliderActive: (bodyId, phase) => {
+        if (phase === 'onField' || phase === 'overflow') {
+          return physics.isArtifactFieldColliderActive(bodyId);
+        }
+        if (phase === 'humanPlayerStation') {
+          return physics.isArtifactStationColliderActive(bodyId);
+        }
+        const state = physics.getArtifactColliderState(bodyId);
+        return state?.isParked ?? false;
+      },
+      ensureArtifactColliderForPhase: (bodyId, phase, pose, vx = 0, vy = 0) =>
+        physics.ensureArtifactColliderForPhase(bodyId, phase, pose, vx, vy),
+      getArtifactVelocity: (bodyId) => physics.getBodyVelocity(bodyId).linear,
+      parkArtifactBody: (bodyId, pose) => physics.parkArtifactBody(bodyId, pose),
       activateArtifactBody: (bodyId, pose, vx, vy) =>
-        this.physics.activateArtifactBody(bodyId, pose, vx, vy),
+        physics.activateArtifactBody(bodyId, pose, vx, vy),
       activateStationArtifactBody: (bodyId, pose, vx, vy) =>
-        this.physics.activateStationArtifactBody(bodyId, pose, vx, vy),
+        physics.activateStationArtifactBody(bodyId, pose, vx, vy),
       syncRobotCollider: (pose, vx, vy) =>
-        this.physics.syncKinematicRobot(ROBOT_BODY_ID, pose, vx, vy),
+        physics.syncKinematicRobot(ROBOT_BODY_ID, pose, vx, vy),
       step: () => {
         this.syncNpcRobots(this.pendingNpcSync);
         this.physics.step();
+        this.reapplyRobotArtifactCollision();
         this.physics.applySlidingFrictionForPrefix('artifact_', friction, this.physics.timestep);
         this.physics.clampDynamicBodiesWithPrefix(
           'artifact_',

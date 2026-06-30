@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { isPageVisible } from './page-visible';
 
 /** PS4 / DualSense touchpad click — toggle match fullscreen. */
 const GAMEPAD_FULLSCREEN_BUTTON = 17;
@@ -83,10 +84,15 @@ export function useMatchFullscreen(containerRef: RefObject<HTMLElement | null>) 
 
   useEffect(() => {
     let raf = 0;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let prevPressed = false;
     let cooldownUntil = 0;
 
     const poll = () => {
+      if (!isPageVisible()) {
+        idleTimer = setTimeout(poll, 250);
+        return;
+      }
       const now = performance.now();
       const pads = navigator.getGamepads?.();
       let pressed = false;
@@ -117,7 +123,10 @@ export function useMatchFullscreen(containerRef: RefObject<HTMLElement | null>) 
     };
 
     raf = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (idleTimer !== null) clearTimeout(idleTimer);
+    };
   }, []);
 
   return { isActive, enter, exit, toggle, immersive };

@@ -18,6 +18,10 @@ import type { SimArtifactState } from '@ftc-sim/mechanisms';
 import { BotManager, formatBotDebugLogEntry, defaultPracticeBotSlots, botAutoStartPose, buildBotPathPreviewStates, type BotAutoPath, type BotDebugState, type BotRobotId, type BotSlotConfig, type Difficulty } from '@ftc-sim/bot';
 import { netConfigFromBotSlots } from '@ftc-sim/session';
 import { usePhysicsRobot } from './robot/usePhysicsRobot';
+import { isPageVisible } from './match/page-visible';
+
+const NET_INPUT_HZ = 60;
+const NET_INPUT_INTERVAL_MS = 1000 / NET_INPUT_HZ;
 
 import {
   DEFAULT_SIM_ROBOT_CONFIG,
@@ -982,26 +986,30 @@ export function App() {
   useEffect(() => {
     if (!isNetActive || !net.robotId) return;
     let frame = 0;
-    const sendLoop = () => {
-      const sample = sampleInput.current();
-      net.sendInput({
-        robotId: net.robotId ?? 'player',
-        drive: {
-          forward: sample.input.forward,
-          strafe: sample.input.strafe,
-          turn: sample.input.turn,
-          brake: sample.input.brake,
-          endpointBrake: sample.input.endpointBrake,
-          driveFrame: teleopDriveFrameRef.current,
-        },
-        mechanism: {
-          intake: sample.mechanism.command.intake,
-          shoot: sample.mechanism.shootHeld,
-          gate: sample.mechanism.command.gate,
-        },
-        shootEdge: sample.mechanism.shootEdge,
-        gateEdge: sample.mechanism.gateEdge,
-      });
+    let lastSendAt = 0;
+    const sendLoop = (now: number) => {
+      if (isPageVisible() && now - lastSendAt >= NET_INPUT_INTERVAL_MS) {
+        lastSendAt = now;
+        const sample = sampleInput.current();
+        net.sendInput({
+          robotId: net.robotId ?? 'player',
+          drive: {
+            forward: sample.input.forward,
+            strafe: sample.input.strafe,
+            turn: sample.input.turn,
+            brake: sample.input.brake,
+            endpointBrake: sample.input.endpointBrake,
+            driveFrame: teleopDriveFrameRef.current,
+          },
+          mechanism: {
+            intake: sample.mechanism.command.intake,
+            shoot: sample.mechanism.shootHeld,
+            gate: sample.mechanism.command.gate,
+          },
+          shootEdge: sample.mechanism.shootEdge,
+          gateEdge: sample.mechanism.gateEdge,
+        });
+      }
       frame = requestAnimationFrame(sendLoop);
     };
     frame = requestAnimationFrame(sendLoop);

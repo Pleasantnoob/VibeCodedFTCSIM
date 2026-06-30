@@ -11,6 +11,7 @@ import {
   isPedroInBounds,
   pedroToFieldPx,
 } from '@ftc-sim/field';
+import { isPageVisible } from '../match/page-visible';
 import type { EditableBarrier } from './barrier-editor';
 import type { EditableZone } from './zone-editor';
 import type { MapVertexSelection } from './map-selection';
@@ -403,7 +404,12 @@ export function FieldCanvas({
       : null;
 
     let frame = 0;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const tick = () => {
+      if (!isPageVisible()) {
+        idleTimer = setTimeout(tick, 250);
+        return;
+      }
       const now = performance.now();
       const alpha = smoothNetMotion
         ? smoothAlpha(Math.min(0.05, (now - robotMotionLastRef.current) / 1000), 22)
@@ -465,7 +471,10 @@ export function FieldCanvas({
     };
 
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (idleTimer !== null) clearTimeout(idleTimer);
+    };
   }, [fieldRobotsRef, fieldRobotCatalog, playerCatalog, viewport, gateZones, showGateDetector, smoothNetMotion, ownedRobotId, ownedPoseRef]);
 
   useEffect(() => {
@@ -729,8 +738,13 @@ export function FieldCanvas({
     const artifactDisplayRef = { current: new Map<string, Pose>() };
 
     let frame = 0;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastNow = performance.now();
     const tick = (now: number) => {
+      if (!isPageVisible()) {
+        idleTimer = setTimeout(() => tick(performance.now()), 250);
+        return;
+      }
       const dt = Math.min(0.05, Math.max(0.001, (now - lastNow) / 1000));
       lastNow = now;
       const alpha = smoothNetMotion ? smoothAlpha(dt, 28) : 1;
@@ -755,9 +769,10 @@ export function FieldCanvas({
         }
 
         const target = artifact.pose;
+        const snapArtifact = artifact.phase === 'onRamp';
         const prev = artifactDisplayRef.current.get(artifact.id) ?? target;
         const display =
-          alpha >= 0.99 ? target : smoothPose(prev, target, alpha);
+          snapArtifact || alpha >= 0.99 ? target : smoothPose(prev, target, alpha);
         artifactDisplayRef.current.set(artifact.id, display);
 
         const px = pedroToFieldPx(display, viewport);
@@ -780,6 +795,7 @@ export function FieldCanvas({
     frame = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(frame);
+      if (idleTimer !== null) clearTimeout(idleTimer);
       for (const img of artifactElsRef.current.values()) {
         img.remove();
       }

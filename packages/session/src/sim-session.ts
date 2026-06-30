@@ -345,6 +345,10 @@ export class SimSession {
     return this.world.getSnapshot();
   }
 
+  isGateReleaseInProgress(): boolean {
+    return this.world.isGateReleaseInProgress();
+  }
+
   getRobotConfig(): SimRobotConfig {
     return this.robotConfig;
   }

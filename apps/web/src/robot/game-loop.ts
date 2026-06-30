@@ -36,3 +36,17 @@ export function shouldUpdateHud(acc: GameLoopAccumulator, now: number): boolean 
   }
   return false;
 }
+
+/** Drop accumulated sim time after the tab was hidden to avoid catch-up hitches. */
+export function resetAccumulatorAfterHidden(
+  acc: GameLoopAccumulator,
+  now: number,
+  hiddenAtMs: number | null,
+  resetAfterMs = 500,
+): void {
+  if (hiddenAtMs === null) return;
+  if (now - hiddenAtMs >= resetAfterMs) {
+    acc.accumulator = 0;
+    acc.lastTime = now;
+  }
+}

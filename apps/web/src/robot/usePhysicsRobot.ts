@@ -46,8 +46,10 @@ import {
 import {
   advanceAccumulator,
   createGameLoopAccumulator,
+  resetAccumulatorAfterHidden,
   shouldUpdateHud,
 } from './game-loop';
+import { isPageVisible } from '../match/page-visible';
 
 const ZERO_INPUT: HolonomicInput = { forward: 0, strafe: 0, turn: 0 };
 const TELEMETRY_FRAMES = 600;
@@ -684,11 +686,18 @@ export function usePhysicsRobot(
       }
 
       if (!didSimulate) {
-        const sampleForHud = sampleInputRef.current?.() ?? null;
-        if (sampleForHud) {
-          onHudTick?.(sampleForHud.debug, sampleForHud.source, samplerRef.current?.gamepadConnected ?? false);
+        const hudNow = performance.now();
+        if (shouldUpdateHud(accRef.current, hudNow)) {
+          const sampleForHud = sampleInputRef.current?.() ?? null;
+          if (sampleForHud) {
+            onHudTick?.(
+              sampleForHud.debug,
+              sampleForHud.source,
+              samplerRef.current?.gamepadConnected ?? false,
+            );
+          }
+          onSimHudTick?.();
         }
-        onSimHudTick?.();
         return;
       }
 
@@ -719,7 +728,26 @@ export function usePhysicsRobot(
       runSimulationSteps(steps, 1 / 120);
     };
 
+    const hiddenAtRef = { current: null as number | null };
+    let idleTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNextTick = (delayMs: number, fn: () => void) => {
+      if (delayMs <= 0) {
+        loopRef.current = requestAnimationFrame(() => fn());
+      } else {
+        idleTimeout = setTimeout(fn, delayMs);
+      }
+    };
+
     const tick = (now: number) => {
+      if (!isPageVisible()) {
+        hiddenAtRef.current ??= now;
+        scheduleNextTick(250, () => tick(performance.now()));
+        return;
+      }
+      resetAccumulatorAfterHidden(accRef.current, now, hiddenAtRef.current);
+      hiddenAtRef.current = null;
+
       const { steps, dt } = advanceAccumulator(accRef.current, now);
 
       if (enabledRef.current && steps > 0) {
@@ -732,12 +760,13 @@ export function usePhysicsRobot(
         onSimHudTick?.();
       }
 
-      loopRef.current = requestAnimationFrame(tick);
+      scheduleNextTick(0, () => tick(performance.now()));
     };
 
-    loopRef.current = requestAnimationFrame(tick);
+    scheduleNextTick(0, () => tick(performance.now()));
     return () => {
       if (loopRef.current !== null) cancelAnimationFrame(loopRef.current);
+      if (idleTimeout !== null) clearTimeout(idleTimeout);
     };
   }, [
     ready,

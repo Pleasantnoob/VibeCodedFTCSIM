@@ -23,7 +23,6 @@ import {
   planShot,
   rampSlotPositions,
   rampSouthExitPose,
-  RAMP_ROLL_DURATION_S,
   RAMP_ROLL_MIN_S,
   robotInGateZone,
   robotInLaunchZone,
@@ -39,6 +38,7 @@ import type {
   RobotMechanismTick,
   SimArtifactState,
   StoredArtifact,
+  ArtifactSimPhase,
 } from './types.js';
 import { DEFAULT_PLAYER_ROBOT_ID, INTAKE_ACTIVE_THRESHOLD, MAX_STORAGE, SHOOT_HOLD_INTERVAL_S } from './types.js';
 import { MechanismLogger } from './mechanism-log.js';
@@ -54,6 +54,15 @@ export interface PhysicsAdapter {
   setArtifactVelocity(bodyId: string, vx: number, vy: number): void;
   setArtifactEnabled(bodyId: string, enabled: boolean): void;
   isArtifactColliderEnabled(bodyId: string): boolean;
+  /** True when collider matches expected groups for the sim phase. */
+  isArtifactColliderActive(bodyId: string, phase: ArtifactSimPhase): boolean;
+  ensureArtifactColliderForPhase(
+    bodyId: string,
+    phase: ArtifactSimPhase,
+    pose: Pose,
+    vx?: number,
+    vy?: number,
+  ): void;
   getArtifactVelocity(bodyId: string): Vector2;
   parkArtifactBody(bodyId: string, pose: Pose): void;
   activateArtifactBody(bodyId: string, pose: Pose, vx: number, vy: number): void;
@@ -120,6 +129,7 @@ export class ArtifactSimulation {
   private stationSimActive = false;
   private intakeEdgeEpsilon = 0.35;
   private shootHoldIntervalSec = SHOOT_HOLD_INTERVAL_S;
+  private stuckRecoveryCooldownUntil = new Map<string, number>();
 
   constructor(
     private field: FieldDefinition,
@@ -298,6 +308,11 @@ export class ArtifactSimulation {
 
   getDebugLogs() {
     return this.logger.getEntries();
+  }
+
+  /** True while any alliance has gate queue items or active ramp rolls. */
+  isGateReleaseInProgress(): boolean {
+    return this.gateQueue.length > 0 || this.rampRolls.length > 0;
   }
 
   private log(
@@ -539,6 +554,7 @@ export class ArtifactSimulation {
 
   private syncOnFieldFromPhysics(physics: PhysicsAdapter): void {
     this.reconcileFieldArtifactColliders(physics);
+    this.auditArtifactColliders(physics);
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase === 'humanPlayerReserve' && !this.reserveVisible) continue;
       if (artifact.phase === 'humanPlayerStation' && !this.stationSimActive) continue;
@@ -554,32 +570,72 @@ export class ArtifactSimulation {
     }
   }
 
-  /** Re-enable colliders for field artifacts left disabled after ramp roll / respawn. */
+  /** Re-enable colliders for field artifacts left disabled or parked after ramp roll / respawn. */
   private reconcileFieldArtifactColliders(physics: PhysicsAdapter): void {
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase === 'onField' || artifact.phase === 'overflow') {
-        if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
+        if (physics.isArtifactColliderActive(artifact.bodyId, artifact.phase)) continue;
         const vx = physics.getArtifactVelocity(artifact.bodyId).x;
         const vy = physics.getArtifactVelocity(artifact.bodyId).y;
-        physics.activateArtifactBody(artifact.bodyId, artifact.pose, vx, vy);
+        physics.ensureArtifactColliderForPhase(
+          artifact.bodyId,
+          artifact.phase,
+          artifact.pose,
+          vx,
+          vy,
+        );
         this.log('physics', `Restored collider for ${artifact.id}`, { phase: artifact.phase });
         continue;
       }
       if (artifact.phase === 'humanPlayerStation' && this.stationSimActive) {
-        if (physics.isArtifactColliderEnabled(artifact.bodyId)) continue;
-        physics.activateStationArtifactBody(artifact.bodyId, artifact.pose, 0, 0);
+        if (physics.isArtifactColliderActive(artifact.bodyId, artifact.phase)) continue;
+        physics.ensureArtifactColliderForPhase(artifact.bodyId, artifact.phase, artifact.pose, 0, 0);
         this.log('physics', `Restored station collider for ${artifact.id}`);
+      }
+    }
+  }
+
+  /** Post-tick invariant: sim phase and physics collider state must agree. */
+  private auditArtifactColliders(physics: PhysicsAdapter): void {
+    for (const artifact of this.artifacts.values()) {
+      if (artifact.phase === 'onField' || artifact.phase === 'overflow') {
+        if (physics.isArtifactColliderActive(artifact.bodyId, artifact.phase)) continue;
+        const vx = physics.getArtifactVelocity(artifact.bodyId).x;
+        const vy = physics.getArtifactVelocity(artifact.bodyId).y;
+        physics.ensureArtifactColliderForPhase(
+          artifact.bodyId,
+          artifact.phase,
+          artifact.pose,
+          vx,
+          vy,
+        );
+        this.log('physics', `Audit restored field collider for ${artifact.id}`);
+      } else if (artifact.phase === 'humanPlayerStation' && this.stationSimActive) {
+        if (physics.isArtifactColliderActive(artifact.bodyId, artifact.phase)) continue;
+        physics.ensureArtifactColliderForPhase(artifact.bodyId, artifact.phase, artifact.pose, 0, 0);
+        this.log('physics', `Audit restored station collider for ${artifact.id}`);
       }
     }
   }
 
   /** Teleport artifacts that clip through goal/ramp barriers back to human player. */
   private recoverStuckArtifacts(physics: PhysicsAdapter): void {
+    const STUCK_SPEED_THRESHOLD = 4;
+    const STUCK_COOLDOWN_S = 0.75;
+
     for (const artifact of this.artifacts.values()) {
       if (artifact.phase !== 'onField') continue;
+      if (this.simTime < (this.stuckRecoveryCooldownUntil.get(artifact.id) ?? 0)) continue;
+
+      const velocity = physics.getArtifactVelocity(artifact.bodyId);
+      const speed = Math.hypot(velocity.x, velocity.y);
+      if (speed > STUCK_SPEED_THRESHOLD) continue;
+
       const center = { x: artifact.pose.x, y: artifact.pose.y };
       const stuck = detectArtifactStuckInStructure(this.field, center);
       if (!stuck) continue;
+
+      this.stuckRecoveryCooldownUntil.set(artifact.id, this.simTime + STUCK_COOLDOWN_S);
       this.log('physics', `Stuck in ${stuck.kind} — respawn human player`, {
         id: artifact.id,
         alliance: stuck.alliance,
@@ -1054,6 +1110,7 @@ export class ArtifactSimulation {
 
     const spawnPose = rampSouthExitPose(targetAlliance);
     const velocity = gateReleaseVelocity();
+    const slotPositions = rampSlotPositions(targetAlliance);
     let delayIndex = 0;
 
     for (let i = 0; i < slots.length; i++) {
@@ -1061,6 +1118,9 @@ export class ArtifactSimulation {
       if (!artifactId) continue;
       const artifact = this.artifacts.get(artifactId);
       if (!artifact) continue;
+
+      const slotPose = { ...slotPositions[i]!, heading: 0 };
+      artifact.pose = slotPose;
 
       this.gateQueue.push({
         artifactId,
@@ -1072,7 +1132,7 @@ export class ArtifactSimulation {
         releaseAt: this.simTime + delayIndex * GATE_RELEASE_INTERVAL_S,
         velocity,
         spawnPose,
-        startPose: { ...artifact.pose },
+        startPose: slotPose,
       });
       this.log('gate', `Queued ${artifactId} from slot ${i}`, {
         spawnPose,
@@ -1106,10 +1166,7 @@ export class ArtifactSimulation {
         item.spawnPose.x - item.startPose.x,
         item.spawnPose.y - item.startPose.y,
       );
-      const duration = Math.max(
-        RAMP_ROLL_MIN_S,
-        Math.min(RAMP_ROLL_DURATION_S, rollDistance / GATE_RELEASE_SOUTH_VELOCITY),
-      );
+      const duration = Math.max(RAMP_ROLL_MIN_S, rollDistance / GATE_RELEASE_SOUTH_VELOCITY);
 
       this.rampRolls.push({
         artifactId: item.artifactId,
@@ -1156,10 +1213,9 @@ export class ArtifactSimulation {
       }
 
       const t = Math.min(1, (this.simTime - roll.startTime) / roll.duration);
-      const ease = t * t * (3 - 2 * t);
       artifact.pose = {
-        x: roll.start.x + (roll.end.x - roll.start.x) * ease,
-        y: roll.start.y + (roll.end.y - roll.start.y) * ease,
+        x: roll.start.x + (roll.end.x - roll.start.x) * t,
+        y: roll.start.y + (roll.end.y - roll.start.y) * t,
         heading: 0,
       };
       physics.setArtifactPose(artifact.bodyId, artifact.pose);
